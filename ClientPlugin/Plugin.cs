@@ -52,6 +52,7 @@ public sealed class Plugin : IPlugin
         CameraVelocityPass.Enabled = false;
         GBufferVelocity.Enabled = false;
         ActorHistory.Instance.Clear();
+        BoneHistory.Instance.Clear();
         VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
         settingsGenerator = null;
         if (ReferenceEquals(Instance, this))

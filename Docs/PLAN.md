@@ -195,7 +195,7 @@ Retire this path when piggyback is live. Running both is the expensive combinati
 |------|------|
 | After `MyGeometryRenderer.UpdateMatrices` | Stage 2 visible instances: `Owner.LastWorldMatrix`, key `ActorID` |
 | After `MyGeometryRendererOld` cull-proxy update | Old proxies, same actor id |
-| After skinning upload when `SkinningMatrices != null` | Previous bones (phase later) |
+| After skinning upload when `SkinningMatrices != null` | Previous bones (`SetAnimationBones` → t16 SRV) |
 | `DrawGameScene` postfix | Swap current → previous; drop ids not seen for N frames |
 
 Do not hook `MyInstance.UpdateWorldMatrix`. Do not use VB index as a key.
@@ -255,10 +255,10 @@ Use this only if GBuffer inject is blocked and SE-DLSS needs object MVs before i
 
 ### 6 — Skinning, voxels, the rest
 
-- [ ] Previous bone arrays per skinned actor (up to 60). Prefer a bone SRV over stuffing the object CB. Skip on bone-count mismatch (reset).
-- [ ] Voxel **movers** (debris): ActorID + `LastWorldMatrix`. Clipmap **rebuilds**: camera only.
-- [ ] GPU particles, foliage: camera only unless instance-backed.
-- [ ] New/unknown geometry: degrade to camera background, never zero.
+- [x] Previous bone arrays per skinned actor (up to 60). Prefer a bone SRV over stuffing the object CB. Skip on bone-count mismatch (reset).
+- [x] Voxel **movers** (debris): ActorID + `LastWorldMatrix`. Clipmap **rebuilds**: camera only.
+- [x] GPU particles, foliage: camera only unless instance-backed.
+- [x] New/unknown geometry: degrade to camera background, never zero.
 
 ### 7 — Consumer wiring (SE-DLSS repo, not this one)
 
@@ -300,7 +300,9 @@ Use this only if GBuffer inject is blocked and SE-DLSS needs object MVs before i
 - [ ] New actor / teleport: one-frame camera fallback, no smear.
 - [ ] Anomaly unloaded: SE-DLSS camera path still works.
 - [ ] SmoothFrames loaded: no crash; document remaining jitter interaction.
-- [ ] Rich HUD: still composed after upscale (DLSS concern); Anomaly must not leave RT/SRV bound.
+- [ ] Character walk vs camera pan: skinned MVs, not rigid ghosting.
+- [ ] Voxel debris movers get object MVs; clipmap cells stay camera-only (no worse than D).
+- [ ] Sky / GPU particles / foliage: non-zero camera MVs (composite), not clear-zero.
 
 ---
 

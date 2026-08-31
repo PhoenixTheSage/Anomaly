@@ -3,7 +3,9 @@ using System.IO;
 using System.Reflection;
 using System;
 using ClientPlugin.ShaderFramework;
+using ClientPlugin.Velocity;
 using HarmonyLib;
+using VRage.Render11.Scene.Components;
 using SharpDX.D3DCompiler;
 using SharpDX.Direct3D;
 using VRage.Render11.GeometryStage2.Common;
@@ -190,5 +192,36 @@ static class ColorPrepareWritePatch
     static void Postfix()
     {
         GBufferVelocity.OnWriteInstanceData();
+    }
+}
+
+[HarmonyPatch]
+static class GBufferProxyConstantsPatch
+{
+    static bool Prepare() => TargetMethod() != null;
+
+    static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(MyRenderingPass), "SetProxyConstants", new[] { typeof(MyRenderableProxy) });
+
+    static void Postfix(MyRenderingPass __instance, MyRenderableProxy proxy)
+    {
+        if (__instance is MyGBufferPass)
+            GBufferVelocity.OnProxyDraw(__instance.RC, proxy);
+    }
+}
+
+[HarmonyPatch]
+static class SkinningBonesPatch
+{
+    static bool Prepare() => TargetMethod() != null;
+
+    static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(MySkinningComponent), "SetAnimationBones");
+
+    static void Postfix(MySkinningComponent __instance)
+    {
+        var owner = __instance.Owner;
+        if (owner != null)
+            BoneHistory.Instance.Snapshot(owner.ID, __instance.SkinMatrices);
     }
 }

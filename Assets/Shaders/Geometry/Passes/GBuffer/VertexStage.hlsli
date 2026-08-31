@@ -46,6 +46,10 @@ void __vertex_shader(__VertexInput input, out VertexStageOutput output, uint sv_
 #endif
 
 #ifdef ANOMALY_VELOCITY
+#ifdef USE_SKINNING
+	output.anomaly_velocity = AnomalyComputeVelocity(vertex.position_local.xyz, vertex._local_matrix, sv_instance_id, input.blend_indices, input.blend_weights);
+#else
 	output.anomaly_velocity = AnomalyComputeVelocity(vertex.position_local.xyz, vertex._local_matrix, sv_instance_id);
+#endif
 #endif
 }

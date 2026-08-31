@@ -4,10 +4,12 @@ using ClientPlugin.Velocity;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
 using SharpDX.Mathematics.Interop;
+using VRage.Render.Scene;
 using VRage.Render11.Common;
 using VRage.Render11.GeometryStage2.Instancing;
 using VRage.Render11.RenderContext;
 using VRage.Render11.Resources;
+using VRage.Render11.Scene.Components;
 using VRage.Utils;
 using VRageMath;
 using VRageRender;
@@ -15,7 +17,7 @@ using VRageRender;
 namespace ClientPlugin.ShaderFramework;
 
 /// <summary>
-/// Slice D: extra GBuffer color target + Stage 2 previous-world SRV.
+/// Extra GBuffer color target + Stage 2 previous-world SRV + old-pipeline prev bones.
 /// Bound only from GBuffer begin (old <c>MyGBufferPass</c> and Stage 2
 /// <c>MyGBufferRenderPass</c>). Depth stays on Keen's 3-RT SetRtvs.
 /// </summary>
@@ -23,8 +25,10 @@ public static class GBufferVelocity
 {
     public const int ConstantSlot = 6;
     public const int PrevWorldSlot = 15;
+    public const int PrevBoneSlot = 16;
     const int ConstantBufferBytes = 256;
     const int PrevStride = 64;
+    const int BoneStride = 64;
 
     static readonly object Gate = new();
     static readonly RenderTargetView[] FourRtvs = new RenderTargetView[4];
@@ -40,11 +44,16 @@ public static class GBufferVelocity
     static int targetSamples;
     static IConstantBuffer constants;
     static ISrvBuffer prevWorld;
+    static ISrvBuffer prevBones;
     static int prevCapacity;
     static int prevCount;
     static PrevInstance[] cpuPrev = Array.Empty<PrevInstance>();
+    static readonly Matrix[] BoneScratch = new Matrix[BoneHistory.MaxBones];
     static bool loggedError;
     static bool historyValidThisFrame;
+    static Matrix lastUnjittered;
+    static Matrix lastPrevViewProj;
+    static Vector2I lastSize;
 
     [StructLayout(LayoutKind.Sequential, Size = PrevStride)]
     struct PrevInstance
@@ -64,7 +73,11 @@ public static class GBufferVelocity
         public Vector2 InvRenderSize;
         public uint PrevCount;
         public uint HasHistory;
-        public Vector2 Pad;
+        public uint HasPrevWorld;
+        public uint BoneCount;
+        public Vector4 PrevRow0;
+        public Vector4 PrevRow1;
+        public Vector4 PrevRow2;
     }
 
     static bool InjectionWanted =>
@@ -104,7 +117,8 @@ public static class GBufferVelocity
             if (bufferOffset >= prevCount)
                 prevCount = bufferOffset + 1;
 
-            if (!CameraVelocityPass.TryGetPrevCamera(out var prevCam) ||
+            if (IsClipmapActor(instance.Owner?.Owner) ||
+                !CameraVelocityPass.TryGetPrevCamera(out var prevCam) ||
                 ActorHistory.Instance.WasTeleported(instance.ActorID) ||
                 !ActorHistory.Instance.TryGetPrevious(instance.ActorID, out var prevWorldAbs))
             {
@@ -160,6 +174,7 @@ public static class GBufferVelocity
         try
         {
             rc.AllShaderStages.SetSrv(PrevWorldSlot, null);
+            rc.AllShaderStages.SetSrv(PrevBoneSlot, null);
         }
         catch (Exception e)
         {
@@ -172,6 +187,41 @@ public static class GBufferVelocity
         if (!InjectionWanted || rc == null || target == null)
             return;
         rc.ClearRtv(target, default(RawColor4));
+    }
+
+    public static ISrvBindable PrepareCompositeSource()
+    {
+        lock (Gate)
+        {
+            try
+            {
+                return PrepareCompositeSourceUnlocked();
+            }
+            catch (Exception e)
+            {
+                Fail("composite source: " + e.Message, e);
+                return null;
+            }
+        }
+    }
+
+    public static void OnProxyDraw(MyRenderContext rc, MyRenderableProxy proxy)
+    {
+        if (!InjectionWanted || rc == null || proxy == null || !rc.IsInitialized)
+            return;
+        lock (Gate)
+        {
+            if (!InjectionWanted)
+                return;
+            try
+            {
+                OnProxyDrawUnlocked(rc, proxy);
+            }
+            catch (Exception e)
+            {
+                Fail("proxy draw: " + e.Message, e);
+            }
+        }
     }
 
     public static void PublishAndAdvanceHistory()
@@ -223,6 +273,7 @@ public static class GBufferVelocity
         EnsureTargetUnlocked();
         EnsureConstantsUnlocked();
         EnsurePrevBufferUnlocked(Math.Max(prevCount, 1));
+        EnsureBoneBufferUnlocked();
         if (target == null || constants == null || prevWorld == null)
             return;
         if (gbuffer.GbufferRtvs == null || gbuffer.GbufferRtvs.Length < 3 || gbuffer.DepthStencil?.Dsv == null)
@@ -232,18 +283,11 @@ public static class GBufferVelocity
             return;
 
         historyValidThisFrame = historyValid;
-        var cb = new Constants
-        {
-            UnjitteredViewProj = unjittered,
-            PrevViewProj = prevVp,
-            RenderSize = new Vector2(size.X, size.Y),
-            InvRenderSize = new Vector2(1f / Math.Max(size.X, 1), 1f / Math.Max(size.Y, 1)),
-            PrevCount = (uint)Math.Max(prevCount, 1),
-            HasHistory = historyValid ? 1u : 0u
-        };
-        var mapping = MyMapping.MapDiscard(rc, constants);
-        mapping.WriteAndPosition(ref cb);
-        mapping.Unmap();
+        lastUnjittered = unjittered;
+        lastPrevViewProj = prevVp;
+        lastSize = size;
+        WriteConstants(rc, unjittered, prevVp, size, historyValid, (uint)Math.Max(prevCount, 1),
+            hasPrevWorld: false, default, default, default, boneCount: 0);
 
         FourRtvs[0] = gbuffer.GbufferRtvs[0];
         FourRtvs[1] = gbuffer.GbufferRtvs[1];
@@ -253,6 +297,8 @@ public static class GBufferVelocity
         rc.VertexShader.SetConstantBuffer(ConstantSlot, constants);
         rc.PixelShader.SetConstantBuffer(ConstantSlot, constants);
         rc.AllShaderStages.SetSrv(PrevWorldSlot, prevWorld);
+        if (prevBones != null)
+            rc.AllShaderStages.SetSrv(PrevBoneSlot, prevBones);
 
         IsLive = ShaderCompileIntercept.GBufferOverlayPresent;
         LastError = ShaderCompileIntercept.GBufferOverlayPresent
@@ -368,6 +414,123 @@ public static class GBufferVelocity
         prevCapacity = elements;
     }
 
+    static void EnsureBoneBufferUnlocked()
+    {
+        if (prevBones != null)
+            return;
+        prevBones = MyManagers.Buffers.CreateSrv("Anomaly.PrevBones", BoneHistory.MaxBones, BoneStride,
+            usage: ResourceUsage.Dynamic);
+    }
+
+    static ISrvBindable PrepareCompositeSourceUnlocked()
+    {
+        if (target == null)
+            return null;
+        var size = MyRender11.ResolutionI;
+        if (targetSamples > 1)
+        {
+            EnsureResolvedUnlocked(size.X, size.Y);
+            var rc = MyRender11.RC;
+            if (resolved == null || rc?.DeviceContext == null)
+                return null;
+            rc.DeviceContext.ResolveSubresource(target.Resource, 0, resolved.Resource, 0, Format.R16G16_Float);
+            return resolved;
+        }
+
+        return target;
+    }
+
+    static void OnProxyDrawUnlocked(MyRenderContext rc, MyRenderableProxy proxy)
+    {
+        if (constants == null)
+            return;
+
+        EnsureBoneBufferUnlocked();
+        var actor = proxy.Parent?.Owner;
+        var actorId = actor != null ? actor.ID : 0;
+        var clipmap = proxy.VoxelCommonObjectData.IsValid || IsClipmapActor(actor);
+        var packed = default(PrevInstance);
+        var hasPrevWorld = false;
+        if (!clipmap &&
+            actorId != 0 &&
+            CameraVelocityPass.TryGetPrevCamera(out var prevCam) &&
+            !ActorHistory.Instance.WasTeleported(actorId) &&
+            ActorHistory.Instance.TryGetPrevious(actorId, out var prevWorldAbs))
+        {
+            packed = Pack(prevWorldAbs, prevCam);
+            hasPrevWorld = true;
+        }
+
+        var boneCount = PackPrevBones(rc, actorId, proxy.SkinningMatrices, proxy.DrawSubmesh.BonesMapping);
+        WriteConstants(rc, lastUnjittered, lastPrevViewProj, lastSize, historyValidThisFrame,
+            (uint)Math.Max(prevCount, 1), hasPrevWorld, packed.Col0, packed.Col1, packed.Col2, (uint)boneCount);
+        if (prevBones != null)
+            rc.AllShaderStages.SetSrv(PrevBoneSlot, prevBones);
+    }
+
+    static int PackPrevBones(MyRenderContext rc, uint actorId, Matrix[] current, int[] mapping)
+    {
+        EnsureBoneBufferUnlocked();
+        Array.Clear(BoneScratch, 0, BoneScratch.Length);
+        var count = 0;
+        if (current != null &&
+            actorId != 0 &&
+            BoneHistory.Instance.TryGetPrevious(actorId, current.Length, out var previous))
+        {
+            if (mapping == null)
+            {
+                count = Math.Min(BoneHistory.MaxBones, previous.Length);
+                Array.Copy(previous, BoneScratch, count);
+            }
+            else
+            {
+                count = Math.Min(BoneHistory.MaxBones, mapping.Length);
+                for (var i = 0; i < count; i++)
+                {
+                    var idx = mapping[i];
+                    if (idx >= 0 && idx < previous.Length)
+                        BoneScratch[i] = previous[idx];
+                }
+            }
+        }
+
+        if (prevBones == null)
+            return 0;
+        var mappingGpu = MyMapping.MapDiscard(rc, prevBones);
+        mappingGpu.WriteAndPosition(BoneScratch, BoneHistory.MaxBones, 0);
+        mappingGpu.Unmap();
+        return count;
+    }
+
+    static void WriteConstants(MyRenderContext rc, Matrix unjittered, Matrix prevVp, Vector2I size,
+        bool historyValid, uint packedCount, bool hasPrevWorld, Vector4 row0, Vector4 row1, Vector4 row2, uint boneCount)
+    {
+        if (constants == null || size.X <= 0 || size.Y <= 0)
+            return;
+        var cb = new Constants
+        {
+            UnjitteredViewProj = unjittered,
+            PrevViewProj = prevVp,
+            RenderSize = new Vector2(size.X, size.Y),
+            InvRenderSize = new Vector2(1f / size.X, 1f / size.Y),
+            PrevCount = packedCount,
+            HasHistory = historyValid ? 1u : 0u,
+            HasPrevWorld = hasPrevWorld ? 1u : 0u,
+            BoneCount = boneCount,
+            PrevRow0 = row0,
+            PrevRow1 = row1,
+            PrevRow2 = row2
+        };
+        var mapping = MyMapping.MapDiscard(rc, constants);
+        mapping.WriteAndPosition(ref cb);
+        mapping.Unmap();
+    }
+
+    static bool IsClipmapActor(IMyActor actor)
+    {
+        return actor != null && actor.GetComponent<MyVoxelCellComponent>() != null;
+    }
+
     static PrevInstance Pack(MatrixD world, Vector3D camera)
     {
         var t = world.Translation - camera;
@@ -405,6 +568,12 @@ public static class GBufferVelocity
         {
             MyManagers.Buffers.Dispose(new ISrvBindable[] { prevWorld });
             prevWorld = null;
+        }
+
+        if (prevBones != null)
+        {
+            MyManagers.Buffers.Dispose(new ISrvBindable[] { prevBones });
+            prevBones = null;
         }
 
         prevCapacity = 0;

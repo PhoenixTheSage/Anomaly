@@ -46,11 +46,13 @@ static class ActorHistoryDrawGameScenePatch
     static void Prefix()
     {
         ActorHistory.Instance.BeginFrame();
+        BoneHistory.Instance.BeginFrame();
     }
 
     static void Postfix()
     {
         ActorHistory.Instance.EndFrame();
+        BoneHistory.Instance.EndFrame();
     }
 }
 
@@ -65,5 +67,6 @@ static class ActorHistorySessionEndPatch
     static void Prefix()
     {
         ActorHistory.Instance.Clear();
+        BoneHistory.Instance.Clear();
     }
 }

@@ -20,6 +20,7 @@ public static class VelocityStatus
             sb.Append("GBuffer injection: ").AppendLine(FormatGBuffer());
             sb.Append("Owned raster: ").AppendLine("not live");
             sb.Append("History actors: ").AppendLine(ActorHistory.Instance.TrackedActorCount.ToString());
+            sb.Append("History bones: ").AppendLine(BoneHistory.Instance.TrackedCount.ToString());
             if (buf == null || !buf.IsAvailable)
             {
                 sb.AppendLine("Velocity buffer: unavailable");

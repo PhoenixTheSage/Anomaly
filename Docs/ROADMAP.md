@@ -2,9 +2,9 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slices A–D are implemented. Compile intercept, camera `IVelocityBuffer`, ActorID history, and GBuffer `SV_Target3` piggyback are in. Default `VelocitySource` is `GBuffer`.
+**Now:** Slices A–E are implemented. Compile intercept, camera `IVelocityBuffer`, ActorID history, GBuffer `SV_Target3` piggyback, previous bones, clipmap camera-only, and a never-zero camera composite are in. Default `VelocitySource` is `GBuffer`.
 
-**Next:** Slice E — coverage holes (skinning bones, voxel movers, particles/foliage/glass camera-only).
+**Next:** Slice F — shader pack registry (named Pulsar assets, `ShaderPackRegistry.Register`, overlay path rules). Then Slice G in the SE-DLSS repo.
 
 ---
 
@@ -142,12 +142,10 @@ Skip [PLAN.md](PLAN.md) phase 4 (owned raster) unless D is blocked and SE-DLSS n
 
 [PLAN.md](PLAN.md) phase 6. After D is stable:
 
-- [ ] Previous bones (SRV, up to 60). Mismatch → camera fallback.
-- [ ] Voxel movers: ActorID + `LastWorldMatrix`. Clipmap rebuilds: camera only.
-- [ ] GPU particles, foliage, glass/holo/shield: camera only unless instance-backed.
-- [ ] Unknown geometry: camera background, never zero.
-
----
+- [x] Previous bones (SRV, up to 60). Mismatch → camera fallback.
+- [x] Voxel movers: ActorID + `LastWorldMatrix`. Clipmap rebuilds: camera only.
+- [x] GPU particles, foliage, glass/holo/shield: camera only unless instance-backed.
+**Slice E code done when:** Show Status reports `History bones` for a character and `GBuffer injection: live`. **Slice E proven when:** skinned movers no longer ghost vs rigid; sky/particles are not stuck at zero; Depth/shadows still work.
 
 ## Slice F — Shader API surface (after D)
 
@@ -200,4 +198,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **slice E** (skinning / voxels / particles camera-only) after in-game proof of D.
+Next session is **slice F** (shader pack registry) after in-game proof of D/E.

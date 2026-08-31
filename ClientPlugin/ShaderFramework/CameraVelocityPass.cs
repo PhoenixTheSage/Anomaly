@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using ClientPlugin.Velocity;
+using SharpDX.D3DCompiler;
 using SharpDX.Direct3D;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
@@ -16,8 +17,10 @@ using VRageRender;
 namespace ClientPlugin.ShaderFramework;
 
 /// <summary>
-/// Slice B: fullscreen camera-from-depth into an <c>RG16F</c> RT at <see cref="MyRender11.ResolutionI"/>.
+/// Fullscreen camera-from-depth into an <c>RG16F</c> RT at <see cref="MyRender11.ResolutionI"/>.
 /// Runs after <c>MyRenderScheduler.Done</c> (GBuffer + resolve finished, before post).
+/// When GBuffer velocity is live, a second PS (<c>ANOMALY_COMPOSITE</c>) keeps GBuffer MVs
+/// on geometry and fills sky / particles / foliage from depth so the buffer is never zero.
 /// </summary>
 public static class CameraVelocityPass
 {
@@ -71,6 +74,7 @@ public static class CameraVelocityPass
 
     static VertexShader vertexShader;
     static PixelShader pixelShader;
+    static PixelShader compositeShader;
     static IConstantBuffer constants;
     static IRtvTexture target;
     static int targetWidth;
@@ -151,25 +155,36 @@ public static class CameraVelocityPass
     {
         if (GBufferVelocity.ShouldPublish)
         {
+            var src = GBufferVelocity.PrepareCompositeSource();
+            if (src != null && ExecuteDraw(composite: true, src))
+                return;
+
             GBufferVelocity.PublishAndAdvanceHistory();
             return;
         }
 
+        ExecuteDraw(composite: false, null);
+    }
+
+    static bool ExecuteDraw(bool composite, ISrvBindable gbufferVelocity)
+    {
         var gbuffer = MyGBuffer.Main;
         var depth = gbuffer?.ResolvedDepthStencil?.SrvDepth;
         var rc = MyRender11.RC;
         if (gbuffer == null || depth == null || rc == null || !rc.IsInitialized)
-            return;
+            return false;
 
         EnsureShaders();
         EnsureTarget();
         EnsureConstants();
         if (!ShadersReady || target == null || constants == null)
-            return;
+            return false;
+        if (composite && (compositeShader == null || gbufferVelocity == null))
+            return false;
 
         var env = MyRender11.Environment?.Matrices;
         if (env == null)
-            return;
+            return false;
 
         var unjittered = UnjitteredViewProjection(env);
         var cut = hasPrev && Vector3D.DistanceSquared(env.CameraPosition, prevCameraPos) > CutDistanceSq;
@@ -200,10 +215,11 @@ public static class CameraVelocityPass
         rc.SetVertexBuffer(0, null);
         rc.GeometryShader.Set(null);
         rc.VertexShader.Set(vertexShader);
-        rc.PixelShader.Set(pixelShader);
+        rc.PixelShader.Set(composite ? compositeShader : pixelShader);
         rc.PixelShader.SetConstantBuffer(0, constants);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
         rc.PixelShader.SetSrv(0, depth);
+        rc.PixelShader.SetSrv(1, composite ? gbufferVelocity : null);
         rc.Draw(3, 0);
         rc.ClearState();
 
@@ -217,6 +233,7 @@ public static class CameraVelocityPass
         justResized = false;
         LastError = null;
         loggedError = false;
+        return true;
     }
 
     static Matrix UnjitteredViewProjection(MyEnvironmentMatrices env)
@@ -229,7 +246,7 @@ public static class CameraVelocityPass
 
     static void EnsureShaders()
     {
-        if (vertexShader != null && pixelShader != null)
+        if (vertexShader != null && pixelShader != null && compositeShader != null)
         {
             ShadersReady = true;
             return;
@@ -248,7 +265,11 @@ public static class CameraVelocityPass
             "Anomaly.Fullscreen", invalidateCache: false);
         var psBc = MyShaderCompiler.Compile(psPath, Array.Empty<ShaderMacro>(), MyShaderProfile.ps_5_0,
             "Anomaly.CameraVelocity", invalidateCache: false);
-        if (vsBc == null || vsBc.Length == 0 || psBc == null || psBc.Length == 0)
+        var compositeBc = MyShaderCompiler.Compile(psPath,
+            new[] { new ShaderMacro("ANOMALY_COMPOSITE", "1") },
+            MyShaderProfile.ps_5_0, "Anomaly.CameraVelocity.Composite", invalidateCache: false);
+        if (vsBc == null || vsBc.Length == 0 || psBc == null || psBc.Length == 0 ||
+            compositeBc == null || compositeBc.Length == 0)
         {
             Fail("shader compile returned empty bytecode", null);
             return;
@@ -257,6 +278,7 @@ public static class CameraVelocityPass
         var device = MyRender11.DeviceInstance;
         vertexShader = new VertexShader(device, vsBc) { DebugName = "Anomaly.Fullscreen" };
         pixelShader = new PixelShader(device, psBc) { DebugName = "Anomaly.CameraVelocity" };
+        compositeShader = new PixelShader(device, compositeBc) { DebugName = "Anomaly.CameraVelocity.Composite" };
         ShadersReady = true;
         MyLog.Default.WriteLine("Anomaly camera velocity shaders compiled.");
         DebugLog.Write("CameraVelocityPass shaders ok vs=" + vsPath + " ps=" + psPath);
@@ -330,8 +352,10 @@ public static class CameraVelocityPass
 
         vertexShader?.Dispose();
         pixelShader?.Dispose();
+        compositeShader?.Dispose();
         vertexShader = null;
         pixelShader = null;
+        compositeShader = null;
         ShadersReady = false;
     }
 

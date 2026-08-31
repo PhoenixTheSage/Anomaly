@@ -49,6 +49,7 @@ public sealed class Plugin : IPlugin
         disposed = true;
         DebugLog.Write("Dispose");
         CameraVelocityPass.Enabled = false;
+        ActorHistory.Instance.Clear();
         VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
         settingsGenerator = null;
         if (ReferenceEquals(Instance, this))

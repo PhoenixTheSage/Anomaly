@@ -13,7 +13,7 @@ DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces
 
 ## Current repo state
 
-`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Phase 0, Slice A (compile intercept), and Slice B (camera `IVelocityBuffer`) are done. It is not a living DLSS plugin.
+`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Phase 0 and Slices A–C (compile intercept, camera `IVelocityBuffer`, ActorID history) are done. It is not a living DLSS plugin.
 
 - **SE-DLSS** stays the consumer in its own repo. Do not compile Anomaly sources into SE-DLSS or the reverse.
 - Keep Harmony, publicizer, `VRage.Render11` access, settings/deploy/Pulsar XML shape, Rich HUD coexistence patterns.
@@ -230,10 +230,10 @@ Phase 0 is done. Slice A (compile intercept) is implemented: `ANOMALY=1` + inclu
 
 ### 3 — Actor history
 
-- [ ] `IVelocityHistory`: absolute `MatrixD` by `ActorID`.
-- [ ] Postfix `UpdateMatrices` and old cull-proxy update. Swap at `DrawGameScene` end.
+- [x] `IVelocityHistory`: absolute `MatrixD` by `ActorID`.
+- [x] Postfix `UpdateMatrices` and old cull-proxy update. Swap at `DrawGameScene` end.
 - [ ] Side SRV packed in the same order as Stage 2 `PerformCopy` / merge instance index.
-- [ ] Teleport threshold → treat as new actor.
+- [x] Teleport threshold → treat as new actor.
 
 ### 4 — Bootstrap owned raster (optional, ship-blocker only)
 

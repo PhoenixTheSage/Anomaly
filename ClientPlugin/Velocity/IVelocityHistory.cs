@@ -1,3 +1,5 @@
+using VRageMath;
+
 namespace ClientPlugin.Velocity;
 
 /// <summary>
@@ -7,4 +9,8 @@ namespace ClientPlugin.Velocity;
 public interface IVelocityHistory
 {
     int TrackedActorCount { get; }
+
+    bool TryGetPrevious(uint actorId, out MatrixD world);
+
+    bool WasTeleported(uint actorId);
 }

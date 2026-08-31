@@ -18,7 +18,7 @@ public static class VelocityStatus
             sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
             sb.Append("GBuffer injection: ").AppendLine("not live");
             sb.Append("Owned raster: ").AppendLine("not live");
-            sb.Append("History actors: ").AppendLine("0");
+            sb.Append("History actors: ").AppendLine(ActorHistory.Instance.TrackedActorCount.ToString());
             if (buf == null || !buf.IsAvailable)
             {
                 sb.AppendLine("Velocity buffer: unavailable");

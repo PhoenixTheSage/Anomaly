@@ -2,9 +2,9 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slice B (camera velocity as `IVelocityBuffer`) is implemented. `ANOMALY=1` is on every permutation; a fullscreen camera-from-depth pass writes `RG16F` at `ResolutionI` after `MyRenderScheduler.Done`. `VelocityRegistry.Active` is `CameraVelocityBuffer` once the pass has run.
+**Now:** Slice C (ActorID history) is implemented. Compile intercept and camera `IVelocityBuffer` are live. Previous absolute `MatrixD` is keyed by ActorID for Stage 2 and the old pipeline.
 
-**Next:** Slice C — ActorID history (CPU). Do not start GBuffer `SV_Target3` until C is in and Slice A/B have been proven in-game.
+**Next:** Slice D — GBuffer piggyback (`ANOMALY_VELOCITY` + `SV_Target3` on GBuffer only).
 
 ---
 
@@ -105,13 +105,13 @@ HLSL already exists: `ClientPlugin/Shaders/CameraVelocity.hlsl` + `Fullscreen.hl
 
 Goal: previous absolute `MatrixD` by `ActorID` for both geometry pipelines. No HLSL load yet.
 
-- [ ] `IVelocityHistory` implementation: snapshot after `MyGeometryRenderer.UpdateMatrices` and old cull-proxy update. Key `ActorID` (`uint`).
-- [ ] Swap current → previous at `DrawGameScene` postfix. Drop ids not seen for N frames.
-- [ ] Teleport threshold → treat as new actor (camera MV only next frame).
-- [ ] Status: history actor count.
-- [ ] Do not hook `MyInstance.UpdateWorldMatrix`. Do not key by VB slot.
+- [x] `IVelocityHistory` implementation: snapshot after `MyGeometryRenderer.UpdateMatrices` and old cull-proxy update. Key `ActorID` (`uint`).
+- [x] Swap current → previous at `DrawGameScene` postfix. Drop ids not seen for N frames (3).
+- [x] Teleport threshold (30 m translation) → treat as new actor (camera MV only next frame).
+- [x] Status: history actor count.
+- [x] Do not hook `MyInstance.UpdateWorldMatrix`. Do not key by VB slot.
 
-**Slice C done when:** count tracks visible movers; teleports reset.
+**Slice C code done when:** Show Status `History actors` is non-zero in a world with grids/characters. **Slice C proven when:** count tracks visible movers; teleports reset.
 
 ---
 
@@ -194,9 +194,10 @@ Phase 4 owned raster: only if D is blocked.
 
 ## First implementation session (checklist)
 
-Slice A and B code are in. Remaining proof is in-game:
+Slice A–C code are in. Remaining proof is in-game:
 
-- A4: shadows + blocks, Show Status `Compile intercept: live`, no cache storm
-- B: Show Status live `RG16F` size + `HistoryValid` after looking around; PIX if available
+- A4: shadows + blocks, Show Status `Compile intercept: live`
+- B: live `RG16F` + `HistoryValid` after looking around
+- C: `History actors` tracks visible movers; jumps reset
 
-Next session is **slice C** (ActorID `MatrixD` history), not `SV_Target3`.
+Next session is **slice D** (GBuffer `SV_Target3` piggyback).

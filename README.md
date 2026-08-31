@@ -16,9 +16,11 @@ Architecture supports [Rich HUD Framework](https://github.com/DarkHelmet/RichHud
 Plugin config:
 
 - **Velocity source** — `GBuffer` (target piggyback), `OwnedRaster` (bootstrap only), or `CameraOnly`
-- **Show Status** — source, whether GBuffer injection is live, history actor count, buffer size
+- **Show Status** — compile intercept, camera pass, velocity source, buffer size, `HistoryValid`
 
-The current tree is a compile-and-load stub: Harmony + publicizer + `VRage.Render11` + the velocity registry. Shader intercepts and the velocity RT are later plan phases ([Docs/PLAN.md](Docs/PLAN.md)).
+Compile intercept (Slice A) is live: Keen permutations get `ANOMALY=1` and Anomaly’s include directory. Camera velocity (Slice B) writes an `RG16F` buffer at internal resolution after GBuffer; `VelocityRegistry.Active` is that texture once a world is drawing. Nothing in Keen includes `Anomaly.hlsli` yet.
+
+Docs: [implementation roadmap](Docs/ROADMAP.md) · [shader API](Docs/ShaderAPI.md) · [shader packs](Docs/ShaderPacks.md) · [product plan](Docs/PLAN.md) · [Keen shaders](Docs/KeenShaders.md).
 
 ## Building
 

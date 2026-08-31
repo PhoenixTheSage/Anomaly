@@ -1,6 +1,7 @@
 ﻿using System.Reflection;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Layouts;
+using ClientPlugin.ShaderFramework;
 using ClientPlugin.Velocity;
 using HarmonyLib;
 using Sandbox.Graphics.GUI;
@@ -34,8 +35,10 @@ public sealed class Plugin : IPlugin
 
         var harmony = new Harmony(Name);
         harmony.PatchAll(Assembly.GetExecutingAssembly());
+        ShaderCompileIntercept.Activate();
+        CameraVelocityPass.Enabled = true;
         MyLog.Default.WriteLine("Anomaly shader framework initialized.");
-        DebugLog.Write("Harmony patched, plugin initialized");
+        DebugLog.Write("Harmony patched, plugin initialized, intercept live=" + ShaderCompileIntercept.IsLive);
     }
 
     public void Dispose()
@@ -45,6 +48,7 @@ public sealed class Plugin : IPlugin
 
         disposed = true;
         DebugLog.Write("Dispose");
+        CameraVelocityPass.Enabled = false;
         VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
         settingsGenerator = null;
         if (ReferenceEquals(Instance, this))
@@ -74,6 +78,9 @@ public sealed class Plugin : IPlugin
         if (disposed)
             return;
 
+        ShaderCompileIntercept.SetAssetFolder(folder);
+        if (Instance != null)
+            ShaderCompileIntercept.Activate();
         MyLog.Default.WriteLine("Anomaly asset folder: " + folder);
         DebugLog.Write("LoadAssets " + folder);
     }

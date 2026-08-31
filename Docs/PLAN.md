@@ -2,11 +2,18 @@
 
 Pulsar client plugin that intercepts Space Engineers 1’s DX11 geometry shaders and publishes shared GPU buffers. First product: a real velocity buffer. First consumer: [SE-DLSS](https://github.com/PhoenixTheSage/SE-DLSS).
 
-This document is the actionable plan from the SE-DLSS motion-vector / shader-framework design work. DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces** velocity (and later other buffers). SE-DLSS only binds what Anomaly hands it.
+This document is the product plan (why velocity, Keen facts, phases). Related docs:
+
+- [ROADMAP.md](ROADMAP.md) — implementation order (start here to write code)
+- [ShaderAPI.md](ShaderAPI.md) — compile hook, inject vs replace, named stages
+- [ShaderPacks.md](ShaderPacks.md) — Pulsar named assets and third-party HLSL packs
+- [KeenShaders.md](KeenShaders.md) — Keen HLSL inventory
+
+DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces** velocity (and later other buffers). SE-DLSS only binds what Anomaly hands it.
 
 ## Current repo state
 
-`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Phase 0 (identity + NGX strip + velocity API stub) is done. It is not a living DLSS plugin.
+`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Phase 0, Slice A (compile intercept), and Slice B (camera `IVelocityBuffer`) are done. It is not a living DLSS plugin.
 
 - **SE-DLSS** stays the consumer in its own repo. Do not compile Anomaly sources into SE-DLSS or the reverse.
 - Keep Harmony, publicizer, `VRage.Render11` access, settings/deploy/Pulsar XML shape, Rich HUD coexistence patterns.
@@ -83,7 +90,7 @@ Store **absolute `MatrixD`** in Anomaly. Camera-relative previous rows are wrong
 
 ### GBuffer shaders (source on disk)
 
-Not workshop `.sbc` materials. Keen’s geometry programs under the game install:
+Full catalog: [KeenShaders.md](KeenShaders.md). Not workshop `.sbc` materials. Keen’s geometry programs under the game install:
 
 - `Content/Shaders/Geometry/Materials/` — `Standard`, `AlphaMasked`, `Glass`, `Triplanar*`, `Shield*`, …
 - `Content/Shaders/Geometry/Passes/GBuffer/VertexStage.hlsli`
@@ -199,7 +206,7 @@ Do not hook `MyInstance.UpdateWorldMatrix`. Do not use VB index as a key.
 
 ### 0 — Rebuild the copy into Anomaly
 
-Phase 0 is done: this tree is a shader-framework stub (new identity, no NGX, `IVelocityBuffer` registry, no intercepts yet).
+Phase 0 is done. Slice A (compile intercept) is implemented: `ANOMALY=1` + include dir on `MyShaderCompiler`. Velocity RT and GBuffer inject are later slices.
 
 - [x] New identity: assembly, `Plugin.Name`, `Anomaly.xml` (repo, friendly name, tooltip), README. New GUID; do not reuse the SE-DLSS PluginHub id.
 - [x] Windows only.
@@ -210,16 +217,16 @@ Phase 0 is done: this tree is a shader-framework stub (new identity, no NGX, `IV
 
 ### 1 — Shader intercept skeleton
 
-- [ ] Find Keen’s compile entry (`MyShader` / permutation / include root). Hook so Anomaly can add an include directory and a define (`ANOMALY_VELOCITY`).
-- [ ] Prove a no-op inject: compile still succeeds for Standard GBuffer + Depth (Depth must **not** see the extra target).
+- [x] Find Keen’s compile entry (`VRageRender.MyShaderCompiler`). Hook include directory + `ANOMALY=1`. (`ANOMALY_VELOCITY` is a later GBuffer-only define.)
+- [ ] Prove in-game: Standard GBuffer + Depth still compile (Depth must **not** see an extra target). Unused `ANOMALY` should not bust the shader cache.
 - [ ] Survive `ClearState`, device reset, and `SetDRS` resize (SE-DLSS resizes GBuffer; Anomaly’s velocity RT must follow `ResolutionI`).
 - [ ] Play with SmoothFrames: their render-thread patches + jitter can interact. Do not assume exclusive ownership of `DrawGameScene`.
 
 ### 2 — Camera velocity as `IVelocityBuffer`
 
-- [ ] Port SE-DLSS camera-from-depth (`Mv.hlsl` / `SeDlss_GenerateCameraMotionVectors`) behind `IVelocityBuffer`. Halton-aware: unjittered view-projs; jitter is a consumer problem.
-- [ ] Registry + `CameraOnly` config. SE-DLSS can switch evaluate to this buffer in a later PR on that repo.
-- [ ] Status line: source, size, `HistoryValid`.
+- [x] Port camera-from-depth (`CameraVelocity.hlsl`) behind `IVelocityBuffer`. Halton-aware: unjittered view-projs (`Projection.M31/M32` cleared); jitter is a consumer problem.
+- [x] Registry + `CameraOnly` config. SE-DLSS can switch evaluate to this buffer in a later PR on that repo.
+- [x] Status line: source, size, `HistoryValid`.
 
 ### 3 — Actor history
 

@@ -1,4 +1,5 @@
 using System.Text;
+using ClientPlugin.ShaderFramework;
 
 namespace ClientPlugin.Velocity;
 
@@ -13,12 +14,14 @@ public static class VelocityStatus
             var sb = new StringBuilder();
             sb.AppendLine("Anomaly Shader Framework");
             sb.Append("Velocity source: ").AppendLine(cfg != null ? cfg.VelocitySource.ToString() : "—");
+            sb.Append("Compile intercept: ").AppendLine(FormatIntercept());
+            sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
             sb.Append("GBuffer injection: ").AppendLine("not live");
             sb.Append("Owned raster: ").AppendLine("not live");
             sb.Append("History actors: ").AppendLine("0");
             if (buf == null || !buf.IsAvailable)
             {
-                sb.AppendLine("Velocity buffer: unavailable (compile-and-load stub)");
+                sb.AppendLine("Velocity buffer: unavailable");
                 return sb.ToString();
             }
 
@@ -27,5 +30,31 @@ public static class VelocityStatus
             sb.Append("History valid: ").AppendLine(buf.HistoryValid ? "yes" : "no");
             return sb.ToString();
         }
+    }
+
+    static string FormatIntercept()
+    {
+        if (!ShaderCompileIntercept.IsLive)
+        {
+            var err = ShaderCompileIntercept.LastError;
+            return string.IsNullOrEmpty(err) ? "not live" : "not live (" + err + ")";
+        }
+
+        var path = ShaderCompileIntercept.IncludeDirectory ?? "?";
+        return "live  include=" + path
+            + "  " + ShaderCompileIntercept.MacroName + "=" + ShaderCompileIntercept.MacroValue
+            + "  compiles=" + ShaderCompileIntercept.CompileCount
+            + "  fails=" + ShaderCompileIntercept.FailureCount;
+    }
+
+    static string FormatCameraPass()
+    {
+        if (!CameraVelocityPass.Enabled)
+            return "disabled";
+        if (!string.IsNullOrEmpty(CameraVelocityPass.LastError))
+            return "error (" + CameraVelocityPass.LastError + ")";
+        if (!CameraVelocityPass.ShadersReady)
+            return "shaders not ready";
+        return "live";
     }
 }

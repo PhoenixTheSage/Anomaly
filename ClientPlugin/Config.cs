@@ -25,7 +25,7 @@ public class Config : INotifyPropertyChanged
     [Separator("Velocity")]
 
     [Dropdown(visibleRows: 10, label: "Velocity source",
-        description: "GBuffer piggyback is the target. CameraOnly is the stub until intercepts exist. OwnedRaster is bootstrap only.")]
+        description: "GBuffer piggyback is the target. CameraOnly is the live producer until GBuffer inject exists. OwnedRaster is bootstrap only.")]
     public VelocitySource VelocitySource
     {
         get => velocitySource;
@@ -34,7 +34,7 @@ public class Config : INotifyPropertyChanged
 
     [Separator("Status")]
 
-    [Button(label: "Show Status", description: "Velocity source, buffer size, and history")]
+    [Button(label: "Show Status", description: "Compile intercept, velocity source, buffer size, and history")]
     // ReSharper disable once UnusedMember.Global
     public static void ShowStatus()
     {

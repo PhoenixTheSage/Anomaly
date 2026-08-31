@@ -1,0 +1,32 @@
+﻿<?xml version="1.0"?>
+<PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
+
+    <Id>A9C29274-E447-49EE-881B-C980E6D190FD</Id>
+    <RepoId>PhoenixTheSage/Anomaly</RepoId>
+    <FriendlyName>Anomaly Shader Framework</FriendlyName>
+    <Author>PhoenixTheSage</Author>
+    <Tooltip>Shader framework for Space Engineers 1.</Tooltip>
+    <Description>
+Intercepts Keen's DX11 GBuffer and publishes shared GPU buffers for other plugins. 
+    </Description>
+
+    <SourceDirectories>
+        <Directory>ClientPlugin</Directory>
+        <Directory>Assets</Directory>
+    </SourceDirectories>
+
+    <!-- Pulsar copies this folder and calls Plugin.LoadAssets with its path. -->
+    <AssetFolder>Assets</AssetFolder>
+
+    <NuGetReferences>
+      <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+      <PackageReference Include="Krafs.Publicizer" Version="2.3.0" />
+    </NuGetReferences>
+
+    <Platforms>Windows</Platforms>
+
+    <Hidden>false</Hidden>
+
+    <!-- Pin this to a reviewed commit when registering on PluginHub. -->
+
+</PluginData>

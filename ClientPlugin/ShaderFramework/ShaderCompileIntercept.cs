@@ -15,6 +15,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Threading;
+using ClientPlugin.Shaders;
 using HarmonyLib;
 using SharpDX.D3DCompiler;
 using SharpDX.Direct3D;
@@ -41,11 +42,51 @@ public static class ShaderCompileIntercept
     private static int compileCount;
     private static int failureCount;
     private static string assetFolder;
+    private static string includeDirectoryOverride;
+    private static readonly List<string> PackIncludes = new();
     private static readonly object Gate = new();
 
     public static void SetAssetFolder(string folder)
     {
         assetFolder = folder;
+    }
+
+    public static void SetIncludeDirectory(string directory)
+    {
+        includeDirectoryOverride = directory;
+    }
+
+    public static void SetPackIncludeDirectories(IReadOnlyList<string> directories)
+    {
+        lock (Gate)
+        {
+            PackIncludes.Clear();
+            if (directories != null)
+            {
+                foreach (var dir in directories)
+                {
+                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                        PackIncludes.Add(Path.GetFullPath(dir));
+                }
+            }
+
+            if (IsLive)
+            {
+                try
+                {
+                    EnsureIncludePath();
+                }
+                catch (Exception e)
+                {
+                    DebugLog.Write("ShaderCompileIntercept pack includes: " + e.Message);
+                }
+            }
+        }
+    }
+
+    public static void TryRemapSource(ref string filepath)
+    {
+        ShaderPackRegistry.TryRemapCompilePath(ref filepath);
     }
 
     public static void Activate()
@@ -93,18 +134,22 @@ public static class ShaderCompileIntercept
         Interlocked.Increment(ref failureCount);
         var desc = sourceDescriptor ?? filepath ?? "(unknown)";
         var defines = MacrosToString(macros);
-        var msg = "Anomaly: shader compile failed " + desc + " profile=" + profile + " defines=[" + defines + "]";
+        var msg = "Anomaly: shader compile failed " + desc + " profile=" + profile + " defines=[" + defines + "]"
+            + " packs=" + ShaderPackRegistry.Fingerprint;
         MyLog.Default.WriteLine(msg);
         DebugLog.Write(msg);
     }
 
     public static void EnsureIncludes(IReadOnlyList<string> includes)
     {
-        if (string.IsNullOrEmpty(IncludeDirectory) || includes == null)
-            return;
         if (includes is not List<string> list)
             return;
-        AddIncludeIfMissing(list);
+        lock (Gate)
+        {
+            AddIncludeIfMissing(list, IncludeDirectory);
+            foreach (var packDir in PackIncludes)
+                AddIncludeIfMissing(list, packDir);
+        }
     }
 
     /// <summary>
@@ -139,9 +184,51 @@ public static class ShaderCompileIntercept
     public static bool TryOpenOverlay(IncludeType includeType, string fileName, Stream parentStream, out Stream stream)
     {
         stream = null;
-        if (string.IsNullOrEmpty(IncludeDirectory) || string.IsNullOrEmpty(fileName))
+        if (string.IsNullOrEmpty(fileName))
             return false;
         if (fileName.IndexOf("..", StringComparison.Ordinal) >= 0)
+            return false;
+
+        string relativeKey = null;
+        if (includeType == IncludeType.System)
+        {
+            relativeKey = fileName;
+        }
+        else
+        {
+            string parentDir = null;
+            if (parentStream is FileStream parentFile && !string.IsNullOrEmpty(parentFile.Name))
+                parentDir = Path.GetDirectoryName(parentFile.Name);
+            if (!string.IsNullOrEmpty(parentDir))
+            {
+                var resolved = Path.GetFullPath(Path.Combine(parentDir, fileName));
+                try
+                {
+                    var shadersRoot = Path.GetFullPath(MyShaderCompiler.ShadersPath);
+                    if (TryRelativize(shadersRoot, resolved, out var rel))
+                        relativeKey = rel;
+                }
+                catch
+                {
+                    // ShadersPath not ready yet.
+                }
+
+                if (relativeKey == null && !string.IsNullOrEmpty(IncludeDirectory) &&
+                    TryRelativize(Path.GetFullPath(IncludeDirectory), resolved, out var relInclude))
+                    relativeKey = relInclude;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(relativeKey) && ShaderPackRegistry.TryOpenGenerated(relativeKey, out stream))
+            return true;
+        if (!string.IsNullOrEmpty(relativeKey) && ShaderPackRegistry.TryResolveOverlay(relativeKey, out var packFile) &&
+            File.Exists(packFile))
+        {
+            stream = new FileStream(packFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(IncludeDirectory) || string.IsNullOrEmpty(fileName))
             return false;
 
         var includeRoot = Path.GetFullPath(IncludeDirectory);
@@ -151,20 +238,9 @@ public static class ShaderCompileIntercept
         {
             overlayPath = Path.GetFullPath(Path.Combine(includeRoot, fileName));
         }
-        else
+        else if (!string.IsNullOrEmpty(relativeKey))
         {
-            var shadersRoot = Path.GetFullPath(MyShaderCompiler.ShadersPath);
-            string parentDir = null;
-            if (parentStream is FileStream parentFile && !string.IsNullOrEmpty(parentFile.Name))
-                parentDir = Path.GetDirectoryName(parentFile.Name);
-
-            if (!string.IsNullOrEmpty(parentDir))
-            {
-                var resolved = Path.GetFullPath(Path.Combine(parentDir, fileName));
-                if (TryRelativize(shadersRoot, resolved, out var rel) ||
-                    TryRelativize(includeRoot, resolved, out rel))
-                    overlayPath = Path.GetFullPath(Path.Combine(includeRoot, rel));
-            }
+            overlayPath = Path.GetFullPath(Path.Combine(includeRoot, relativeKey));
         }
 
         if (string.IsNullOrEmpty(overlayPath) || !File.Exists(overlayPath))
@@ -210,6 +286,9 @@ public static class ShaderCompileIntercept
 
     private static IEnumerable<string> IncludeCandidates()
     {
+        if (!string.IsNullOrEmpty(includeDirectoryOverride))
+            yield return includeDirectoryOverride;
+
         if (!string.IsNullOrEmpty(assetFolder))
         {
             yield return Path.Combine(assetFolder, "Shaders");
@@ -355,21 +434,23 @@ public static class ShaderCompileIntercept
             field.SetValue(null, list);
         }
 
-        AddIncludeIfMissing(list);
+        AddIncludeIfMissing(list, IncludeDirectory);
+        foreach (var packDir in PackIncludes)
+            AddIncludeIfMissing(list, packDir);
     }
 
-    private static void AddIncludeIfMissing(List<string> list)
+    private static void AddIncludeIfMissing(List<string> list, string directory)
     {
-        if (string.IsNullOrEmpty(IncludeDirectory))
+        if (string.IsNullOrEmpty(directory))
             return;
 
         foreach (var existing in list)
         {
-            if (string.Equals(existing, IncludeDirectory, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(existing, directory, StringComparison.OrdinalIgnoreCase))
                 return;
         }
 
-        list.Add(IncludeDirectory);
+        list.Add(directory);
     }
 
     private static string MacrosToString(ShaderMacro[] macros)

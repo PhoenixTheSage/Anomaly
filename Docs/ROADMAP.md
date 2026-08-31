@@ -2,9 +2,9 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slices A–E are implemented. Compile intercept, camera `IVelocityBuffer`, ActorID history, GBuffer `SV_Target3` piggyback, previous bones, clipmap camera-only, and a never-zero camera composite are in. Default `VelocitySource` is `GBuffer`.
+**Now:** Slices A–F are implemented. Compile intercept, camera `IVelocityBuffer`, ActorID history, GBuffer piggyback, coverage holes, and the shader pack registry are in. Default `VelocitySource` is `GBuffer`.
 
-**Next:** Slice F — shader pack registry (named Pulsar assets, `ShaderPackRegistry.Register`, overlay path rules). Then Slice G in the SE-DLSS repo.
+**Next:** Slice G in the SE-DLSS repo — bind `VelocityRegistry.Active` when Anomaly is present.
 
 ---
 
@@ -145,20 +145,26 @@ Skip [PLAN.md](PLAN.md) phase 4 (owned raster) unless D is blocked and SE-DLSS n
 - [x] Previous bones (SRV, up to 60). Mismatch → camera fallback.
 - [x] Voxel movers: ActorID + `LastWorldMatrix`. Clipmap rebuilds: camera only.
 - [x] GPU particles, foliage, glass/holo/shield: camera only unless instance-backed.
+- [x] Unknown geometry: camera background, never zero.
+
 **Slice E code done when:** Show Status reports `History bones` for a character and `GBuffer injection: live`. **Slice E proven when:** skinned movers no longer ghost vs rigid; sky/particles are not stuck at zero; Depth/shadows still work.
 
-## Slice F — Shader API surface (after D)
+---
+
+## Slice F — Shader API surface
 
 Do not block velocity on this. Layer 0 already makes it possible. Pack contract: [ShaderPacks.md](ShaderPacks.md).
 
-- [ ] Migrate `Anomaly.xml` to named `<Asset>` entries (`AssetFolder` reserved name + `Shaders`). Implement `LoadAssets(IReadOnlyDictionary<string, string>)` while keeping `LoadAssets(string)`.
-- [ ] Use `assets["Shaders"]` as the compile-hook include directory (slice A can hardcode until this lands).
-- [ ] `ShaderPackRegistry.Register(id, root)` — static, well-known type name. Packs call it from *their* `LoadAssets`; Anomaly `Init` consumes the list (instantiate order is not dependency-sorted).
-- [ ] Pack root: `anomaly.json` + optional `Overlay/` (Keen-relative replace) + `Inject/` (additive includes).
-- [ ] Restrict overlay paths (no `..`). One owner per replace key; Hub packs fail closed on conflict.
-- [ ] Cache key includes overlay hash + define set + pack fingerprints.
-- [ ] Optional local-only drop dir via Pulsar `GetConfigPath("Packs")` — not for PluginHub.
-- [ ] Do **not** scan Pulsar internals for other plugins’ `GetNamedAssets()`.
+- [x] Migrate `Anomaly.xml` to named `<Asset>` entries (`AssetFolder` reserved name + `Shaders`). Implement `LoadAssets(IReadOnlyDictionary<string, string>)` while keeping `LoadAssets(string)`.
+- [x] Use `assets["Shaders"]` as the compile-hook include directory.
+- [x] `ShaderPackRegistry.Register(id, root)` — static, well-known type name. Packs call it from *their* `LoadAssets`; Anomaly `Init` consumes the list (instantiate order is not dependency-sorted).
+- [x] Pack root: `anomaly.json` + optional `Overlay/` (Keen-relative replace) + `Inject/` (additive includes).
+- [x] Restrict overlay paths (no `..`). One owner per replace key; Hub packs fail closed on conflict.
+- [x] Cache key includes overlay hash + define set + pack fingerprints (`Anomaly/PackFingerprint.hlsli` in preprocess).
+- [x] Optional local-only drop dir via Pulsar `GetConfigPath("Anomaly")/Packs` — not for PluginHub.
+- [x] Do **not** scan Pulsar internals for other plugins’ `GetNamedAssets()`.
+
+**Slice F code done when:** Show Status `Shader packs:` is present and a local `anomaly.json` pack overlays or injects without breaking Depth.
 
 ---
 
@@ -198,4 +204,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **slice F** (shader pack registry) after in-game proof of D/E.
+Next session is **slice G** (SE-DLSS repo: bind `VelocityRegistry.Active`) after in-game proof of D–F.

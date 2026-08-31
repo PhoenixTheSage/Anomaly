@@ -62,8 +62,9 @@ static class ShaderCompilerVelocityMacroPatch
                 typeof(bool)
             });
 
-    static void Prefix(string filepath, ref ShaderMacro[] macros)
+    static void Prefix(ref string filepath, ref ShaderMacro[] macros)
     {
+        ShaderCompileIntercept.TryRemapSource(ref filepath);
         ShaderCompileIntercept.EnsureVelocityMacro(filepath, ref macros);
     }
 }

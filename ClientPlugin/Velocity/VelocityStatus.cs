@@ -1,5 +1,6 @@
 using System.Text;
 using ClientPlugin.ShaderFramework;
+using ClientPlugin.Shaders;
 
 namespace ClientPlugin.Velocity;
 
@@ -16,6 +17,7 @@ public static class VelocityStatus
             sb.Append("Velocity source: ").AppendLine(cfg != null ? cfg.VelocitySource.ToString() : "—");
             sb.Append("Compile intercept: ").AppendLine(FormatIntercept());
             sb.Append("GBuffer overlay: ").AppendLine(ShaderCompileIntercept.GBufferOverlayPresent ? "present" : "missing");
+            sb.Append("Shader packs: ").AppendLine(ShaderPackRegistry.StatusLine);
             sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
             sb.Append("GBuffer injection: ").AppendLine(FormatGBuffer());
             sb.Append("Owned raster: ").AppendLine("not live");

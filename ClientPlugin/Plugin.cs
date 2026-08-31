@@ -1,7 +1,10 @@
-﻿using System.Reflection;
+﻿using System;
+using System.Collections.Generic;
+using System.Reflection;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Layouts;
 using ClientPlugin.ShaderFramework;
+using ClientPlugin.Shaders;
 using ClientPlugin.Velocity;
 using HarmonyLib;
 using Sandbox.Graphics.GUI;
@@ -21,6 +24,9 @@ public sealed class Plugin : IPlugin
     public const string Name = "Anomaly";
     public static Plugin Instance { get; private set; }
 
+    // Pulsar injects this before LoadAssets. (name, extension) → Data/{name}[/ or .{ext}].
+    public static Func<string, string, string> GetConfigPath;
+
     private SettingsGenerator settingsGenerator;
     private bool disposed;
 
@@ -35,6 +41,8 @@ public sealed class Plugin : IPlugin
 
         var harmony = new Harmony(Name);
         harmony.PatchAll(Assembly.GetExecutingAssembly());
+        ShaderPackRegistry.ScanLocalDrop(GetConfigPath);
+        ShaderPackRegistry.Apply();
         ShaderCompileIntercept.Activate();
         CameraVelocityPass.Enabled = true;
         GBufferVelocity.Enabled = true;
@@ -83,9 +91,32 @@ public sealed class Plugin : IPlugin
             return;
 
         ShaderCompileIntercept.SetAssetFolder(folder);
+        ShaderPackRegistry.ScanLocalDrop(GetConfigPath);
+        ShaderPackRegistry.Apply();
         if (Instance != null)
             ShaderCompileIntercept.Activate();
         MyLog.Default.WriteLine("Anomaly asset folder: " + folder);
         DebugLog.Write("LoadAssets " + folder);
+    }
+
+    // ReSharper disable once UnusedMember.Global
+    public void LoadAssets(IReadOnlyDictionary<string, string> assets)
+    {
+        if (disposed || assets == null)
+            return;
+
+        string shaders = null;
+        if (assets.TryGetValue("Shaders", out shaders) && !string.IsNullOrEmpty(shaders))
+            ShaderCompileIntercept.SetIncludeDirectory(shaders);
+        if (assets.TryGetValue("AssetFolder", out var folder) && !string.IsNullOrEmpty(folder))
+            ShaderCompileIntercept.SetAssetFolder(folder);
+
+        ShaderPackRegistry.ScanLocalDrop(GetConfigPath);
+        ShaderPackRegistry.Apply();
+        if (Instance != null)
+            ShaderCompileIntercept.Activate();
+        MyLog.Default.WriteLine("Anomaly named assets: " + assets.Count
+            + (shaders != null ? " Shaders=" + shaders : ""));
+        DebugLog.Write("LoadAssets(dict) count=" + assets.Count);
     }
 }

@@ -101,6 +101,8 @@ Migrate off a single `<AssetFolder>` when implementing packs:
 
 Keep `LoadAssets(string)` for the reserved `AssetFolder` name **and** add `LoadAssets(IReadOnlyDictionary<string, string>)`. Use `assets["Shaders"]` as the first include directory for the compile hook.
 
+Implemented: `ClientPlugin.Shaders.ShaderPackRegistry.Register`. Local drop is `{GetConfigPath("Anomaly")}/Packs` (developer-only). Overlay conflicts fail closed. Inject files are concatenated into `Anomaly/GBufferExtras.hlsli`. Pack fingerprints are `#include`d from `Anomaly.hlsli` so Keen’s preprocess cache misses when packs change.
+
 ---
 
 ## Pack layout (on disk after Pulsar extract)
@@ -138,7 +140,7 @@ Do not allow packs to replace Depth with a fourth MRT. Validate after compile.
 
 For unsigned local experiments only, Anomaly may also scan:
 
-`Plugin.GetConfigPath("Packs")` → `%AppData%/Pulsar/Data/Anomaly/Packs/` (Pulsar injects `GetConfigPath` as a static `Func<string, string, string>` on the plugin type).
+`Plugin.GetConfigPath("Anomaly")` then `Packs\` → `{PulsarDir}/Data/Anomaly/Packs/` (Pulsar injects `GetConfigPath` as a static `Func<string, string, string>` on the plugin type: `(name, extension)`).
 
 Each subdirectory or `.zip` is treated like `AnomalyPack`. **Not** for PluginHub. No SHA-256 unless we hash ourselves. Document it as developer-only so players are not told to unzip random packs there.
 

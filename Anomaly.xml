@@ -15,8 +15,9 @@ Intercepts Keen's DX11 GBuffer and publishes shared GPU buffers for other plugin
         <Directory>Assets</Directory>
     </SourceDirectories>
 
-    <!-- Pulsar copies this folder and calls Plugin.LoadAssets with its path. -->
-    <AssetFolder>Assets</AssetFolder>
+    <!-- Named Pulsar assets. AssetFolder is reserved for LoadAssets(string). -->
+    <Asset Name="AssetFolder" Path="Assets" />
+    <Asset Name="Shaders" Path="Assets/Shaders" />
 
     <Platforms>Windows</Platforms>
 

@@ -111,7 +111,7 @@ For a plugin that truly wants a different Standard GBuffer PS:
 
 Iris analog: “this pack provides `gbuffers_terrain.fsh`,” scoped to Keen’s permutation compiler instead of a full renderer swap.
 
-Defer shipping this until a second plugin actually needs it. The layer-0 hook is the same hook replace will use.
+Defer a second plugin’s wholesale Standard/Pixel fork until someone needs it; the overlay table is the same registry Anomaly’s GBuffer inject uses as fallback when no pack claims that path.
 
 ### 3 — Owned programs + published buffers
 
@@ -165,7 +165,6 @@ Keep the [PLAN.md](PLAN.md) cut:
 
 1. Hook compile (include dir + `ANOMALY_VELOCITY` + Depth still compiles). That *is* the framework.
 2. Ship velocity as **injection**, not as a Standard/Pixel fork.
-3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md).
-4. Defer third-party wholesale replace until a second plugin needs it; Anomaly’s own overlays use the same registry.
+3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md). Overlay replace is live (fail closed on conflict).
 
 Iris’s lesson is semantic stages + compile-time rewrite + fallback, sitting on a renderer the framework controls. Anomaly’s rewrite sits on **Keen’s** renderer, because that renderer is the thing we cannot afford to clone.

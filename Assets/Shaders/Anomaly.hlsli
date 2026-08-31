@@ -2,6 +2,7 @@
 #define ANOMALY_HLSLI
 
 #include <Common.hlsli>
+#include <Anomaly/PackFingerprint.hlsli>
 
 // Compile intercept: ANOMALY=1 on every permutation.
 // ANOMALY_VELOCITY is GBuffer-only (RENDERING_PASS == 0). Depth must never see it.
@@ -150,5 +151,7 @@ float2 AnomalyComputeVelocity(float3 positionLocal, matrix localMatrix, uint svI
 }
 
 #endif // ANOMALY_VELOCITY
+
+#include <Anomaly/GBufferExtras.hlsli>
 
 #endif

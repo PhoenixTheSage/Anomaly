@@ -13,7 +13,7 @@ DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces
 
 ## Current repo state
 
-`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Phase 0 and Slices A–C (compile intercept, camera `IVelocityBuffer`, ActorID history) are done. It is not a living DLSS plugin.
+`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Phase 0 and Slices A–D (compile intercept, camera `IVelocityBuffer`, ActorID history, GBuffer piggyback) are done. In-game proof of object MVs on a moving grid is still required.
 
 - **SE-DLSS** stays the consumer in its own repo. Do not compile Anomaly sources into SE-DLSS or the reverse.
 - Keep Harmony, publicizer, `VRage.Render11` access, settings/deploy/Pulsar XML shape, Rich HUD coexistence patterns.
@@ -232,7 +232,7 @@ Phase 0 is done. Slice A (compile intercept) is implemented: `ANOMALY=1` + inclu
 
 - [x] `IVelocityHistory`: absolute `MatrixD` by `ActorID`.
 - [x] Postfix `UpdateMatrices` and old cull-proxy update. Swap at `DrawGameScene` end.
-- [ ] Side SRV packed in the same order as Stage 2 `PerformCopy` / merge instance index.
+- [x] Side SRV packed in the same order as Stage 2 `PerformCopy` / merge instance index.
 - [x] Teleport threshold → treat as new actor.
 
 ### 4 — Bootstrap owned raster (optional, ship-blocker only)
@@ -245,13 +245,13 @@ Use this only if GBuffer inject is blocked and SE-DLSS needs object MVs before i
 
 ### 5 — GBuffer piggyback (success criterion)
 
-- [ ] Extra `RG16F` (or `RGBA16F`) RT, render resolution, bound in `MyGBufferPass.Begin`.
-- [ ] Shared-stage HLSL: velocity interpolant + `SV_Target3`. Do not fork `Materials/Standard/Pixel.hlsl` et al.
-- [ ] History SRV bound for the GBuffer pass only.
-- [ ] Statics: camera term only. Movers: load prev world from SRV.
-- [ ] Alpha / `GbufferWriteBlend` / `CUSTOM_DEPTH` / coverage: write a defined velocity (usually camera or discarded).
+- [x] Extra `RG16F` (or `RGBA16F`) RT, render resolution, bound in `MyGBufferPass.Begin`.
+- [x] Shared-stage HLSL: velocity interpolant + `SV_Target3`. Do not fork `Materials/Standard/Pixel.hlsl` et al.
+- [x] History SRV bound for the GBuffer pass only.
+- [x] Statics: camera term only. Movers: load prev world from SRV.
+- [x] Alpha / `GbufferWriteBlend` / `CUSTOM_DEPTH` / coverage: write a defined velocity (usually camera or discarded).
 - [ ] In-game: moving large grid no longer ghosts; static look-around no worse than camera-only.
-- [ ] Default `VelocitySource` → `GBuffer`. Remove or hide `OwnedRaster` once stable.
+- [x] Default `VelocitySource` → `GBuffer`. Remove or hide `OwnedRaster` once stable.
 
 ### 6 — Skinning, voxels, the rest
 

@@ -14,7 +14,7 @@ public class Config : INotifyPropertyChanged
 {
     #region Options
 
-    private VelocitySource velocitySource = VelocitySource.CameraOnly;
+    private VelocitySource velocitySource = VelocitySource.GBuffer;
 
     #endregion
 
@@ -25,7 +25,7 @@ public class Config : INotifyPropertyChanged
     [Separator("Velocity")]
 
     [Dropdown(visibleRows: 10, label: "Velocity source",
-        description: "GBuffer piggyback is the target. CameraOnly is the live producer until GBuffer inject exists. OwnedRaster is bootstrap only.")]
+        description: "GBuffer piggyback writes object motion on Keen's geometry pixels. CameraOnly is fullscreen depth reprojection. OwnedRaster is unused bootstrap.")]
     public VelocitySource VelocitySource
     {
         get => velocitySource;

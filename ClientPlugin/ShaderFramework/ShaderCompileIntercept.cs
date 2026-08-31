@@ -16,6 +16,7 @@ using System.IO;
 using System.Reflection;
 using System.Threading;
 using HarmonyLib;
+using SharpDX.D3DCompiler;
 using SharpDX.Direct3D;
 using VRage.Utils;
 using VRageRender;
@@ -26,8 +27,12 @@ public static class ShaderCompileIntercept
 {
     public const string MacroName = "ANOMALY";
     public const string MacroValue = "1";
+    public const string VelocityMacroName = "ANOMALY_VELOCITY";
+    public const string VelocityMacroValue = "1";
+    public const string RenderingPassMacro = "RENDERING_PASS";
 
     public static bool IsLive { get; private set; }
+    public static bool GBufferOverlayPresent { get; private set; }
     public static string IncludeDirectory { get; private set; }
     public static string LastError { get; private set; }
     public static int CompileCount => Volatile.Read(ref compileCount);
@@ -62,8 +67,11 @@ public static class ShaderCompileIntercept
             {
                 EnsureGlobalMacro();
                 EnsureIncludePath();
+                GBufferOverlayPresent = File.Exists(Path.Combine(IncludeDirectory,
+                    "Geometry", "Passes", "GBuffer", "VertexStage.hlsli"));
                 IsLive = true;
-                MyLog.Default.WriteLine("Anomaly compile intercept live. Include: " + IncludeDirectory);
+                MyLog.Default.WriteLine("Anomaly compile intercept live. Include: " + IncludeDirectory
+                    + " GBuffer overlay=" + GBufferOverlayPresent);
                 DebugLog.Write("ShaderCompileIntercept live include=" + IncludeDirectory);
             }
             catch (Exception e)
@@ -99,22 +107,91 @@ public static class ShaderCompileIntercept
         AddIncludeIfMissing(list);
     }
 
+    /// <summary>
+    /// GBuffer only (<c>RENDERING_PASS=0</c>). Depth / forward / highlight stay 3-attachment.
+    /// </summary>
+    public static void EnsureVelocityMacro(ref ShaderMacro[] macros)
+    {
+        EnsureVelocityMacro(null, ref macros);
+    }
+
+    public static void EnsureVelocityMacro(string filepath, ref ShaderMacro[] macros)
+    {
+        if (IsDepthPermutation(macros) || ContainsNamed(macros, VelocityMacroName))
+            return;
+        if (!IsGBufferPermutation(macros) && !IsGeometryWithoutPass(filepath, macros))
+            return;
+        macros = AppendMacro(macros, VelocityMacroName, VelocityMacroValue);
+    }
+
+    public static void EnsureVelocityMacro(List<ShaderMacro> macros)
+    {
+        if (macros == null || !IsGBufferPermutation(macros) || ContainsNamed(macros, VelocityMacroName))
+            return;
+        macros.Add(new ShaderMacro(VelocityMacroName, VelocityMacroValue));
+    }
+
+    /// <summary>
+    /// Local Keen includes do not search <c>m_includes</c>. Prefix
+    /// <c>MyIncludeProcessor.Open</c> so <c>Geometry/Passes/GBuffer/*.hlsli</c>
+    /// overlays resolve without replacing the pass dispatcher (Depth cache stays valid).
+    /// </summary>
+    public static bool TryOpenOverlay(IncludeType includeType, string fileName, Stream parentStream, out Stream stream)
+    {
+        stream = null;
+        if (string.IsNullOrEmpty(IncludeDirectory) || string.IsNullOrEmpty(fileName))
+            return false;
+        if (fileName.IndexOf("..", StringComparison.Ordinal) >= 0)
+            return false;
+
+        var includeRoot = Path.GetFullPath(IncludeDirectory);
+        string overlayPath = null;
+
+        if (includeType == IncludeType.System)
+        {
+            overlayPath = Path.GetFullPath(Path.Combine(includeRoot, fileName));
+        }
+        else
+        {
+            var shadersRoot = Path.GetFullPath(MyShaderCompiler.ShadersPath);
+            string parentDir = null;
+            if (parentStream is FileStream parentFile && !string.IsNullOrEmpty(parentFile.Name))
+                parentDir = Path.GetDirectoryName(parentFile.Name);
+
+            if (!string.IsNullOrEmpty(parentDir))
+            {
+                var resolved = Path.GetFullPath(Path.Combine(parentDir, fileName));
+                if (TryRelativize(shadersRoot, resolved, out var rel) ||
+                    TryRelativize(includeRoot, resolved, out rel))
+                    overlayPath = Path.GetFullPath(Path.Combine(includeRoot, rel));
+            }
+        }
+
+        if (string.IsNullOrEmpty(overlayPath) || !File.Exists(overlayPath))
+            return false;
+        if (!IsUnderRoot(includeRoot, overlayPath))
+            return false;
+
+        stream = new FileStream(overlayPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return true;
+    }
+
     public static void EnsureGlobalMacros(ref ShaderMacro[] macros)
     {
-        if (ContainsAnomaly(macros))
+        if (ContainsNamed(macros, MacroName))
             return;
 
         lock (Gate)
         {
             var field = AccessTools.Field(typeof(MyShaderCompiler), "m_globalShaderMacros");
             var current = field?.GetValue(null) as ShaderMacro[] ?? macros ?? Array.Empty<ShaderMacro>();
-            if (ContainsAnomaly(current))
+            if (ContainsNamed(current, MacroName))
             {
                 macros = current;
                 return;
             }
 
-            var next = AppendAnomaly(current);
+            var next = AppendMacro(current, MacroName, MacroValue);
             field?.SetValue(null, next);
             macros = next;
         }
@@ -151,31 +228,118 @@ public static class ShaderCompileIntercept
             throw new MissingFieldException(typeof(MyShaderCompiler).FullName, "m_globalShaderMacros");
 
         var current = field.GetValue(null) as ShaderMacro[] ?? Array.Empty<ShaderMacro>();
-        if (ContainsAnomaly(current))
+        if (ContainsNamed(current, MacroName))
             return;
-        field.SetValue(null, AppendAnomaly(current));
+        field.SetValue(null, AppendMacro(current, MacroName, MacroValue));
     }
 
-    private static bool ContainsAnomaly(ShaderMacro[] macros)
+    private static bool IsDepthPermutation(ShaderMacro[] macros)
     {
         if (macros == null)
             return false;
         for (var i = 0; i < macros.Length; i++)
         {
-            if (string.Equals(macros[i].Name, MacroName, StringComparison.Ordinal))
+            if (string.Equals(macros[i].Name, "DEPTH_ONLY", StringComparison.Ordinal))
+                return true;
+            if (string.Equals(macros[i].Name, RenderingPassMacro, StringComparison.Ordinal) &&
+                macros[i].Definition == "1")
                 return true;
         }
 
         return false;
     }
 
-    private static ShaderMacro[] AppendAnomaly(ShaderMacro[] current)
+    private static bool IsGeometryWithoutPass(string filepath, ShaderMacro[] macros)
+    {
+        if (string.IsNullOrEmpty(filepath) || HasNamed(macros, RenderingPassMacro))
+            return false;
+        return filepath.IndexOf("Geometry", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool HasNamed(ShaderMacro[] macros, string name)
+    {
+        return ContainsNamed(macros, name);
+    }
+
+    private static bool IsGBufferPermutation(ShaderMacro[] macros)
+    {
+        if (macros == null)
+            return false;
+        for (var i = 0; i < macros.Length; i++)
+        {
+            if (string.Equals(macros[i].Name, RenderingPassMacro, StringComparison.Ordinal))
+                return IsGBufferPassValue(macros[i].Definition);
+        }
+
+        return false;
+    }
+
+    private static bool IsGBufferPermutation(List<ShaderMacro> macros)
+    {
+        for (var i = 0; i < macros.Count; i++)
+        {
+            if (string.Equals(macros[i].Name, RenderingPassMacro, StringComparison.Ordinal))
+                return IsGBufferPassValue(macros[i].Definition);
+        }
+
+        return false;
+    }
+
+    private static bool IsGBufferPassValue(string definition)
+    {
+        return definition == "0";
+    }
+
+    private static bool ContainsNamed(ShaderMacro[] macros, string name)
+    {
+        if (macros == null)
+            return false;
+        for (var i = 0; i < macros.Length; i++)
+        {
+            if (string.Equals(macros[i].Name, name, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsNamed(List<ShaderMacro> macros, string name)
+    {
+        for (var i = 0; i < macros.Count; i++)
+        {
+            if (string.Equals(macros[i].Name, name, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static ShaderMacro[] AppendMacro(ShaderMacro[] current, string name, string value)
     {
         current = current ?? Array.Empty<ShaderMacro>();
         var next = new ShaderMacro[current.Length + 1];
         Array.Copy(current, next, current.Length);
-        next[current.Length] = new ShaderMacro(MacroName, MacroValue);
+        next[current.Length] = new ShaderMacro(name, value);
         return next;
+    }
+
+    private static bool TryRelativize(string root, string fullPath, out string relative)
+    {
+        relative = null;
+        if (!IsUnderRoot(root, fullPath))
+            return false;
+        relative = fullPath.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return relative.Length > 0;
+    }
+
+    private static bool IsUnderRoot(string root, string fullPath)
+    {
+        var prefix = root;
+        if (!prefix.EndsWith(Path.DirectorySeparatorChar.ToString()) &&
+            !prefix.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
+            prefix += Path.DirectorySeparatorChar;
+        return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(fullPath, root, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void EnsureIncludePath()

@@ -33,6 +33,42 @@ public static class CameraVelocityPass
     public static string LastError { get; private set; }
     public static bool ShadersReady { get; private set; }
 
+    internal static bool TryGetMotionFrame(out Matrix unjittered, out Matrix prev, out Vector3D prevCam,
+        out bool historyValid, out Vector2I size)
+    {
+        unjittered = default;
+        prev = default;
+        prevCam = prevCameraPos;
+        historyValid = false;
+        size = MyRender11.ResolutionI;
+        var env = MyRender11.Environment?.Matrices;
+        if (env == null)
+            return false;
+
+        unjittered = UnjitteredViewProjection(env);
+        var cut = hasPrev && Vector3D.DistanceSquared(env.CameraPosition, prevCameraPos) > CutDistanceSq;
+        historyValid = hasPrev && !cut && !justResized;
+        prev = historyValid ? prevViewProj : unjittered;
+        return true;
+    }
+
+    internal static bool TryGetPrevCamera(out Vector3D prevCam)
+    {
+        prevCam = prevCameraPos;
+        return hasPrev;
+    }
+
+    internal static void AdvanceHistory()
+    {
+        var env = MyRender11.Environment?.Matrices;
+        if (env == null)
+            return;
+        prevViewProj = UnjitteredViewProjection(env);
+        prevCameraPos = env.CameraPosition;
+        hasPrev = true;
+        justResized = false;
+    }
+
     static VertexShader vertexShader;
     static PixelShader pixelShader;
     static IConstantBuffer constants;
@@ -80,6 +116,7 @@ public static class CameraVelocityPass
     {
         if (!Enabled)
             return;
+        GBufferVelocity.OnResolutionChanged();
         lock (Gate)
         {
             justResized = true;
@@ -97,6 +134,7 @@ public static class CameraVelocityPass
 
     public static void Release()
     {
+        GBufferVelocity.Release();
         lock (Gate)
         {
             CameraVelocityBuffer.Instance.Clear();
@@ -111,6 +149,12 @@ public static class CameraVelocityPass
 
     static void ExecuteCore()
     {
+        if (GBufferVelocity.ShouldPublish)
+        {
+            GBufferVelocity.PublishAndAdvanceHistory();
+            return;
+        }
+
         var gbuffer = MyGBuffer.Main;
         var depth = gbuffer?.ResolvedDepthStencil?.SrvDepth;
         var rc = MyRender11.RC;

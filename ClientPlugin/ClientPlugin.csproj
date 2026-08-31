@@ -296,6 +296,10 @@
       <HintPath>$(Bin64Dir)SharpDX.DXGI.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="SharpDX.D3DCompiler">
+      <HintPath>$(Bin64Dir)SharpDX.D3DCompiler.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
   <PropertyGroup>

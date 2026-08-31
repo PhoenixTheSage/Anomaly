@@ -18,7 +18,7 @@ Plugin config:
 - **Velocity source** — `GBuffer` (target piggyback), `OwnedRaster` (bootstrap only), or `CameraOnly`
 - **Show Status** — compile intercept, camera pass, velocity source, buffer size, `HistoryValid`
 
-Compile intercept (Slice A) is live: Keen permutations get `ANOMALY=1` and Anomaly’s include directory. Camera velocity (Slice B) writes an `RG16F` buffer at internal resolution after GBuffer; `VelocityRegistry.Active` is that texture once a world is drawing. Actor history (Slice C) snapshots absolute world matrices by ActorID. Nothing in Keen includes `Anomaly.hlsli` yet.
+Compile intercept (Slice A) is live: Keen permutations get `ANOMALY=1` and Anomaly’s include directory. Camera velocity (Slice B) writes an `RG16F` buffer at internal resolution after GBuffer when the source is `CameraOnly`. Actor history (Slice C) snapshots absolute world matrices by ActorID. GBuffer piggyback (Slice D) overlays `Geometry/Passes/GBuffer` + `GBufferWrite.hlsli`, binds a fourth `RG16F` target on GBuffer only (`ANOMALY_VELOCITY`), and packs previous worlds in Stage 2 instance order. Default velocity source is `GBuffer`.
 
 Docs: [implementation roadmap](Docs/ROADMAP.md) · [shader API](Docs/ShaderAPI.md) · [shader packs](Docs/ShaderPacks.md) · [product plan](Docs/PLAN.md) · [Keen shaders](Docs/KeenShaders.md).
 

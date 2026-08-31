@@ -2,9 +2,9 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slice C (ActorID history) is implemented. Compile intercept and camera `IVelocityBuffer` are live. Previous absolute `MatrixD` is keyed by ActorID for Stage 2 and the old pipeline.
+**Now:** Slices A–D are implemented. Compile intercept, camera `IVelocityBuffer`, ActorID history, and GBuffer `SV_Target3` piggyback are in. Default `VelocitySource` is `GBuffer`.
 
-**Next:** Slice D — GBuffer piggyback (`ANOMALY_VELOCITY` + `SV_Target3` on GBuffer only).
+**Next:** Slice E — coverage holes (skinning bones, voxel movers, particles/foliage/glass camera-only).
 
 ---
 
@@ -121,16 +121,16 @@ Goal: object velocity on the same pixels Keen GBuffer accepted. Default source b
 
 Depends on A (defines on GBuffer only) + B (camera fill) + C (prev world).
 
-- [ ] Extra `RG16F` (or `RGBA16F`) RT, render resolution, bound in `MyGBufferPass.Begin` as **fourth** color target. **Not** bound for Depth.
-- [ ] Define `ANOMALY_VELOCITY` **only** for GBuffer permutations.
-- [ ] Shared-stage HLSL (Anomaly overlay includes, not a Materials fork):
+- [x] Extra `RG16F` (or `RGBA16F`) RT, render resolution, bound in `MyGBufferPass.Begin` as **fourth** color target. **Not** bound for Depth.
+- [x] Define `ANOMALY_VELOCITY` **only** for GBuffer permutations.
+- [x] Shared-stage HLSL (Anomaly overlay includes, not a Materials fork):
   - velocity interpolant in `GBuffer/VertexStage`
   - `SV_Target3` in `GBufferWrite` / GBuffer `PixelStage`
-- [ ] Side SRV: previous world 3×4 packed in Stage 2 / merge draw order (`SV_InstanceID`). Statics skip the load (camera term only).
-- [ ] First frame / new ActorID / teleport: camera MV, never a zero buffer.
-- [ ] Alpha / `GbufferWriteBlend` / `CUSTOM_DEPTH` / coverage: defined velocity (camera or discard).
+- [x] Side SRV: previous world 3×4 packed in Stage 2 / merge draw order (`SV_InstanceID`). Statics skip the load (camera term only).
+- [x] First frame / new ActorID / teleport: camera MV, never a zero buffer.
+- [x] Alpha / `GbufferWriteBlend` / `CUSTOM_DEPTH` / coverage: defined velocity (camera or discard).
 - [ ] In-game: moving large grid no longer ghosts vs camera-only; static look-around no worse.
-- [ ] Status: `GBuffer injection: live`.
+- [x] Status: `GBuffer injection: live`.
 
 Skip [PLAN.md](PLAN.md) phase 4 (owned raster) unless D is blocked and SE-DLSS needs object MVs immediately.
 
@@ -200,4 +200,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **slice D** (GBuffer `SV_Target3` piggyback).
+Next session is **slice E** (skinning / voxels / particles camera-only) after in-game proof of D.

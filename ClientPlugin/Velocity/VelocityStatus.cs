@@ -15,8 +15,9 @@ public static class VelocityStatus
             sb.AppendLine("Anomaly Shader Framework");
             sb.Append("Velocity source: ").AppendLine(cfg != null ? cfg.VelocitySource.ToString() : "—");
             sb.Append("Compile intercept: ").AppendLine(FormatIntercept());
+            sb.Append("GBuffer overlay: ").AppendLine(ShaderCompileIntercept.GBufferOverlayPresent ? "present" : "missing");
             sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
-            sb.Append("GBuffer injection: ").AppendLine("not live");
+            sb.Append("GBuffer injection: ").AppendLine(FormatGBuffer());
             sb.Append("Owned raster: ").AppendLine("not live");
             sb.Append("History actors: ").AppendLine(ActorHistory.Instance.TrackedActorCount.ToString());
             if (buf == null || !buf.IsAvailable)
@@ -55,6 +56,17 @@ public static class VelocityStatus
             return "error (" + CameraVelocityPass.LastError + ")";
         if (!CameraVelocityPass.ShadersReady)
             return "shaders not ready";
+        return "live";
+    }
+
+    static string FormatGBuffer()
+    {
+        if (!GBufferVelocity.Enabled)
+            return "disabled";
+        if (!string.IsNullOrEmpty(GBufferVelocity.LastError))
+            return "error (" + GBufferVelocity.LastError + ")";
+        if (!GBufferVelocity.IsLive)
+            return "not live";
         return "live";
     }
 }

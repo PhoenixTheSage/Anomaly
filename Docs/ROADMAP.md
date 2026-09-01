@@ -2,9 +2,11 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slices A–J are implemented. Velocity pipeline, pack registry, pack safety, and named-stage overlay keys are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred. **Slice K** (sample Hidden pack plugin, separate repo) is deferred.
+**Now:** Slices A–J and L are implemented, plus an in-game **Debug velocity** overlay of `IVelocityBuffer`. Velocity pipeline, pack registry, named stages, and per-stage compile probes are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred. **Slice K** (sample Hidden pack plugin) is deferred.
 
-**Next:** Slice L — stage compile probes. After apply, compile a sentinel permutation for each *live* named stage (GBuffer / Forward / Post.* / Anomaly.CameraVelocity), not only Standard Depth, and roll back that pack on failure.
+**Next (velocity proof):** Use the debug overlay in-game (PLAN test plan: moving grid vs camera pan, Depth still compiles) and, when ready, PluginHub pin.
+
+**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–O** are in this repo. Next code is **P** (lighting / GBuffer-read wraps).
 
 ---
 
@@ -16,7 +18,8 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 | [ShaderAPI.md](ShaderAPI.md) | Hook / inject / replace / owned-pass layers; Iris comparison |
 | [ShaderPacks.md](ShaderPacks.md) | Pulsar named assets; pack plugins register HLSL with Anomaly |
 | [KeenShaders.md](KeenShaders.md) | All Keen HLSL files and GBuffer layout |
-| This file | What to implement next, in order |
+| [Extensibility.md](Extensibility.md) | Post-velocity slices M–T (inject, slots, bind, catalog) |
+| This file | Velocity + hook slices A–L |
 
 ---
 
@@ -227,11 +230,28 @@ Separate repo. Hidden Pulsar plugin: `LoadAssets` + `ShaderPackRegistry.Register
 
 Goal: Slice I only proves Standard Depth. A broken `exclusive: ["GBuffer"]` or `Post.HBAO` overlay can still ship. After apply, for each live named stage, compile one known Keen (or Anomaly) file with that stage’s macros and roll back the pack on empty bytecode — same isolate-one-then-fail-closed path as Depth.
 
-- [ ] GBuffer: Standard Pixel/Vertex, `RENDERING_PASS=0` (velocity macro allowed)
-- [ ] Forward: Standard Pixel, `RENDERING_PASS=2`
-- [ ] Post.* / Lighting.*: the mapped compile root for that stage
-- [ ] `Anomaly.CameraVelocity`: existing fullscreen compile
-- [ ] In-game compile failure on a named-stage overlay rolls back that pack (not only Depth)
+- [x] GBuffer: Standard Pixel/Vertex, `RENDERING_PASS=0` (velocity macro allowed)
+- [x] Forward: Standard Pixel, `RENDERING_PASS=2` (plus Highlight / Transparent / TransparentForDecals)
+- [x] Post.* / Lighting.*: the mapped compile root for that stage (`NUMTHREADS=8` where Keen requires it)
+- [x] `Anomaly.CameraVelocity`: Fullscreen VS + CameraVelocity PS from Anomaly’s include dir
+- [x] In-game compile failure on a named-stage overlay rolls back that pack (not only Depth)
+- [x] Escape-hatch overlays (raw Keen paths) still probe the geometry passes, including Depth
+
+**Slice L code done when:** a local pack that breaks Standard GBuffer or HBAO LinearizeDepth is rolled back; Show Status / log names the pack. **Slice L proven when:** that rollback is visible in `SpaceEngineers.log`.
+
+---
+
+## Velocity debug overlay
+
+Goal: prove GBuffer vs CameraOnly without PIX. Anomaly-owned fullscreen, not a Keen overlay.
+
+- [x] Settings: `Debug velocity` (off) + integer `Debug scale (px)` (8–128, default 32)
+- [x] `Assets/Shaders/VelocityDebug.hlsl` + `Fullscreen.hlsl` VS; lazy compile
+- [x] `DrawGameScene` postfix (`Priority.Last`): sample `IVelocityBuffer`, stretch to `Backbuffer` (DRS), `BlendReplace`, `ClearState`
+- [x] Mid-gray = no motion; R/G = signed X/Y pixel delta; B = speed; magenta = `HistoryValid` false
+- [x] Status: `Velocity debug: on/off`
+
+**Code done when:** the toggle compiles and draws. **Proven when:** a moving grid looks different under GBuffer vs CameraOnly, and a camera pan is a smooth gradient on both.
 
 ---
 
@@ -266,4 +286,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **slice L** (compile a sentinel for each live named stage; roll back like Depth). Slice K (sample Hidden pack plugin) is deferred. PluginHub pin stays deferred.
+Next session is **in-game** with **Debug velocity** (GBuffer vs CameraOnly on a moving grid; camera pan; Depth still compiles) or PluginHub pin. Framework code continues in [Extensibility.md](Extensibility.md) at slice **P**. Slice K (sample Hidden pack) stays deferred until a pack needs to demonstrate inject + defines.

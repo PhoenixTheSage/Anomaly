@@ -47,7 +47,7 @@ public sealed class Plugin : IPlugin
         ShaderPackRegistry.ScanLocalDrop(GetConfigPath);
         ShaderPackRegistry.Apply();
         ShaderCompileIntercept.Activate();
-        ShaderPackRegistry.ValidateDepth();
+        ShaderPackRegistry.ValidateStages();
         CameraVelocityPass.Enabled = true;
         GBufferVelocity.Enabled = true;
         MyLog.Default.WriteLine("Anomaly shader framework initialized.");
@@ -100,7 +100,7 @@ public sealed class Plugin : IPlugin
         if (Instance != null)
         {
             ShaderCompileIntercept.Activate();
-            ShaderPackRegistry.ValidateDepth();
+            ShaderPackRegistry.ValidateStages();
         }
         MyLog.Default.WriteLine("Anomaly asset folder: " + folder);
         DebugLog.Write("LoadAssets " + folder);
@@ -123,7 +123,7 @@ public sealed class Plugin : IPlugin
         if (Instance != null)
         {
             ShaderCompileIntercept.Activate();
-            ShaderPackRegistry.ValidateDepth();
+            ShaderPackRegistry.ValidateStages();
         }
         MyLog.Default.WriteLine("Anomaly named assets: " + assets.Count
             + (shaders != null ? " Shaders=" + shaders : ""));

@@ -65,7 +65,7 @@ static class ShaderCompilerVelocityMacroPatch
     static void Prefix(ref string filepath, ref ShaderMacro[] macros)
     {
         ShaderCompileIntercept.TryRemapSource(ref filepath);
-        ShaderCompileIntercept.EnsureVelocityMacro(filepath, ref macros);
+        ShaderCompileIntercept.EnsureGBufferMacros(filepath, ref macros);
     }
 }
 
@@ -80,7 +80,7 @@ static class ShaderBundleGBufferMacroPatch
     static void Postfix(MyRenderPassType pass, List<ShaderMacro> macros)
     {
         if (pass == MyRenderPassType.GBuffer)
-            ShaderCompileIntercept.EnsureVelocityMacro(macros);
+            ShaderCompileIntercept.EnsureGBufferMacros(macros);
     }
 }
 

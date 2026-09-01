@@ -35,3 +35,5 @@ foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
 ```
 
 If `Active` is null or `IsAvailable` is false, keep a camera-only fallback. Do not Harmony-patch instance updates from the consumer.
+
+Anomaly can overlay this texture in-game (**Debug velocity** in settings) so you can compare `GBuffer` vs `CameraOnly` without a frame debugger.

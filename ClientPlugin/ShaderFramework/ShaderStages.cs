@@ -29,6 +29,11 @@ public static class ShaderStages
     public const string PostLuminance = "Post.Luminance";
     public const string PostChromaticAberration = "Post.ChromaticAberration";
     public const string AnomalyCameraVelocity = "Anomaly.CameraVelocity";
+    /// <summary>
+    /// Inject-only bucket (slice P wraps <c>Lighting/Light.hlsli</c>).
+    /// Not an overlay stage name.
+    /// </summary>
+    public const string Lighting = "Lighting";
 
     static readonly Stage[] Table =
     {
@@ -124,6 +129,7 @@ public static class ShaderStages
     static readonly Dictionary<string, string> KeyToStage =
         new(StringComparer.OrdinalIgnoreCase);
     static readonly string[] NamesLongestFirst;
+    static readonly string[] InjectNamesLongestFirst;
 
     static ShaderStages()
     {
@@ -144,6 +150,13 @@ public static class ShaderStages
 
         names.Sort((a, b) => b.Length.CompareTo(a.Length));
         NamesLongestFirst = names.ToArray();
+        var inject = new List<string>(names.Count + 1);
+        inject.AddRange(names);
+        if (!inject.Exists(n => string.Equals(n, Lighting, StringComparison.OrdinalIgnoreCase)))
+            inject.Add(Lighting);
+        inject.Sort((a, b) => b.Length.CompareTo(a.Length));
+        InjectNamesLongestFirst = inject.ToArray();
+        FillSentinels();
     }
 
     public static IReadOnlyList<string> Names => NamesLongestFirst;
@@ -165,6 +178,111 @@ public static class ShaderStages
             return false;
         return KeyToStage.TryGetValue(key, out stageName);
     }
+
+    public static bool IsForbiddenInjectStage(string stageName)
+    {
+        return string.Equals(stageName, Depth, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Map an <c>Inject/</c> relative path to a named stage.
+    /// Unscoped files (<c>Inject/foo.hlsli</c>) go to GBuffer (v1 packs).
+    /// Unknown folders fail closed.
+    /// </summary>
+    public static bool TryMapInjectPath(string injectRelative, out string stageName)
+    {
+        stageName = null;
+        var n = NormalizeSlashes(injectRelative);
+        if (n.Length == 0)
+            return false;
+
+        for (var i = 0; i < InjectNamesLongestFirst.Length; i++)
+        {
+            var name = InjectNamesLongestFirst[i];
+            if (n.Length == name.Length)
+            {
+                if (!string.Equals(n, name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                stageName = CanonicalInjectName(name);
+                return true;
+            }
+
+            if (n.Length < name.Length + 1)
+                continue;
+            if (!n.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var next = n[name.Length];
+            if (next == '/')
+            {
+                stageName = CanonicalInjectName(name);
+                return true;
+            }
+
+            if (next == '.' && n.IndexOf('/', name.Length) < 0)
+            {
+                var ext = n.Substring(name.Length);
+                if (IsShaderExtension(ext))
+                {
+                    stageName = CanonicalInjectName(name);
+                    return true;
+                }
+            }
+        }
+
+        if (n.IndexOf('/') < 0)
+        {
+            stageName = GBuffer;
+            return true;
+        }
+
+        return false;
+    }
+
+    static string CanonicalInjectName(string name)
+    {
+        if (string.Equals(name, Lighting, StringComparison.OrdinalIgnoreCase))
+            return Lighting;
+        for (var i = 0; i < NamesLongestFirst.Length; i++)
+        {
+            if (string.Equals(NamesLongestFirst[i], name, StringComparison.OrdinalIgnoreCase))
+                return NamesLongestFirst[i];
+        }
+
+        return name;
+    }
+
+    static bool IsShaderExtension(string ext)
+    {
+        return string.Equals(ext, ".hlsl", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(ext, ".hlsli", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(ext, ".h", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string ExtrasIncludePath(string stageName)
+    {
+        return "Anomaly/Extras/" + CanonicalInjectName(stageName ?? GBuffer) + ".hlsli";
+    }
+
+    public static bool IsGeometryStage(string stageName)
+    {
+        return string.Equals(stageName, GBuffer, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(stageName, Depth, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(stageName, Forward, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(stageName, Highlight, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(stageName, Transparent, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(stageName, TransparentForDecals, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool TryGetSentinels(string stageName, out StageCompileProbe[] probes)
+    {
+        probes = null;
+        if (string.IsNullOrEmpty(stageName))
+            return false;
+        return Sentinels.TryGetValue(stageName, out probes) && probes != null && probes.Length > 0;
+    }
+
+    static readonly Dictionary<string, StageCompileProbe[]> Sentinels =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public static bool IsAnomalyOwnedGBuffer(string keenKey)
     {
@@ -295,6 +413,96 @@ public static class ShaderStages
         return path.Replace('\\', '/').Trim().Trim('/');
     }
 
+    static void FillSentinels()
+    {
+        Add(GBuffer, Geometry("0", depthOnly: false));
+        Add(Depth, Geometry("1", depthOnly: true));
+        Add(Forward, Geometry("2", depthOnly: false));
+        Add(Highlight, Geometry("3", depthOnly: false));
+        Add(Transparent, Concat(Geometry("5", depthOnly: false), new[]
+        {
+            Pixel("Transparent/OIT/Resolve.hlsl", Transparent)
+        }));
+        Add(TransparentForDecals, Geometry("6", depthOnly: false));
+        Add(LightingDir, new[] { Pixel("Lighting/LightDir.hlsl", LightingDir) });
+        Add(LightingPoint, new[] { Pixel("Lighting/LightPoint.hlsl", LightingPoint) });
+        Add(LightingSpot, new[] { Pixel("Lighting/LightSpot.hlsl", LightingSpot) });
+        Add(PostTonemap, new[]
+        {
+            Compute("Postprocess/Tonemapping/Main.hlsl", PostTonemap, "NUMTHREADS=8")
+        });
+        Add(PostHbao, new[] { Pixel("Postprocess/HBAO/LinearizeDepth.hlsl", PostHbao) });
+        Add(PostSsao, new[] { Pixel("Postprocess/SSAO/Ssao.hlsl", PostSsao) });
+        Add(PostBloom, new[]
+        {
+            Compute("Postprocess/Bloom/Init.hlsl", PostBloom, "NUMTHREADS=8")
+        });
+        Add(PostFxaa, new[] { Pixel("Postprocess/Fxaa.hlsl", PostFxaa) });
+        Add(PostEyeAdaptation, new[]
+        {
+            Pixel("Postprocess/EyeAdaptation/ConstantExposure.hlsl", PostEyeAdaptation)
+        });
+        Add(PostLuminance, new[]
+        {
+            Compute("Postprocess/LuminanceReduction/Skip.hlsl", PostLuminance, "")
+        });
+        Add(PostChromaticAberration, new[]
+        {
+            Compute("Postprocess/ChromaticAberration/ChromaticAberration.hlsl",
+                PostChromaticAberration, "NUMTHREADS=8")
+        });
+        Add(AnomalyCameraVelocity, new[]
+        {
+            new StageCompileProbe("Fullscreen.hlsl", true, "vs_5_0", "",
+                "Anomaly.StageProbe." + AnomalyCameraVelocity + ".VS"),
+            new StageCompileProbe("CameraVelocity.hlsl", true, "ps_5_0", "",
+                "Anomaly.StageProbe." + AnomalyCameraVelocity + ".PS")
+        });
+    }
+
+    static void Add(string stage, StageCompileProbe[] probes)
+    {
+        Sentinels[stage] = probes;
+    }
+
+    static StageCompileProbe[] Geometry(string pass, bool depthOnly)
+    {
+        var macros = depthOnly
+            ? "DEPTH_ONLY=1;RENDERING_PASS=" + pass
+            : "RENDERING_PASS=" + pass;
+        var stage = depthOnly ? Depth :
+            pass == "0" ? GBuffer :
+            pass == "2" ? Forward :
+            pass == "3" ? Highlight :
+            pass == "5" ? Transparent :
+            pass == "6" ? TransparentForDecals : GBuffer;
+        return new[]
+        {
+            new StageCompileProbe("Geometry/Materials/Standard/Pixel.hlsl", false, "ps_5_0", macros,
+                "Anomaly.StageProbe." + stage + ".Pixel"),
+            new StageCompileProbe("Geometry/Materials/Standard/Vertex.hlsl", false, "vs_5_0", macros,
+                "Anomaly.StageProbe." + stage + ".Vertex")
+        };
+    }
+
+    static StageCompileProbe Pixel(string path, string stage)
+    {
+        return new StageCompileProbe(path, false, "ps_5_0", "", "Anomaly.StageProbe." + stage);
+    }
+
+    static StageCompileProbe Compute(string path, string stage, string macros)
+    {
+        return new StageCompileProbe(path, false, "cs_5_0", macros, "Anomaly.StageProbe." + stage);
+    }
+
+    static StageCompileProbe[] Concat(StageCompileProbe[] a, StageCompileProbe[] b)
+    {
+        var n = new StageCompileProbe[a.Length + b.Length];
+        Array.Copy(a, n, a.Length);
+        Array.Copy(b, 0, n, a.Length, b.Length);
+        return n;
+    }
+
     sealed class Stage
     {
         public readonly string Name;
@@ -305,5 +513,27 @@ public static class ShaderStages
             Name = name;
             Files = files;
         }
+    }
+}
+
+/// <summary>
+/// One compile used to prove a named stage still builds after overlays apply.
+/// </summary>
+public sealed class StageCompileProbe
+{
+    public readonly string RelativePath;
+    public readonly bool FromAnomalyInclude;
+    public readonly string Profile;
+    public readonly string Macros;
+    public readonly string Descriptor;
+
+    public StageCompileProbe(string relativePath, bool fromAnomalyInclude, string profile, string macros,
+        string descriptor)
+    {
+        RelativePath = relativePath;
+        FromAnomalyInclude = fromAnomalyInclude;
+        Profile = profile;
+        Macros = macros ?? "";
+        Descriptor = descriptor;
     }
 }

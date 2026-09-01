@@ -4,7 +4,8 @@ Pulsar client plugin that intercepts Space Engineers 1’s DX11 geometry shaders
 
 This document is the product plan (why velocity, Keen facts, phases). Related docs:
 
-- [ROADMAP.md](ROADMAP.md) — implementation order (start here to write code)
+- [ROADMAP.md](ROADMAP.md) — velocity + hook implementation order
+- [Extensibility.md](Extensibility.md) — post-velocity framework (inject, slots, bind, catalog)
 - [ShaderAPI.md](ShaderAPI.md) — compile hook, inject vs replace, named stages
 - [ShaderPacks.md](ShaderPacks.md) — Pulsar named assets and third-party HLSL packs
 - [KeenShaders.md](KeenShaders.md) — Keen HLSL inventory
@@ -13,7 +14,7 @@ DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces
 
 ## Current repo state
 
-`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Slices A–J are in this repo. Slice G (SE-DLSS bind) is shipped and proven in the consumer repo. PluginHub registration is deferred.
+`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Slices A–J and L are in this repo. Slice G (SE-DLSS bind) is shipped and proven in the consumer repo. Slice K (sample pack plugin) is deferred. PluginHub registration is deferred.
 
 - **SE-DLSS** stays the consumer in its own repo. Do not compile Anomaly sources into SE-DLSS or the reverse.
 - Keep Harmony, publicizer, `VRage.Render11` access, settings/deploy/Pulsar XML shape, Rich HUD coexistence patterns.
@@ -126,7 +127,8 @@ Folder: `ClientPlugin/Velocity/`. No `NgxHost`, no `DlssRuntime` types.
 Config on Anomaly:
 
 - `VelocitySource`: `GBuffer` (target) \| `CameraOnly`
-- Status: source, history actor count, whether GBuffer injection is live
+- `DebugVelocity` / `DebugVelocityScale`: false-color overlay of the published buffer (mid-gray = rest; magenta = invalid history)
+- Status: source, history actor count, whether GBuffer injection is live, debug overlay on/off
 
 PluginHub (when ready to register):
 
@@ -296,6 +298,7 @@ Use this only if GBuffer inject is blocked and SE-DLSS needs object MVs before i
 - [ ] Device create / `SetDRS` resize / device dispose: velocity RT follows internal resolution; no leak.
 - [ ] Depth permutations still compile (no fourth target).
 - [ ] Static station, camera turn: no new ghosting or sparkle vs SE-DLSS camera MVs.
+- [ ] Anomaly **Debug velocity**: camera pan is a smooth gradient; a moving grid differs between `GBuffer` and `CameraOnly` (ship pixels extra in GBuffer).
 - [ ] Moving grid / piston / rotor: DLSS ghosts gone when piggyback (or bootstrap raster) is on.
 - [ ] New actor / teleport: one-frame camera fallback, no smear.
 - [ ] Anomaly unloaded: SE-DLSS camera path still works.

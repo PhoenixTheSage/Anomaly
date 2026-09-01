@@ -45,5 +45,6 @@ static class CameraVelocityDeviceEndPatch
     static void Prefix()
     {
         CameraVelocityPass.Release();
+        VelocityDebugPass.Release();
     }
 }

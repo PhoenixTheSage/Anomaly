@@ -17,10 +17,11 @@ namespace ClientPlugin.Shaders;
 /// <c>ClientPlugin.Shaders.ShaderPackRegistry</c> — do not take a
 /// compile-time reference to Anomaly. Call <see cref="Register"/> from
 /// the pack's <c>LoadAssets</c>. Instantiate order is not dependency-sorted.
-/// Slice I: Standard Depth probe after apply; roll back the pack that
+/// Slice L: sentinel compile per live named stage; roll back the pack that
 /// fails it. Overlay of Anomaly GBuffer stages needs
 /// <c>exclusive: ["GBuffer"]</c>.
 /// Slice J: <see cref="ShaderStages"/> maps named overlay folders to Keen paths.
+/// Slices M–O: stage-scoped inject, pack defines, <see cref="GBufferAttachments"/>.
 /// </summary>
 public static class ShaderPackRegistry
 {
@@ -28,13 +29,9 @@ public static class ShaderPackRegistry
     public const string OverlayFolder = "Overlay";
     public const string InjectFolder = "Inject";
     public const string GeneratedExtrasPath = "Anomaly/GBufferExtras.hlsli";
+    public const string GeneratedExtrasStagePath = "Anomaly/Extras/GBuffer.hlsli";
     public const string GeneratedFingerprintPath = "Anomaly/PackFingerprint.hlsli";
     public const string ExclusiveGBuffer = ShaderStages.GBuffer;
-
-    static readonly string DepthProbePixel =
-        Path.Combine("Geometry", "Materials", "Standard", "Pixel.hlsl");
-    static readonly string DepthProbeVertex =
-        Path.Combine("Geometry", "Materials", "Standard", "Vertex.hlsl");
 
     static readonly object Gate = new();
     static readonly Dictionary<string, PendingPack> Pending = new(StringComparer.OrdinalIgnoreCase);
@@ -45,10 +42,13 @@ public static class ShaderPackRegistry
 
     static byte[] extrasBytes;
     static byte[] fingerprintBytes;
+    static readonly Dictionary<string, byte[]> GeneratedFiles = new(StringComparer.OrdinalIgnoreCase);
+    static ShaderMacro[] liveDefineMacros = Array.Empty<ShaderMacro>();
+    static string liveDefinesStatus = "";
     static bool localScanned;
     static string extractRoot;
-    static bool depthProbePending;
-    static bool depthProbeInProgress;
+    static bool stageProbePending;
+    static bool stageProbeInProgress;
 
     public static string Fingerprint { get; private set; } = "0";
     public static int LivePackCount { get; private set; }
@@ -56,16 +56,30 @@ public static class ShaderPackRegistry
     public static int RolledBackCount { get; private set; }
     public static string LiveStages { get; private set; } = "";
     public static string LastError { get; private set; }
+    public static string LiveDefines => liveDefinesStatus;
 
-    internal static bool DepthProbePending
+    public static ShaderMacro[] LiveDefineMacros
     {
-        get { lock (Gate) return depthProbePending; }
+        get
+        {
+            lock (Gate)
+                return liveDefineMacros;
+        }
     }
 
-    internal static bool DepthProbeInProgress
+    internal static bool StageProbePending
     {
-        get { lock (Gate) return depthProbeInProgress; }
+        get { lock (Gate) return stageProbePending; }
     }
+
+    internal static bool StageProbeInProgress
+    {
+        get { lock (Gate) return stageProbeInProgress; }
+    }
+
+    internal static bool DepthProbePending => StageProbePending;
+
+    internal static bool DepthProbeInProgress => StageProbeInProgress;
 
     public static string StatusLine
     {
@@ -83,6 +97,11 @@ public static class ShaderPackRegistry
                     line += "  rolled-back=" + RolledBackCount;
                 if (!string.IsNullOrEmpty(LiveStages))
                     line += "  stages=" + LiveStages;
+                if (!string.IsNullOrEmpty(liveDefinesStatus) && liveDefinesStatus != "none")
+                    line += "  defines=" + liveDefinesStatus;
+                var attach = GBufferAttachments.StatusLine;
+                if (!string.IsNullOrEmpty(attach) && attach != "none")
+                    line += "  attach=" + attach;
                 return line;
             }
         }
@@ -127,7 +146,7 @@ public static class ShaderPackRegistry
         }
 
         if (applied)
-            ValidateDepth();
+            ValidateStages();
     }
 
     internal static void ScanLocalDrop(Func<string, string, string> getConfigPath)
@@ -167,18 +186,24 @@ public static class ShaderPackRegistry
     {
         lock (Gate)
             ApplyUnlocked();
-        ValidateDepth();
+        ValidateStages();
     }
 
     /// <summary>
-    /// Compile Keen Standard Depth after overlays are live. Safe after
-    /// <c>MyShaderCompiler.Compile</c> returns (Harmony postfix) or from
-    /// <c>Init</c> before the first frame — not from inside an in-flight compile.
+    /// Compile a sentinel for each live named stage (and Standard Depth/GBuffer
+    /// when an escape-hatch overlay can touch geometry). Safe after
+    /// <c>MyShaderCompiler.Compile</c> returns or from <c>Init</c> — not from
+    /// inside an in-flight compile.
     /// </summary>
-    internal static void ValidateDepth()
+    internal static void ValidateStages()
     {
         lock (Gate)
-            ValidateDepthUnlocked();
+            ValidateStagesUnlocked();
+    }
+
+    internal static void ValidateDepth()
+    {
+        ValidateStages();
     }
 
     internal static string DescribeCompileOwners(string filepath)
@@ -198,15 +223,14 @@ public static class ShaderPackRegistry
     }
 
     /// <summary>
-    /// Depth permutation failed in-game. Roll back the overlay owner, or
-    /// every live overlay pack if the owner is unknown. Does not compile
-    /// (Keen's static macro list is still in use on this stack).
+    /// Compile failed in-game. Roll back the overlay owner, or packs on the
+    /// inferred named stage. Does not compile (Keen's static macro list).
     /// </summary>
-    internal static void OnDepthCompileFailed(string filepath)
+    internal static void OnCompileFailed(string filepath, ShaderMacro[] macros)
     {
         lock (Gate)
         {
-            if (depthProbeInProgress)
+            if (stageProbeInProgress)
                 return;
 
             if (TryMatchOverlayOwner(filepath, out var ownerId) &&
@@ -214,38 +238,59 @@ public static class ShaderPackRegistry
             {
                 owner.RolledBack = true;
                 ApplyUnlocked();
-                Warn("rolled back pack '" + owner.ManifestId + "' after Depth compile failure of " +
+                Warn("rolled back pack '" + owner.ManifestId + "' after compile failure of " +
                      (filepath ?? "(unknown)"));
                 return;
             }
 
-            var suspects = CollectOverlaySuspects(filepath);
+            var stage = InferFailedStage(filepath, macros);
+            var suspects = stage != null
+                ? CollectStageSuspects(stage)
+                : CollectOverlaySuspects(filepath);
             if (suspects.Count == 0)
             {
-                Warn("Depth compile failed with no overlay owner: " + (filepath ?? "(unknown)"));
+                Warn("compile failed with no overlay owner: " + (filepath ?? "(unknown)") +
+                     (stage != null ? " stage=" + stage : ""));
                 return;
             }
 
             foreach (var pack in suspects)
                 pack.RolledBack = true;
             ApplyUnlocked();
-            Warn("rolled back " + suspects.Count + " overlay pack(s) after Depth compile failure: " +
-                 JoinPackIds(suspects) + " file=" + (filepath ?? "(unknown)"));
+            Warn("rolled back " + suspects.Count + " overlay pack(s) after compile failure: " +
+                 JoinPackIds(suspects) + " file=" + (filepath ?? "(unknown)") +
+                 (stage != null ? " stage=" + stage : ""));
         }
+    }
+
+    internal static void OnDepthCompileFailed(string filepath)
+    {
+        OnCompileFailed(filepath, null);
     }
 
     internal static bool TryOpenGenerated(string relativeKey, out Stream stream)
     {
         stream = null;
+        if (GBufferAttachments.TryOpenGenerated(relativeKey, out stream))
+            return true;
         lock (Gate)
         {
             EnsureStubsUnlocked();
-            byte[] bytes;
+            var key = NormalizeKeyOrEmpty(relativeKey);
+            if (GeneratedFiles.TryGetValue(key, out var bytes) && bytes != null)
+            {
+                stream = new MemoryStream(bytes, writable: false);
+                return true;
+            }
+
             if (KeysEqual(relativeKey, GeneratedFingerprintPath))
                 bytes = fingerprintBytes;
-            else if (KeysEqual(relativeKey, GeneratedExtrasPath))
+            else if (KeysEqual(relativeKey, GeneratedExtrasPath) ||
+                     KeysEqual(relativeKey, GeneratedExtrasStagePath))
                 bytes = extrasBytes;
             else
+                return false;
+            if (bytes == null)
                 return false;
             stream = new MemoryStream(bytes, writable: false);
             return true;
@@ -444,10 +489,11 @@ public static class ShaderPackRegistry
             }
         }
 
-        var extras = new StringBuilder();
-        extras.AppendLine("#ifndef ANOMALY_GBUFFER_EXTRAS_HLSLI");
-        extras.AppendLine("#define ANOMALY_GBUFFER_EXTRAS_HLSLI");
+        var extrasByStage = new Dictionary<string, StringBuilder>(StringComparer.OrdinalIgnoreCase);
+        EnsureStageExtrasHeader(extrasByStage, ShaderStages.GBuffer);
         var live = 0;
+        var defineNames = new List<string>();
+        var packAttachments = new List<GBufferAttachments.QueuedRequest>();
         using (var fingerprintStream = new MemoryStream())
         {
             foreach (var pack in packs)
@@ -457,6 +503,8 @@ public static class ShaderPackRegistry
                 live++;
                 WriteUtf8(fingerprintStream, pack.ManifestId);
                 WriteUtf8(fingerprintStream, pack.Root);
+                MergePackDefines(pack, defineNames);
+                CollectPackAttachments(pack, packAttachments);
                 if (Directory.Exists(Path.Combine(pack.Root, InjectFolder)))
                     PackIncludeDirs.Add(Path.GetFullPath(Path.Combine(pack.Root, InjectFolder)));
 
@@ -470,22 +518,40 @@ public static class ShaderPackRegistry
 
                 foreach (var inject in pack.InjectFiles)
                 {
-                    WriteFile(fingerprintStream, inject);
-                    extras.Append("// pack ").Append(pack.ManifestId).Append(" ")
-                        .AppendLine(Path.GetFileName(inject));
+                    WriteUtf8(fingerprintStream, inject.Stage);
+                    WriteFile(fingerprintStream, inject.FullPath);
+                    var stageExtras = EnsureStageExtrasHeader(extrasByStage, inject.Stage);
+                    stageExtras.Append("// pack ").Append(pack.ManifestId).Append(" ")
+                        .AppendLine(Path.GetFileName(inject.FullPath));
                     try
                     {
-                        extras.AppendLine(File.ReadAllText(inject));
+                        stageExtras.AppendLine(File.ReadAllText(inject.FullPath));
                     }
                     catch (Exception e)
                     {
-                        extras.Append("// failed to read: ").AppendLine(e.Message);
+                        stageExtras.Append("// failed to read: ").AppendLine(e.Message);
                     }
                 }
             }
 
-            extras.AppendLine("#endif");
-            extrasBytes = Utf8.GetBytes(extras.ToString());
+            defineNames.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in defineNames)
+                WriteUtf8(fingerprintStream, name);
+
+            GBufferAttachments.SetPackRequests(packAttachments);
+            GBufferAttachments.Assign();
+            ConflictCount += GBufferAttachments.ConflictCount;
+            GBufferAttachments.WriteFingerprint(fingerprintStream);
+
+            CloseStageExtras(extrasByStage);
+            WriteGeneratedExtras(extrasByStage);
+            extrasBytes = GeneratedFiles.ContainsKey(NormalizeKeyOrEmpty(GeneratedExtrasStagePath))
+                ? GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasStagePath)]
+                : Utf8.GetBytes(EmptyStageExtras(ShaderStages.GBuffer));
+
+            liveDefineMacros = ToDefineMacros(defineNames);
+            liveDefinesStatus = defineNames.Count == 0 ? "none" : string.Join(",", defineNames);
+
             fingerprintStream.Position = 0;
             using (var sha = SHA256.Create())
                 Fingerprint = ToHex(sha.ComputeHash(fingerprintStream));
@@ -499,22 +565,172 @@ public static class ShaderPackRegistry
             "#define ANOMALY_PACK_FINGERPRINT_HLSLI\n" +
             "// anomaly-packs " + Fingerprint + "\n" +
             "#endif\n");
+        GeneratedFiles[NormalizeKeyOrEmpty(GeneratedFingerprintPath)] = fingerprintBytes;
 
         ShaderCompileIntercept.SetPackIncludeDirectories(PackIncludeDirs);
         Log("packs applied live=" + LivePackCount + " overlays=" + OverlayFiles.Count +
             " conflicts=" + ConflictCount + " rolled-back=" + RolledBackCount +
             (string.IsNullOrEmpty(LiveStages) ? "" : " stages=" + LiveStages) +
+            (liveDefinesStatus != "none" ? " defines=" + liveDefinesStatus : "") +
+            (GBufferAttachments.StatusLine != "none" ? " attach=" + GBufferAttachments.StatusLine : "") +
             " fp=" + Fingerprint);
     }
 
     static void EnsureStubsUnlocked()
     {
-        if (fingerprintBytes != null && extrasBytes != null)
+        if (fingerprintBytes != null && extrasBytes != null && GeneratedFiles.Count > 0)
             return;
-        extrasBytes = Utf8.GetBytes(
-            "#ifndef ANOMALY_GBUFFER_EXTRAS_HLSLI\n#define ANOMALY_GBUFFER_EXTRAS_HLSLI\n#endif\n");
+        extrasBytes = Utf8.GetBytes(EmptyStageExtras(ShaderStages.GBuffer));
         fingerprintBytes = Utf8.GetBytes(
             "#ifndef ANOMALY_PACK_FINGERPRINT_HLSLI\n#define ANOMALY_PACK_FINGERPRINT_HLSLI\n// anomaly-packs none\n#endif\n");
+        GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasStagePath)] = extrasBytes;
+        GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasPath)] = Utf8.GetBytes(GBufferExtrasAlias());
+        GeneratedFiles[NormalizeKeyOrEmpty(GeneratedFingerprintPath)] = fingerprintBytes;
+    }
+
+    static StringBuilder EnsureStageExtrasHeader(Dictionary<string, StringBuilder> map, string stage)
+    {
+        if (!map.TryGetValue(stage, out var sb))
+        {
+            sb = new StringBuilder();
+            var guard = "ANOMALY_EXTRAS_" + stage.Replace(".", "_").ToUpperInvariant() + "_HLSLI";
+            sb.AppendLine("#ifndef " + guard);
+            sb.AppendLine("#define " + guard);
+            map[stage] = sb;
+        }
+
+        return sb;
+    }
+
+    static void CloseStageExtras(Dictionary<string, StringBuilder> map)
+    {
+        foreach (var kv in map)
+            kv.Value.AppendLine("#endif");
+    }
+
+    static void WriteGeneratedExtras(Dictionary<string, StringBuilder> map)
+    {
+        GeneratedFiles.Clear();
+        foreach (var kv in map)
+        {
+            var path = ShaderStages.ExtrasIncludePath(kv.Key);
+            GeneratedFiles[NormalizeKeyOrEmpty(path)] = Utf8.GetBytes(kv.Value.ToString());
+        }
+
+        if (!GeneratedFiles.ContainsKey(NormalizeKeyOrEmpty(GeneratedExtrasStagePath)))
+            GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasStagePath)] =
+                Utf8.GetBytes(EmptyStageExtras(ShaderStages.GBuffer));
+        GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasPath)] = Utf8.GetBytes(GBufferExtrasAlias());
+    }
+
+    static string EmptyStageExtras(string stage)
+    {
+        var guard = "ANOMALY_EXTRAS_" + stage.Replace(".", "_").ToUpperInvariant() + "_HLSLI";
+        return "#ifndef " + guard + "\n#define " + guard + "\n#endif\n";
+    }
+
+    static string GBufferExtrasAlias()
+    {
+        return "#ifndef ANOMALY_GBUFFER_EXTRAS_HLSLI\n" +
+               "#define ANOMALY_GBUFFER_EXTRAS_HLSLI\n" +
+               "#include <Anomaly/Extras/GBuffer.hlsli>\n" +
+               "#include <Anomaly/Extras/GBufferAttachmentDefs.hlsli>\n" +
+               "#endif\n";
+    }
+
+    static void MergePackDefines(PendingPack pack, List<string> dest)
+    {
+        if (pack.Defines == null)
+            return;
+        for (var i = 0; i < pack.Defines.Length; i++)
+        {
+            var name = pack.Defines[i];
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+            name = name.Trim();
+            var eq = name.IndexOf('=');
+            if (eq > 0)
+                name = name.Substring(0, eq).Trim();
+            if (!GBufferAttachments.IsHlslIdent(name))
+            {
+                Warn("pack " + pack.ManifestId + " skipped invalid define '" + pack.Defines[i] + "'");
+                continue;
+            }
+
+            if (GBufferAttachments.IsReservedDefine(name))
+            {
+                Warn("pack " + pack.ManifestId + " skipped reserved define '" + name + "'");
+                continue;
+            }
+
+            var found = false;
+            for (var d = 0; d < dest.Count; d++)
+            {
+                if (!string.Equals(dest[d], name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                found = true;
+                break;
+            }
+
+            if (!found)
+                dest.Add(name);
+        }
+    }
+
+    static void CollectPackAttachments(PendingPack pack, List<GBufferAttachments.QueuedRequest> dest)
+    {
+        if (pack.Attachments == null)
+            return;
+        for (var i = 0; i < pack.Attachments.Length; i++)
+        {
+            var spec = pack.Attachments[i];
+            if (spec == null)
+                continue;
+            if (!GBufferAttachments.TryNormalizeRequest(spec.Name, spec.Format, spec.Stage,
+                    pack.ManifestId, out var queued, out var error))
+            {
+                Warn("pack " + pack.ManifestId + " " + error);
+                continue;
+            }
+
+            dest.Add(queued);
+        }
+    }
+
+    static ShaderMacro[] ToDefineMacros(List<string> names)
+    {
+        if (names == null || names.Count == 0)
+            return Array.Empty<ShaderMacro>();
+        var macros = new ShaderMacro[names.Count];
+        for (var i = 0; i < names.Count; i++)
+            macros[i] = new ShaderMacro(names[i], "1");
+        return macros;
+    }
+
+    internal static void RefreshFingerprint()
+    {
+        lock (Gate)
+        {
+            if (extrasBytes == null)
+                return;
+            using (var fingerprintStream = new MemoryStream())
+            {
+                WriteUtf8(fingerprintStream, Fingerprint);
+                GBufferAttachments.WriteFingerprint(fingerprintStream);
+                foreach (var m in liveDefineMacros)
+                    WriteUtf8(fingerprintStream, m.Name);
+                fingerprintStream.Position = 0;
+                using (var sha = SHA256.Create())
+                    Fingerprint = ToHex(sha.ComputeHash(fingerprintStream));
+            }
+
+            fingerprintBytes = Utf8.GetBytes(
+                "#ifndef ANOMALY_PACK_FINGERPRINT_HLSLI\n" +
+                "#define ANOMALY_PACK_FINGERPRINT_HLSLI\n" +
+                "// anomaly-packs " + Fingerprint + "\n" +
+                "#endif\n");
+            GeneratedFiles[NormalizeKeyOrEmpty(GeneratedFingerprintPath)] = fingerprintBytes;
+        }
     }
 
     static PendingPack ScanPack(string registerId, string root, Manifest manifest, bool local)
@@ -526,10 +742,12 @@ public static class ShaderPackRegistry
             Name = manifest.Name ?? registerId,
             Priority = manifest.Priority,
             Exclusive = manifest.Exclusive,
+            Defines = manifest.Defines,
+            Attachments = manifest.Attachments,
             Root = root,
             Local = local,
             Overlays = new List<OverlayFile>(),
-            InjectFiles = new List<string>()
+            InjectFiles = new List<InjectFile>()
         };
 
         var overlayRoot = Path.Combine(root, OverlayFolder);
@@ -591,10 +809,35 @@ public static class ShaderPackRegistry
                 var full = Path.GetFullPath(file);
                 if (!IsUnderRoot(injectRoot, full))
                     continue;
-                pack.InjectFiles.Add(full);
+                var rel = file.Substring(injectRoot.Length)
+                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!TryNormalizeKey(rel, out var injectRel))
+                {
+                    Warn("pack " + pack.ManifestId + " skipped inject path: " + rel);
+                    continue;
+                }
+
+                if (!ShaderStages.TryMapInjectPath(injectRel, out var injectStage))
+                {
+                    Warn("pack " + pack.ManifestId + " skipped inject (unknown named-stage folder): " +
+                         injectRel);
+                    continue;
+                }
+
+                if (ShaderStages.IsForbiddenInjectStage(injectStage))
+                {
+                    Warn("pack " + pack.ManifestId + " skipped inject into Depth: " + injectRel);
+                    continue;
+                }
+
+                pack.InjectFiles.Add(new InjectFile { Stage = injectStage, FullPath = full });
             }
 
-            pack.InjectFiles.Sort(StringComparer.OrdinalIgnoreCase);
+            pack.InjectFiles.Sort((a, b) =>
+            {
+                var c = string.Compare(a.Stage, b.Stage, StringComparison.OrdinalIgnoreCase);
+                return c != 0 ? c : string.Compare(a.FullPath, b.FullPath, StringComparison.OrdinalIgnoreCase);
+            });
         }
 
         return pack;
@@ -642,48 +885,78 @@ public static class ShaderPackRegistry
         return null;
     }
 
-    static void ValidateDepthUnlocked()
+    static void ValidateStagesUnlocked()
     {
-        if (depthProbeInProgress)
+        if (stageProbeInProgress)
             return;
-        if (OverlayFiles.Count == 0)
+        if (!HasAnythingToProbeUnlocked())
         {
-            depthProbePending = false;
+            stageProbePending = false;
             return;
         }
 
-        if (!ShaderCompileIntercept.IsLive || !TryDepthProbePaths(out var pixel, out var vertex))
+        if (!ShaderCompileIntercept.IsLive)
         {
-            depthProbePending = true;
+            stageProbePending = true;
             return;
         }
 
-        depthProbeInProgress = true;
+        stageProbeInProgress = true;
         try
         {
-            if (ProbeDepthCore(pixel, vertex))
+            for (var round = 0; round < 8; round++)
             {
-                depthProbePending = false;
-                Log("Depth probe ok (Standard DEPTH_ONLY)");
-                return;
+                if (!TryBuildRuntimeProbes(out var probes, out var notReady))
+                {
+                    if (notReady)
+                    {
+                        stageProbePending = true;
+                        return;
+                    }
+
+                    stageProbePending = false;
+                    return;
+                }
+
+                string failedStage = null;
+                for (var i = 0; i < probes.Count; i++)
+                {
+                    if (CompileProbe(probes[i]))
+                        continue;
+                    failedStage = probes[i].Stage;
+                    break;
+                }
+
+                if (failedStage == null)
+                {
+                    stageProbePending = false;
+                    Log("stage probes ok (" + DescribeProbeStages(probes) + ")");
+                    return;
+                }
+
+                var stageProbes = FilterProbes(probes, failedStage);
+                if (!IsolateStageFailureUnlocked(failedStage, stageProbes))
+                    return;
             }
 
-            IsolateDepthFailureUnlocked(pixel, vertex);
-            depthProbePending = false;
+            Warn("stage probes stopped after too many rollback rounds");
+            stageProbePending = false;
         }
         finally
         {
-            depthProbeInProgress = false;
+            stageProbeInProgress = false;
         }
     }
 
-    static void IsolateDepthFailureUnlocked(string pixel, string vertex)
+    static bool IsolateStageFailureUnlocked(string stage, List<RuntimeProbe> stageProbes)
     {
-        var candidates = CollectLiveOverlayPacks();
+        var candidates = CollectStageSuspects(stage);
+        if (candidates.Count == 0)
+            candidates = CollectLiveOverlayPacks();
         if (candidates.Count == 0)
         {
-            Warn("Depth probe failed with no live overlay packs — Keen/Anomaly baseline");
-            return;
+            Warn(stage + " probe failed with no live overlay packs — Keen/Anomaly baseline");
+            return false;
         }
 
         candidates.Sort(ComparePacks);
@@ -692,10 +965,10 @@ public static class ShaderPackRegistry
             var pack = candidates[i];
             pack.RolledBack = true;
             ApplyUnlocked();
-            if (ProbeDepthCore(pixel, vertex))
+            if (CompileProbeList(stageProbes))
             {
-                Warn("rolled back pack '" + pack.ManifestId + "' after Depth probe failure");
-                return;
+                Warn("rolled back pack '" + pack.ManifestId + "' after " + stage + " probe failure");
+                return true;
             }
 
             pack.RolledBack = false;
@@ -704,61 +977,339 @@ public static class ShaderPackRegistry
         foreach (var pack in candidates)
             pack.RolledBack = true;
         ApplyUnlocked();
-        if (ProbeDepthCore(pixel, vertex))
+        if (CompileProbeList(stageProbes))
         {
-            Warn("rolled back all overlay packs after Depth probe failure: " + JoinPackIds(candidates));
-            return;
+            Warn("rolled back all overlay packs after " + stage + " probe failure: " +
+                 JoinPackIds(candidates));
+            return true;
         }
 
         foreach (var pack in candidates)
             pack.RolledBack = false;
         ApplyUnlocked();
-        Warn("Depth probe failed with overlays disabled — Keen/Anomaly baseline");
+        Warn(stage + " probe failed with overlays disabled — Keen/Anomaly baseline");
+        return false;
     }
 
-    static bool ProbeDepthCore(string pixel, string vertex)
+    static bool CompileProbeList(List<RuntimeProbe> probes)
+    {
+        for (var i = 0; i < probes.Count; i++)
+        {
+            if (!CompileProbe(probes[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool CompileProbe(RuntimeProbe probe)
     {
         try
         {
-            var macros = new[]
-            {
-                new ShaderMacro("DEPTH_ONLY", "1"),
-                new ShaderMacro(ShaderCompileIntercept.RenderingPassMacro, "1")
-            };
-            var ps = MyShaderCompiler.Compile(pixel, macros, MyShaderProfile.ps_5_0,
-                "Anomaly.DepthProbe.Standard.Pixel", invalidateCache: false);
-            if (ps == null || ps.Length == 0)
+            if (string.IsNullOrEmpty(probe.FullPath) || !File.Exists(probe.FullPath))
                 return false;
-            if (string.IsNullOrEmpty(vertex) || !File.Exists(vertex))
-                return true;
-            var vs = MyShaderCompiler.Compile(vertex, macros, MyShaderProfile.vs_5_0,
-                "Anomaly.DepthProbe.Standard.Vertex", invalidateCache: false);
-            return vs != null && vs.Length != 0;
+            var bc = MyShaderCompiler.Compile(probe.FullPath, probe.Macros, probe.Profile,
+                probe.Descriptor, invalidateCache: false);
+            return bc != null && bc.Length != 0;
         }
         catch (Exception e)
         {
-            Warn("Depth probe exception: " + e.GetType().Name + ": " + e.Message);
+            Warn(probe.Stage + " probe exception: " + e.GetType().Name + ": " + e.Message);
             return false;
         }
     }
 
-    static bool TryDepthProbePaths(out string pixel, out string vertex)
+    static bool HasAnythingToProbeUnlocked()
     {
-        pixel = null;
-        vertex = null;
+        if (OverlayFiles.Count > 0)
+            return true;
+        if (GBufferAttachments.HasColorTargets)
+            return true;
+        foreach (var pack in Pending.Values)
+        {
+            if (pack.Disabled)
+                continue;
+            if (pack.InjectFiles != null && pack.InjectFiles.Count > 0)
+                return true;
+            if (pack.Defines != null && pack.Defines.Length > 0)
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool TryBuildRuntimeProbes(out List<RuntimeProbe> probes, out bool notReady)
+    {
+        probes = new List<RuntimeProbe>();
+        notReady = false;
+        var stages = CollectStagesToProbe();
+        if (stages.Count == 0)
+            return false;
+
+        string shadersRoot = null;
         try
         {
-            var root = MyShaderCompiler.ShadersPath;
-            if (string.IsNullOrEmpty(root))
-                return false;
-            pixel = Path.Combine(root, DepthProbePixel);
-            vertex = Path.Combine(root, DepthProbeVertex);
-            return File.Exists(pixel);
+            shadersRoot = MyShaderCompiler.ShadersPath;
         }
         catch
         {
-            return false;
+            shadersRoot = null;
         }
+
+        var include = ShaderCompileIntercept.IncludeDirectory;
+        for (var s = 0; s < stages.Count; s++)
+        {
+            if (!ShaderStages.TryGetSentinels(stages[s], out var specs))
+                continue;
+            for (var i = 0; i < specs.Length; i++)
+            {
+                var spec = specs[i];
+                var root = spec.FromAnomalyInclude ? include : shadersRoot;
+                if (string.IsNullOrEmpty(root))
+                {
+                    notReady = true;
+                    return false;
+                }
+
+                var full = CombineRelative(root, spec.RelativePath);
+                if (!File.Exists(full))
+                {
+                    notReady = true;
+                    return false;
+                }
+
+                if (!TryParseProfile(spec.Profile, out var profile))
+                    continue;
+                probes.Add(new RuntimeProbe
+                {
+                    Stage = stages[s],
+                    FullPath = full,
+                    Profile = profile,
+                    Macros = ParseMacros(spec.Macros),
+                    Descriptor = spec.Descriptor
+                });
+            }
+        }
+
+        return probes.Count > 0;
+    }
+
+    static List<string> CollectStagesToProbe()
+    {
+        var names = new List<string>();
+        var hasEscape = false;
+        foreach (var key in OverlayFiles.Keys)
+        {
+            if (ShaderStages.TryGetStageForKey(key, out var stage) && !string.IsNullOrEmpty(stage))
+            {
+                AddUnique(names, stage);
+                continue;
+            }
+
+            hasEscape = true;
+        }
+
+        foreach (var pack in Pending.Values)
+        {
+            if (pack.Disabled)
+                continue;
+            foreach (var inject in pack.InjectFiles)
+                AddUnique(names, inject.Stage);
+        }
+
+        if (hasEscape)
+        {
+            AddUnique(names, ShaderStages.GBuffer);
+            AddUnique(names, ShaderStages.Depth);
+            AddUnique(names, ShaderStages.Forward);
+            AddUnique(names, ShaderStages.Highlight);
+            AddUnique(names, ShaderStages.Transparent);
+            AddUnique(names, ShaderStages.TransparentForDecals);
+        }
+
+        if (names.Count == 0 && GBufferAttachments.HasColorTargets)
+            AddUnique(names, ShaderStages.GBuffer);
+
+        return names;
+    }
+
+    static void AddUnique(List<string> names, string stage)
+    {
+        for (var i = 0; i < names.Count; i++)
+        {
+            if (string.Equals(names[i], stage, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        names.Add(stage);
+    }
+
+    static List<RuntimeProbe> FilterProbes(List<RuntimeProbe> probes, string stage)
+    {
+        var list = new List<RuntimeProbe>();
+        for (var i = 0; i < probes.Count; i++)
+        {
+            if (string.Equals(probes[i].Stage, stage, StringComparison.OrdinalIgnoreCase))
+                list.Add(probes[i]);
+        }
+
+        return list;
+    }
+
+    static string DescribeProbeStages(List<RuntimeProbe> probes)
+    {
+        var names = new List<string>();
+        for (var i = 0; i < probes.Count; i++)
+            AddUnique(names, probes[i].Stage);
+        names.Sort(StringComparer.OrdinalIgnoreCase);
+        return string.Join(",", names);
+    }
+
+    static string CombineRelative(string root, string relative)
+    {
+        var parts = relative.Replace('/', Path.DirectorySeparatorChar)
+            .Split(new[] { Path.DirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+        var path = root;
+        for (var i = 0; i < parts.Length; i++)
+            path = Path.Combine(path, parts[i]);
+        return Path.GetFullPath(path);
+    }
+
+    static bool TryParseProfile(string name, out MyShaderProfile profile)
+    {
+        profile = MyShaderProfile.ps_5_0;
+        if (string.Equals(name, "vs_5_0", StringComparison.OrdinalIgnoreCase))
+        {
+            profile = MyShaderProfile.vs_5_0;
+            return true;
+        }
+
+        if (string.Equals(name, "ps_5_0", StringComparison.OrdinalIgnoreCase))
+        {
+            profile = MyShaderProfile.ps_5_0;
+            return true;
+        }
+
+        if (string.Equals(name, "gs_5_0", StringComparison.OrdinalIgnoreCase))
+        {
+            profile = MyShaderProfile.gs_5_0;
+            return true;
+        }
+
+        if (string.Equals(name, "cs_5_0", StringComparison.OrdinalIgnoreCase))
+        {
+            profile = MyShaderProfile.cs_5_0;
+            return true;
+        }
+
+        return false;
+    }
+
+    static ShaderMacro[] ParseMacros(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return Array.Empty<ShaderMacro>();
+        var parts = text.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+        var macros = new ShaderMacro[parts.Length];
+        var n = 0;
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var p = parts[i].Trim();
+            if (p.Length == 0)
+                continue;
+            var eq = p.IndexOf('=');
+            if (eq <= 0)
+            {
+                macros[n++] = new ShaderMacro(p, "1");
+                continue;
+            }
+
+            macros[n++] = new ShaderMacro(p.Substring(0, eq).Trim(), p.Substring(eq + 1).Trim());
+        }
+
+        if (n == macros.Length)
+            return macros;
+        var trimmed = new ShaderMacro[n];
+        Array.Copy(macros, trimmed, n);
+        return trimmed;
+    }
+
+    static string InferFailedStage(string filepath, ShaderMacro[] macros)
+    {
+        if (!string.IsNullOrEmpty(filepath))
+        {
+            try
+            {
+                var full = Path.GetFullPath(filepath);
+                try
+                {
+                    var shadersRoot = Path.GetFullPath(MyShaderCompiler.ShadersPath);
+                    if (TryRelativize(shadersRoot, full, out var rel) &&
+                        ShaderStages.TryGetStageForKey(rel, out var fromKeen))
+                        return fromKeen;
+                }
+                catch
+                {
+                    // ShadersPath not ready.
+                }
+
+                var include = ShaderCompileIntercept.IncludeDirectory;
+                if (!string.IsNullOrEmpty(include) &&
+                    TryRelativize(Path.GetFullPath(include), full, out var inc) &&
+                    ShaderStages.TryGetStageForKey(inc, out var fromAnomaly))
+                    return fromAnomaly;
+
+                var file = Path.GetFileName(full);
+                if (string.Equals(file, "CameraVelocity.hlsl", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(file, "Fullscreen.hlsl", StringComparison.OrdinalIgnoreCase))
+                    return ShaderStages.AnomalyCameraVelocity;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        return InferStageFromMacros(macros);
+    }
+
+    static string InferStageFromMacros(ShaderMacro[] macros)
+    {
+        if (macros == null)
+            return null;
+        var depthOnly = false;
+        string pass = null;
+        for (var i = 0; i < macros.Length; i++)
+        {
+            if (string.Equals(macros[i].Name, "DEPTH_ONLY", StringComparison.Ordinal))
+                depthOnly = true;
+            if (string.Equals(macros[i].Name, ShaderCompileIntercept.RenderingPassMacro,
+                    StringComparison.Ordinal))
+                pass = macros[i].Definition;
+        }
+
+        if (depthOnly || pass == "1")
+            return ShaderStages.Depth;
+        if (pass == "0")
+            return ShaderStages.GBuffer;
+        if (pass == "2")
+            return ShaderStages.Forward;
+        if (pass == "3")
+            return ShaderStages.Highlight;
+        if (pass == "5")
+            return ShaderStages.Transparent;
+        if (pass == "6")
+            return ShaderStages.TransparentForDecals;
+        return null;
+    }
+
+    sealed class RuntimeProbe
+    {
+        public string Stage;
+        public string FullPath;
+        public MyShaderProfile Profile;
+        public ShaderMacro[] Macros;
+        public string Descriptor;
     }
 
     static bool TryMatchOverlayOwner(string filepath, out string id)
@@ -837,6 +1388,70 @@ public static class ShaderPackRegistry
             return suspects;
 
         return CollectLiveOverlayPacks();
+    }
+
+    static List<PendingPack> CollectStageSuspects(string stage)
+    {
+        var list = new List<PendingPack>();
+        if (string.IsNullOrEmpty(stage))
+            return list;
+        foreach (var pack in Pending.Values)
+        {
+            if (pack.Disabled)
+                continue;
+            if (!PackTouchesStage(pack, stage))
+                continue;
+            list.Add(pack);
+        }
+
+        if (list.Count > 0)
+            return list;
+        if (!ShaderStages.IsGeometryStage(stage))
+            return list;
+        foreach (var pack in Pending.Values)
+        {
+            if (pack.Disabled)
+                continue;
+            if (!PackTouchesGeometryShared(pack))
+                continue;
+            list.Add(pack);
+        }
+
+        return list;
+    }
+
+    static bool PackTouchesStage(PendingPack pack, string stage)
+    {
+        foreach (var overlay in pack.Overlays)
+        {
+            if (!OverlayFiles.ContainsKey(overlay.Key))
+                continue;
+            if (ShaderStages.TryGetStageForKey(overlay.Key, out var name) &&
+                string.Equals(name, stage, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        foreach (var inject in pack.InjectFiles)
+        {
+            if (string.Equals(inject.Stage, stage, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool PackTouchesGeometryShared(PendingPack pack)
+    {
+        foreach (var overlay in pack.Overlays)
+        {
+            if (!OverlayFiles.ContainsKey(overlay.Key))
+                continue;
+            if (IsDepthRelatedKey(overlay.Key) &&
+                !ShaderStages.TryGetStageForKey(overlay.Key, out _))
+                return true;
+        }
+
+        return false;
     }
 
     static List<PendingPack> CollectLiveOverlayPacks()
@@ -1015,7 +1630,9 @@ public static class ShaderPackRegistry
             Id = id,
             Name = ReadJsonString(json, "name"),
             Priority = priority,
-            Exclusive = ReadJsonStringArray(json, "exclusive")
+            Exclusive = ReadJsonStringArray(json, "exclusive"),
+            Defines = ReadJsonStringArray(json, "defines"),
+            Attachments = ReadJsonAttachments(json)
         };
         return true;
     }
@@ -1045,6 +1662,34 @@ public static class ShaderPackRegistry
         for (var i = 0; i < matches.Count; i++)
             result[i] = Regex.Unescape(matches[i].Groups[1].Value);
         return result;
+    }
+
+    static AttachmentSpec[] ReadJsonAttachments(string json)
+    {
+        var m = Regex.Match(json, "\"attachments\"\\s*:\\s*\\[(.*?)\\]", RegexOptions.Singleline);
+        if (!m.Success)
+            return null;
+        var inner = m.Groups[1].Value;
+        var objects = Regex.Matches(inner, "\\{[^}]*\\}");
+        if (objects.Count == 0)
+            return Array.Empty<AttachmentSpec>();
+        var list = new List<AttachmentSpec>(objects.Count);
+        for (var i = 0; i < objects.Count; i++)
+        {
+            var obj = objects[i].Value;
+            var name = ReadJsonString(obj, "name");
+            var format = ReadJsonString(obj, "format");
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(format))
+                continue;
+            list.Add(new AttachmentSpec
+            {
+                Name = name,
+                Format = format,
+                Stage = ReadJsonString(obj, "stage")
+            });
+        }
+
+        return list.ToArray();
     }
 
     static bool TryNormalizeKey(string relative, out string key)
@@ -1170,12 +1815,14 @@ public static class ShaderPackRegistry
         public string Name;
         public int Priority;
         public string[] Exclusive;
+        public string[] Defines;
+        public AttachmentSpec[] Attachments;
         public string Root;
         public bool Local;
         public bool Disabled;
         public bool RolledBack;
         public List<OverlayFile> Overlays;
-        public List<string> InjectFiles;
+        public List<InjectFile> InjectFiles;
     }
 
     struct OverlayFile
@@ -1184,11 +1831,26 @@ public static class ShaderPackRegistry
         public string FullPath;
     }
 
+    struct InjectFile
+    {
+        public string Stage;
+        public string FullPath;
+    }
+
+    sealed class AttachmentSpec
+    {
+        public string Name;
+        public string Format;
+        public string Stage;
+    }
+
     sealed class Manifest
     {
         public string Id;
         public string Name;
         public int Priority;
         public string[] Exclusive;
+        public string[] Defines;
+        public AttachmentSpec[] Attachments;
     }
 }

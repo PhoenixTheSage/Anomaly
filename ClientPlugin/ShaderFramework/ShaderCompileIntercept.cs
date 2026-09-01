@@ -130,12 +130,12 @@ public static class ShaderCompileIntercept
         Interlocked.Increment(ref compileCount);
         if (bytecode != null && bytecode.Length != 0)
         {
-            if (ShaderPackRegistry.DepthProbePending && !ShaderPackRegistry.DepthProbeInProgress)
-                ShaderPackRegistry.ValidateDepth();
+            if (ShaderPackRegistry.StageProbePending && !ShaderPackRegistry.StageProbeInProgress)
+                ShaderPackRegistry.ValidateStages();
             return;
         }
 
-        if (ShaderPackRegistry.DepthProbeInProgress)
+        if (ShaderPackRegistry.StageProbeInProgress)
             return;
 
         Interlocked.Increment(ref failureCount);
@@ -148,8 +148,7 @@ public static class ShaderCompileIntercept
         MyLog.Default.WriteLine(msg);
         DebugLog.Write(msg);
 
-        if (IsDepthPermutation(macros))
-            ShaderPackRegistry.OnDepthCompileFailed(filepath);
+        ShaderPackRegistry.OnCompileFailed(filepath, macros);
     }
 
     public static void EnsureIncludes(IReadOnlyList<string> includes)
@@ -161,6 +160,60 @@ public static class ShaderCompileIntercept
             AddIncludeIfMissing(list, IncludeDirectory);
             foreach (var packDir in PackIncludes)
                 AddIncludeIfMissing(list, packDir);
+        }
+    }
+
+    public static void EnsureGBufferMacros(string filepath, ref ShaderMacro[] macros)
+    {
+        EnsureVelocityMacro(filepath, ref macros);
+        AppendGBufferExtras(filepath, ref macros);
+    }
+
+    public static void EnsureGBufferMacros(List<ShaderMacro> macros)
+    {
+        EnsureVelocityMacro(macros);
+        AppendGBufferExtras(macros);
+    }
+
+    static void AppendGBufferExtras(string filepath, ref ShaderMacro[] macros)
+    {
+        if (IsDepthPermutation(macros))
+            return;
+        if (!IsGBufferPermutation(macros) && !IsGeometryWithoutPass(filepath, macros))
+            return;
+        AppendMissing(ref macros, ShaderPackRegistry.LiveDefineMacros);
+        AppendMissing(ref macros, GBufferAttachments.LiveDefineMacros);
+    }
+
+    static void AppendGBufferExtras(List<ShaderMacro> macros)
+    {
+        if (macros == null || !IsGBufferPermutation(macros))
+            return;
+        AppendMissing(macros, ShaderPackRegistry.LiveDefineMacros);
+        AppendMissing(macros, GBufferAttachments.LiveDefineMacros);
+    }
+
+    static void AppendMissing(ref ShaderMacro[] macros, ShaderMacro[] extra)
+    {
+        if (extra == null || extra.Length == 0)
+            return;
+        for (var i = 0; i < extra.Length; i++)
+        {
+            if (ContainsNamed(macros, extra[i].Name))
+                continue;
+            macros = AppendMacro(macros, extra[i].Name, extra[i].Definition);
+        }
+    }
+
+    static void AppendMissing(List<ShaderMacro> macros, ShaderMacro[] extra)
+    {
+        if (macros == null || extra == null)
+            return;
+        for (var i = 0; i < extra.Length; i++)
+        {
+            if (ContainsNamed(macros, extra[i].Name))
+                continue;
+            macros.Add(extra[i]);
         }
     }
 

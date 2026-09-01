@@ -1,6 +1,6 @@
 # Shader packs (Pulsar assets)
 
-How third-party HLSL reaches Anomaly. Architecture layers: [ShaderAPI.md](ShaderAPI.md). Implementation order: [ROADMAP.md](ROADMAP.md).
+How third-party HLSL reaches Anomaly. Architecture layers: [ShaderAPI.md](ShaderAPI.md). Implementation order: [ROADMAP.md](ROADMAP.md). After velocity: [Extensibility.md](Extensibility.md) (stage-scoped inject, pack defines, attachment slots).
 
 **Yes — use Pulsar named assets.** Do **not** invent a second unzip/hash pipeline, and do **not** assume Pulsar dumps every pack into one folder Anomaly can scan.
 
@@ -101,7 +101,7 @@ Migrate off a single `<AssetFolder>` when implementing packs:
 
 Keep `LoadAssets(string)` for the reserved `AssetFolder` name **and** add `LoadAssets(IReadOnlyDictionary<string, string>)`. Use `assets["Shaders"]` as the first include directory for the compile hook.
 
-Implemented: `ClientPlugin.Shaders.ShaderPackRegistry.Register`. Local drop is `{GetConfigPath("Anomaly")}/Packs` (developer-only). Overlay conflicts fail closed. Inject files are concatenated into `Anomaly/GBufferExtras.hlsli`. Pack fingerprints are `#include`d from `Anomaly.hlsli` so Keen’s preprocess cache misses when packs change.
+Implemented: `ClientPlugin.Shaders.ShaderPackRegistry.Register`. Local drop is `{GetConfigPath("Anomaly")}/Packs` (developer-only). Overlay conflicts fail closed. Inject files concatenate into `Anomaly/Extras/<Stage>.hlsli` (`GBufferExtras.hlsli` aliases GBuffer). Pack `defines` merge onto GBuffer compiles. `GBufferAttachments.Request` (or json `attachments`) allocates extra GBuffer targets. Pack fingerprints are `#include`d from `Anomaly.hlsli` so Keen’s preprocess cache misses when packs change.
 
 ---
 
@@ -115,8 +115,11 @@ Overlay/                     # optional: named stages and/or Keen-relative repla
   GBuffer/PixelStage.hlsli   # → Geometry/Passes/GBuffer/PixelStage.hlsli
   Post.HBAO/CoarseAO.hlsl    # → Postprocess/HBAO/CoarseAO.hlsl
   Geometry/Materials/Standard/Pixel.hlsl   # escape hatch
-Inject/                      # optional: snippets Anomaly #includes
-  GBufferExtras.hlsli
+Inject/                      # optional: snippets Anomaly #includes (additive)
+  GBuffer.hlsli              # → Anomaly/Extras/GBuffer.hlsli (also unscoped *.hlsli)
+  GBuffer/PsHelpers.hlsli    # same stage, concatenated
+  Lighting.hlsli             # generated; included from lighting wraps in slice P
+  Post.HBAO/Hint.hlsli
 ```
 
 `anomaly.json` (v1, keep small):
@@ -126,17 +129,23 @@ Inject/                      # optional: snippets Anomaly #includes
   "id": "example.gbuffer-tweaks",
   "name": "Example GBuffer tweaks",
   "priority": 0,
-  "exclusive": ["GBuffer"]
+  "exclusive": ["GBuffer"],
+  "defines": ["ANOMALY_OBJECTID"],
+  "attachments": [
+    { "name": "objectid", "format": "R32_UINT" }
+  ]
 }
 ```
 
 - **Named stages** (`ClientPlugin.Shaders.ShaderStages`): put files under `Overlay/<Stage>/`. Basename or path suffix maps to the Keen (or Anomaly) file for that stage. Unknown files under a stage name are skipped. Stages: `GBuffer`, `Depth`, `Forward`, `Highlight`, `Transparent`, `TransparentForDecals`, `Lighting.Dir` / `.Point` / `.Spot`, `Post.Tonemap` / `.HBAO` / `.SSAO` / `.Bloom` / `.FXAA` / `.EyeAdaptation` / `.Luminance` / `.ChromaticAberration`, `Anomaly.CameraVelocity`.
 - **Overlay** files replace Keen sources at the same relative path (layer 2) when the path is not a named stage. One owner per path; on conflict log both pack ids and **fail closed** (Keen/Anomaly default kept).
 - Overlay of Anomaly-owned GBuffer stages (`Geometry/Passes/GBuffer/VertexStage.hlsli`, `Geometry/Passes/GBuffer/PixelStage.hlsli`, `GBuffer/GBufferWrite.hlsli`) is rejected unless `exclusive` contains `"GBuffer"`. That claim opts out of Anomaly velocity extras for those files.
-- **Inject** files are additive includes (layer 1). Anomaly concatenates them into `Anomaly/GBufferExtras.hlsli`.
+- **Inject** files are additive includes (layer 1). Stage-scoped: `Inject/GBuffer.hlsli` or `Inject/GBuffer/*.hlsli` concatenates into `Anomaly/Extras/GBuffer.hlsli`. Unscoped `Inject/*.hlsli` still goes to GBuffer (v1). Unknown folders fail closed. Depth inject is rejected. Pixel-only helpers wrap in `#ifdef ANOMALY_PIXEL_STAGE` (GBuffer PS defines it; VS does not).
+- **Defines** (`anomaly.json` `"defines": ["ANOMALY_OBJECTID"]`) are merged onto GBuffer permutations only (never Depth). Reserved: `ANOMALY`, `ANOMALY_VELOCITY`, `RENDERING_PASS`, `DEPTH_ONLY`, `CUSTOM_DEPTH`, `ANOMALY_ATTACH_*`.
+- **Attachments** (`GBufferAttachments.Request` or `"attachments"` in json): named extra MRT (`R32_UINT`, `R16G16_Float`, …) or packed `GBuffer1.a`. Velocity keeps `SV_Target3`. Same name + format shares the slot; mismatched formats fail closed.
 - Missing Overlay file → Keen original (Iris-style fallback).
 
-Do not allow packs to replace Depth with a fourth MRT. After apply, Anomaly compiles Standard Depth and rolls back the offending pack. Every compile error logs `pack=<id>`.
+Do not allow packs to replace Depth with a fourth MRT. After apply, Anomaly compiles a sentinel for each live named stage and rolls back the offending pack. Every compile error logs `pack=<id>`.
 
 ---
 
@@ -170,8 +179,11 @@ HLSL itself can still DoS the compile (infinite macros) or break Depth. Anomaly:
 
 - Restricts Overlay paths to `Content/Shaders`-relative, no `..`
 - Maps named stages (`Overlay/GBuffer/…`) to a fixed Keen path table; unknown files under a stage name fail closed
-- Compiles Standard Depth after applying packs; rolls back that pack on failure
-- Logs `pack=<id>` on every compile error
+- Maps `Inject/<Stage>/` the same way; unknown inject folders fail closed; Depth inject is rejected
+- Merges pack `defines` onto GBuffer only; reserved Keen/Anomaly macros are rejected
+- Allocates extra GBuffer attachments (`GBufferAttachments.Request`); velocity keeps `SV_Target3`; Depth never sees extra targets
+- Compiles a sentinel for each live named stage after applying packs; rolls back that pack on failure
+- Logs `pack=<id>` on every compile error; in-game overlay failures roll back that pack
 - Rejects Overlay of Anomaly-owned GBuffer stages unless `exclusive: ["GBuffer"]`
 
 ---

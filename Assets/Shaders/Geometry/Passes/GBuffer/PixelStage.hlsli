@@ -19,6 +19,18 @@ struct PixelStageInput
 #endif
 };
 
+#define ANOMALY_PIXEL_STAGE
+#include <Anomaly.hlsli>
+
+#ifdef ANOMALY_PACK_GBUFFER1A
+#ifndef ANOMALY_GBUFFER1A_OVERRIDE
+float AnomalyGBuffer1A(PixelInterface pixel, MaterialOutputInterface material_output)
+{
+	return 0;
+}
+#endif
+#endif
+
 #include <GBuffer/GBufferWrite.hlsli>
 
 void __pixel_shader(PixelStageInput input, out GbufferOutput output, uint coverage : SV_Coverage)
@@ -89,4 +101,10 @@ void __pixel_shader(PixelStageInput input, out GbufferOutput output, uint covera
 	#else
         GbufferWrite(output, material_output.base_color, material_output.metalness, material_output.gloss, material_output.normal, material_output.ao, material_output.emissive, material_output.coverage, material_output.LOD, anomaly_velocity);
 	#endif
+
+#ifndef STATIC_DECAL
+#ifdef ANOMALY_PACK_GBUFFER1A
+	output.gbuffer1.a = AnomalyGBuffer1A(pixel, material_output);
+#endif
+#endif
 }

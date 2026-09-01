@@ -12,10 +12,13 @@ struct GbufferOutput
 #ifdef ANOMALY_VELOCITY
     float2 velocity : SV_Target3;
 #endif
+#include <Anomaly/Extras/GBufferAttachmentFields.hlsli>
 #ifdef CUSTOM_DEPTH
 	float depth : SV_Depth;
 #endif
 };
+
+#include <Anomaly/Extras/GBufferAttachmentInit.hlsli>
 
 void GbufferWrite(out GbufferOutput output,
     float3 color, float metal, float gloss, float3 N, float ao, float emissive, uint coverage, uint lod
@@ -27,6 +30,7 @@ void GbufferWrite(out GbufferOutput output,
 #endif
 	)
 {
+    AnomalyInitAttachments(output);
     float3 nview = normalize(world_to_view(N));
     float2 nenc = pack_normals2(nview);
     output.gbuffer0 = float4(color, lod / 255.f);
@@ -53,6 +57,7 @@ void GbufferWriteBlend(out GbufferOutput output,
 #endif
     )
 {
+    AnomalyInitAttachments(output);
     output.gbuffer0 = float4(color, alpha) * fadeAlpha;
 
     // Don't multiply normals and ao because they are already multiplied by the blendstate

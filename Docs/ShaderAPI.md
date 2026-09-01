@@ -2,7 +2,7 @@
 
 Extensible shader framework for Space Engineers 1. First product is a velocity buffer; the same compile hook must also support **additive injection** into Keen programs and **wholesale replacement** of named programs.
 
-This is the architecture. Implementation order is [ROADMAP.md](ROADMAP.md). Product phases and Keen facts remain in [PLAN.md](PLAN.md). File-level Keen inventory is [KeenShaders.md](KeenShaders.md).
+This is the architecture. Implementation order is [ROADMAP.md](ROADMAP.md) (velocity + hook) then [Extensibility.md](Extensibility.md) (generalize beyond motion vectors). Product phases and Keen facts remain in [PLAN.md](PLAN.md). File-level Keen inventory is [KeenShaders.md](KeenShaders.md).
 
 ---
 
@@ -82,7 +82,7 @@ Keen MyShader compile
 Hook the single compile entry in `VRage.Render11` (include root / permutation). Every path goes through it:
 
 - Extra include directories (Anomaly `Shaders` asset, then registered [shader packs](ShaderPacks.md)).
-- Extra defines (`ANOMALY_VELOCITY`, later plugin-requested flags).
+- Extra defines (`ANOMALY_VELOCITY`, later plugin-requested flags — [Extensibility.md](Extensibility.md) slice N).
 - **Overlay resolve**: if a pack registered `Geometry/Passes/GBuffer/PixelStage.hlsli`, compile that instead of Keen’s file.
 - Cache identity must include overlay + define set + pack fingerprints, or Keen will serve stale DXBC.
 
@@ -115,7 +115,7 @@ Defer a second plugin’s wholesale Standard/Pixel fork until someone needs it; 
 
 ### 3 — Owned programs + published buffers
 
-Fullscreen camera MV, future dilation, debug vis: **Anomaly shaders**, not Keen overlays. Consumers bind `IVelocityBuffer` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
+Fullscreen camera MV, future dilation, debug vis: **Anomaly shaders**, not Keen overlays. Further owned buffers (Hi-Z, history color) are [Extensibility.md](Extensibility.md) slice S. The settings **Debug velocity** checkbox blits `IVelocityBuffer` onto the backbuffer after `DrawGameScene` (`VelocityDebug.hlsl`). Consumers bind `IVelocityBuffer` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
 
 Iris analog: `composite` / `final` — extra passes the framework owns.
 
@@ -153,11 +153,11 @@ Rules:
 
 1. **Anomaly owns extra GBuffer attachments.** Plugins request a slot (“RG16F velocity”) rather than splicing `SV_Target3` themselves.
 2. **Defines are merged by Anomaly**, not by each Harmony patch on `MyShader`.
-3. **Replace is exclusive per key**; inject is additive behind Anomaly-owned includes (e.g. `Anomaly/GBufferExtras.hlsli` that `#include`s registered snippets).
+3. **Replace is exclusive per key**; inject is additive behind Anomaly-owned includes (`Anomaly/Extras/GBuffer.hlsli`, aliased as `Anomaly/GBufferExtras.hlsli`).
 4. **Consumers do not Harmony-patch `DrawGameScene` or instance updates.** They bind registry textures. Anomaly draws / binds RTs.
 5. **`ClearState` / DRS / device reset** stay Anomaly’s problem. Replacements must not leak RT/SRV ([Rich HUD](https://github.com/DarkHelmet/RichHudFramework)).
 6. **Anomaly-owned GBuffer stages** (`Geometry/Passes/GBuffer/*Stage.hlsli`, `GBuffer/GBufferWrite.hlsli`) stay Anomaly’s unless a pack sets `exclusive: ["GBuffer"]`.
-7. **Depth compile failure rolls back that pack** (Standard Depth probe after apply; in-game Depth errors log `pack=<id>`).
+7. **Compile failure rolls back that pack** (sentinel per live named stage after apply; in-game overlay errors log `pack=<id>` and disable the owner).
 
 Injection + exclusive replace can coexist: velocity inject still applies to a replaced Standard pixel **only if** that pixel still includes `Passes/PixelStage.hlsli`. A full-file replace that omits the include opts out of extras — document that.
 
@@ -171,6 +171,8 @@ Keep the [PLAN.md](PLAN.md) cut:
 
 1. Hook compile (include dir + `ANOMALY_VELOCITY` + Depth still compiles). That *is* the framework.
 2. Ship velocity as **injection**, not as a Standard/Pixel fork.
-3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md). Overlay replace is live (fail closed on conflict). Depth probe rolls back a pack that breaks Standard Depth. Named-stage keys (`Overlay/GBuffer/…`, `Post.*`, …) map through `ShaderStages`.
+3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md). Overlay replace is live (fail closed on conflict). A sentinel compile per live named stage rolls back a pack that breaks that stage.
+
+After that cut: generalize the same hook for more tenants — stage-scoped inject, pack defines, attachment slots, lighting wraps, bind registry, buffer catalog. Order: [Extensibility.md](Extensibility.md).
 
 Iris’s lesson is semantic stages + compile-time rewrite + fallback, sitting on a renderer the framework controls. Anomaly’s rewrite sits on **Keen’s** renderer, because that renderer is the thing we cannot afford to clone.

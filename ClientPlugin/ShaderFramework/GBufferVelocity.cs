@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using ClientPlugin.Shaders;
 using ClientPlugin.Velocity;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
@@ -31,7 +32,7 @@ public static class GBufferVelocity
     const int BoneStride = 64;
 
     static readonly object Gate = new();
-    static readonly RenderTargetView[] FourRtvs = new RenderTargetView[4];
+    static RenderTargetView[] rtvScratch = new RenderTargetView[4];
 
     public static bool Enabled { get; set; } = true;
     public static bool IsLive { get; private set; }
@@ -149,12 +150,14 @@ public static class GBufferVelocity
 
     public static void Bind(MyRenderContext rc, MyGBuffer gbuffer)
     {
-        if (!InjectionWanted || rc == null || gbuffer == null || !rc.IsInitialized)
+        if (rc == null || gbuffer == null || !rc.IsInitialized)
+            return;
+        if (!InjectionWanted && !GBufferAttachments.HasColorTargets)
             return;
 
         lock (Gate)
         {
-            if (!InjectionWanted)
+            if (!InjectionWanted && !GBufferAttachments.HasColorTargets)
                 return;
             try
             {
@@ -184,9 +187,14 @@ public static class GBufferVelocity
 
     public static void ClearTarget(MyRenderContext rc)
     {
-        if (!InjectionWanted || rc == null || target == null)
+        if (rc == null)
             return;
-        rc.ClearRtv(target, default(RawColor4));
+        lock (Gate)
+        {
+            if (target != null)
+                rc.ClearRtv(target, default(RawColor4));
+            GBufferAttachments.ClearTargets(rc);
+        }
     }
 
     public static ISrvBindable PrepareCompositeSource()
@@ -242,10 +250,11 @@ public static class GBufferVelocity
 
     public static void OnResolutionChanged()
     {
-        if (!InjectionWanted)
-            return;
         lock (Gate)
         {
+            GBufferAttachments.OnResolutionChanged();
+            if (!InjectionWanted && !GBufferAttachments.HasColorTargets)
+                return;
             try
             {
                 EnsureTargetUnlocked();
@@ -265,6 +274,7 @@ public static class GBufferVelocity
             CameraVelocityBuffer.Instance.Clear();
             DisposeTarget();
             DisposePrevAndCb();
+            GBufferAttachments.Release();
         }
     }
 
@@ -279,6 +289,12 @@ public static class GBufferVelocity
         if (gbuffer.GbufferRtvs == null || gbuffer.GbufferRtvs.Length < 3 || gbuffer.DepthStencil?.Dsv == null)
             return;
 
+        var extraMax = GBufferAttachments.MaxBoundTarget;
+        var gbufferSize = MyRender11.ResolutionI;
+        var samples = Math.Max(gbuffer.SamplesCount, 1);
+        var quality = gbuffer.SamplesQuality;
+        GBufferAttachments.EnsureTargets(gbufferSize.X, gbufferSize.Y, samples, quality);
+
         if (!CameraVelocityPass.TryGetMotionFrame(out var unjittered, out var prevVp, out _, out var historyValid, out var size))
             return;
 
@@ -289,11 +305,16 @@ public static class GBufferVelocity
         WriteConstants(rc, unjittered, prevVp, size, historyValid, (uint)Math.Max(prevCount, 1),
             hasPrevWorld: false, default, default, default, boneCount: 0);
 
-        FourRtvs[0] = gbuffer.GbufferRtvs[0];
-        FourRtvs[1] = gbuffer.GbufferRtvs[1];
-        FourRtvs[2] = gbuffer.GbufferRtvs[2];
-        FourRtvs[3] = target.Rtv;
-        rc.SetRtvs(gbuffer.DepthStencil.Dsv, FourRtvs);
+        var n = Math.Max(4, extraMax + 1);
+        if (rtvScratch == null || rtvScratch.Length != n)
+            rtvScratch = new RenderTargetView[n];
+        Array.Clear(rtvScratch, 0, rtvScratch.Length);
+        rtvScratch[0] = gbuffer.GbufferRtvs[0];
+        rtvScratch[1] = gbuffer.GbufferRtvs[1];
+        rtvScratch[2] = gbuffer.GbufferRtvs[2];
+        rtvScratch[3] = target.Rtv;
+        GBufferAttachments.CopyRtvs(rtvScratch);
+        rc.SetRtvs(gbuffer.DepthStencil.Dsv, rtvScratch);
         rc.VertexShader.SetConstantBuffer(ConstantSlot, constants);
         rc.PixelShader.SetConstantBuffer(ConstantSlot, constants);
         rc.AllShaderStages.SetSrv(PrevWorldSlot, prevWorld);

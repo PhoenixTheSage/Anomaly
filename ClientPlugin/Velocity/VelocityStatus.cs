@@ -18,8 +18,10 @@ public static class VelocityStatus
             sb.Append("Compile intercept: ").AppendLine(FormatIntercept());
             sb.Append("GBuffer overlay: ").AppendLine(ShaderCompileIntercept.GBufferOverlayPresent ? "present" : "missing");
             sb.Append("Shader packs: ").AppendLine(ShaderPackRegistry.StatusLine);
+            sb.Append("GBuffer attachments: ").AppendLine(GBufferAttachments.StatusLine);
             sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
             sb.Append("GBuffer injection: ").AppendLine(FormatGBuffer());
+            sb.Append("Velocity debug: ").AppendLine(FormatDebug());
             sb.Append("History actors: ").AppendLine(ActorHistory.Instance.TrackedActorCount.ToString());
             sb.Append("History bones: ").AppendLine(BoneHistory.Instance.TrackedCount.ToString());
             if (buf == null || !buf.IsAvailable)
@@ -59,6 +61,17 @@ public static class VelocityStatus
         if (!CameraVelocityPass.ShadersReady)
             return "shaders not ready";
         return "live";
+    }
+
+    static string FormatDebug()
+    {
+        var cfg = Config.Current;
+        if (cfg == null || !cfg.DebugVelocity)
+            return "off";
+        var err = VelocityDebugPass.LastError;
+        if (!string.IsNullOrEmpty(err))
+            return "on (" + err + ")";
+        return "on  scale=" + cfg.DebugVelocityScale + "px";
     }
 
     static string FormatGBuffer()

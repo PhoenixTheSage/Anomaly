@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using ClientPlugin.Buffers;
 using ClientPlugin.Shaders;
 using ClientPlugin.Velocity;
 using SharpDX.D3DCompiler;
@@ -16,14 +17,14 @@ using VRageRender;
 namespace ClientPlugin.ShaderFramework;
 
 /// <summary>
-/// Fullscreen false-color of <see cref="IVelocityBuffer"/> onto the backbuffer
-/// after <c>DrawGameScene</c>. Off by default. Unbinds RT/SRV before return.
+/// Fullscreen false-color of a catalog texture onto the backbuffer after
+/// <c>DrawGameScene</c>. Off by default. Unbinds RT/SRV before return.
 /// </summary>
 public static class VelocityDebugPass
 {
     const int ConstantBufferBytes = 256;
     const string VsFile = "Fullscreen.hlsl";
-    const string PsFile = "VelocityDebug.hlsl";
+    const string PsFile = "CatalogDebug.hlsl";
 
     static readonly object Gate = new();
 
@@ -39,20 +40,20 @@ public static class VelocityDebugPass
     [StructLayout(LayoutKind.Sequential, Size = ConstantBufferBytes)]
     struct Constants
     {
+        public float Mode;
         public float Scale;
         public float HistoryValid;
-        public float Pad0;
-        public float Pad1;
+        public float Pad;
     }
 
     public static void Draw(IRtvBindable dest)
     {
-        if (Config.Current == null || !Config.Current.DebugVelocity || dest == null)
+        if (!OverlayOn() || dest == null)
             return;
 
         lock (Gate)
         {
-            if (Config.Current == null || !Config.Current.DebugVelocity)
+            if (!OverlayOn())
                 return;
             try
             {
@@ -85,9 +86,55 @@ public static class VelocityDebugPass
         }
     }
 
+    static bool OverlayOn()
+    {
+        var cfg = Config.Current;
+        if (cfg == null)
+            return false;
+        return cfg.DebugBuffer != DebugBuffer.Off || cfg.DebugVelocity;
+    }
+
+    static DebugBuffer EffectiveBuffer()
+    {
+        var cfg = Config.Current;
+        if (cfg == null)
+            return DebugBuffer.Off;
+        if (cfg.DebugBuffer != DebugBuffer.Off)
+            return cfg.DebugBuffer;
+        return cfg.DebugVelocity ? DebugBuffer.Velocity : DebugBuffer.Off;
+    }
+
     static void DrawUnlocked(IRtvBindable dest)
     {
-        var buf = VelocityRegistry.Active;
+        var mode = EffectiveBuffer();
+        if (mode == DebugBuffer.Off || dest == null)
+            return;
+
+        ISharedBuffer buf;
+        float shaderMode;
+        float historyValid = 1f;
+        switch (mode)
+        {
+            case DebugBuffer.LinearDepth:
+                buf = BufferCatalog.Active(BufferCatalog.LinearDepth);
+                shaderMode = 1f;
+                break;
+            case DebugBuffer.HiZ:
+                buf = BufferCatalog.Active(BufferCatalog.HiZ);
+                shaderMode = 1f;
+                break;
+            case DebugBuffer.HistoryColor:
+                buf = BufferCatalog.Active(BufferCatalog.HistoryColor);
+                shaderMode = 2f;
+                break;
+            default:
+                buf = BufferCatalog.Active(BufferCatalog.Velocity);
+                shaderMode = 0f;
+                var vel = VelocityRegistry.Active;
+                historyValid = vel != null && vel.HistoryValid ? 1f : 0f;
+                break;
+        }
+
         var srv = buf?.Srv as ISrvBindable;
         var rc = MyRender11.RC;
         if (buf == null || !buf.IsAvailable || srv == null || dest == null || rc == null || !rc.IsInitialized)
@@ -101,8 +148,9 @@ public static class VelocityDebugPass
         var scalePx = Config.Current.DebugVelocityScale;
         var cb = new Constants
         {
+            Mode = shaderMode,
             Scale = 1f / scalePx,
-            HistoryValid = buf.HistoryValid ? 1f : 0f
+            HistoryValid = historyValid
         };
         var mapping = MyMapping.MapDiscard(rc, constants);
         mapping.WriteAndPosition(ref cb);
@@ -137,7 +185,7 @@ public static class VelocityDebugPass
         var psPath = FindHlsl(PsFile);
         if (vsPath == null || psPath == null)
         {
-            Fail("HLSL not found (Fullscreen.hlsl / VelocityDebug.hlsl) under " +
+            Fail("HLSL not found (Fullscreen.hlsl / CatalogDebug.hlsl) under " +
                  (ShaderCompileIntercept.IncludeDirectory ?? "(no include dir)"), null);
             return;
         }
@@ -145,7 +193,7 @@ public static class VelocityDebugPass
         var vsBc = MyShaderCompiler.Compile(vsPath, Array.Empty<ShaderMacro>(), MyShaderProfile.vs_5_0,
             "Anomaly.Fullscreen", invalidateCache: false);
         var psBc = MyShaderCompiler.Compile(psPath, Array.Empty<ShaderMacro>(), MyShaderProfile.ps_5_0,
-            "Anomaly.VelocityDebug", invalidateCache: false);
+            "Anomaly.CatalogDebug", invalidateCache: false);
         if (vsBc == null || vsBc.Length == 0 || psBc == null || psBc.Length == 0)
         {
             Fail("shader compile returned empty bytecode", null);
@@ -155,10 +203,10 @@ public static class VelocityDebugPass
         var device = MyRender11.DeviceInstance;
         vertexShader?.Dispose();
         pixelShader?.Dispose();
-        vertexShader = new VertexShader(device, vsBc) { DebugName = "Anomaly.VelocityDebug.VS" };
-        pixelShader = new PixelShader(device, psBc) { DebugName = "Anomaly.VelocityDebug.PS" };
+        vertexShader = new VertexShader(device, vsBc) { DebugName = "Anomaly.CatalogDebug.VS" };
+        pixelShader = new PixelShader(device, psBc) { DebugName = "Anomaly.CatalogDebug.PS" };
         shadersReady = true;
-        MyLog.Default.WriteLine("Anomaly velocity debug shaders compiled.");
+        MyLog.Default.WriteLine("Anomaly catalog debug shaders compiled.");
         DebugLog.Write("VelocityDebugPass shaders ok vs=" + vsPath + " ps=" + psPath);
     }
 
@@ -166,7 +214,7 @@ public static class VelocityDebugPass
     {
         if (constants != null)
             return;
-        constants = MyManagers.Buffers.CreateConstantBuffer("Anomaly.VelocityDebugCB", ConstantBufferBytes,
+        constants = MyManagers.Buffers.CreateConstantBuffer("Anomaly.CatalogDebugCB", ConstantBufferBytes,
             usage: ResourceUsage.Dynamic);
     }
 
@@ -199,7 +247,7 @@ public static class VelocityDebugPass
         if (loggedError)
             return;
         loggedError = true;
-        MyLog.Default.WriteLine("Anomaly velocity debug: " + message);
+        MyLog.Default.WriteLine("Anomaly catalog debug: " + message);
         DebugLog.Write("VelocityDebugPass " + message + (e != null ? "\n" + e : ""));
     }
 }

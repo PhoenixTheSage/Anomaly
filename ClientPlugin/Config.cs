@@ -16,6 +16,7 @@ public class Config : INotifyPropertyChanged
 
     private VelocitySource velocitySource = VelocitySource.GBuffer;
     private bool debugVelocity;
+    private DebugBuffer debugBuffer = DebugBuffer.Off;
     private int debugVelocityScale = 32;
 
     #endregion
@@ -35,11 +36,19 @@ public class Config : INotifyPropertyChanged
     }
 
     [Checkbox(label: "Debug velocity",
-        description: "Overlay the velocity buffer on the scene. Mid-gray is no motion. Red/green are X/Y pixel delta; blue is speed. Magenta is first frame or a camera cut. Switch Velocity source to compare GBuffer vs CameraOnly on a moving grid.")]
+        description: "Legacy toggle for the velocity overlay. Prefer Debug buffer. Mid-gray is no motion. Red/green are X/Y pixel delta; blue is speed. Magenta is first frame or a camera cut.")]
     public bool DebugVelocity
     {
         get => debugVelocity;
         set => SetField(ref debugVelocity, value);
+    }
+
+    [Dropdown(visibleRows: 5, label: "Debug buffer",
+        description: "Fullscreen overlay of a catalog texture after the scene. Off keeps the game picture. Velocity uses the debug-velocity color map. Linear depth / Hi-Z are log grayscale. History color is the previous HDR LBuffer copy.")]
+    public DebugBuffer DebugBuffer
+    {
+        get => debugBuffer;
+        set => SetField(ref debugBuffer, value);
     }
 
     [Slider(min: 8, max: 128, step: 1, type: SliderAttribute.SliderType.Integer, label: "Debug scale (px)",
@@ -52,7 +61,7 @@ public class Config : INotifyPropertyChanged
 
     [Separator("Status")]
 
-    [Button(label: "Show Status", description: "Compile intercept, velocity source, debug overlay, buffer size, and history")]
+    [Button(label: "Show Status", description: "Compile intercept, velocity, owned buffers, debug overlay, and history")]
     // ReSharper disable once UnusedMember.Global
     public static void ShowStatus()
     {
@@ -61,7 +70,7 @@ public class Config : INotifyPropertyChanged
             buttonType: MyMessageBoxButtonsType.OK,
             messageText: new StringBuilder(VelocityStatus.CurrentText),
             messageCaption: new StringBuilder("Anomaly Status"),
-            size: new Vector2(0.6f, 0.5f)
+            size: new Vector2(0.65f, 0.58f)
         ));
     }
 

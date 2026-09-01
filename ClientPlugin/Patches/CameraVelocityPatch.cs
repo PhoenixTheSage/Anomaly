@@ -18,6 +18,7 @@ static class CameraVelocitySchedulerDonePatch
     static void Postfix()
     {
         CameraVelocityPass.Execute();
+        OwnedBuffersPass.Execute();
     }
 }
 
@@ -32,6 +33,7 @@ static class CameraVelocityScreenResourcesPatch
     static void Postfix()
     {
         CameraVelocityPass.OnResolutionChanged();
+        OwnedBuffersPass.OnResolutionChanged();
     }
 }
 
@@ -46,6 +48,7 @@ static class CameraVelocityDeviceEndPatch
     static void Prefix()
     {
         CameraVelocityPass.Release();
+        OwnedBuffersPass.Release();
         VelocityDebugPass.Release();
         ShaderBindRegistry.Release();
     }

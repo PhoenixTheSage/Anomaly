@@ -49,6 +49,7 @@ public sealed class Plugin : IPlugin
         ShaderCompileIntercept.Activate();
         ShaderPackRegistry.ValidateStages();
         CameraVelocityPass.Enabled = true;
+        OwnedBuffersPass.Enabled = true;
         GBufferVelocity.Enabled = true;
         MyLog.Default.WriteLine("Anomaly shader framework initialized.");
         DebugLog.Write("Harmony patched, plugin initialized, intercept live=" + ShaderCompileIntercept.IsLive);
@@ -62,6 +63,7 @@ public sealed class Plugin : IPlugin
         disposed = true;
         DebugLog.Write("Dispose");
         CameraVelocityPass.Enabled = false;
+        OwnedBuffersPass.Enabled = false;
         GBufferVelocity.Enabled = false;
         ActorHistory.Instance.Clear();
         BoneHistory.Instance.Clear();

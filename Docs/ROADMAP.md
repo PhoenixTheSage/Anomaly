@@ -6,7 +6,7 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 
 **Next (velocity proof):** Use the debug overlay in-game (PLAN test plan: moving grid vs camera pan, Depth still compiles) and, when ready, PluginHub pin.
 
-**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–R** are in this repo. Next code is **S** (owned Hi-Z / history) when a consumer exists.
+**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–T** are in this repo. Next code is **K** (sample Hidden pack) when a pack needs to demonstrate inject or a named-stage overlay.
 
 ---
 
@@ -209,7 +209,7 @@ Goal: a bad overlay must not leave Depth broken. Log which pack did it.
 
 Goal: packs register by semantic stage, not 215 Keen file keys. Path overlay stays as the escape hatch.
 
-- [x] `ClientPlugin.Shaders.ShaderStages` maps `GBuffer`, `Depth`, `Forward`, `Highlight`, `Transparent`, `TransparentForDecals`, `Lighting.Dir` / `.Point` / `.Spot`, `Post.Tonemap` / `.HBAO` / `.SSAO` / `.Bloom` / `.FXAA` / `.EyeAdaptation` / `.Luminance` / `.ChromaticAberration`, `Anomaly.CameraVelocity` to Keen (or Anomaly) relative paths.
+- [x] `ClientPlugin.Shaders.ShaderStages` maps `GBuffer`, `Depth`, `Forward`, `Highlight`, `Transparent`, `TransparentForDecals`, `Lighting.Dir` / `.Point` / `.Spot`, `Post.Tonemap` / `.HBAO` / `.SSAO` / `.Bloom` / `.FXAA` / `.EyeAdaptation` / `.Luminance` / `.ChromaticAberration`, `Anomaly.CameraVelocity` / `.LinearDepth` / `.HistoryColor`, `Shadows`, `Atmosphere`, `Decals`, `GPUParticles`, `EnvProbe`, `Foliage` to Keen (or Anomaly) relative paths.
 - [x] `Overlay/<Stage>/<file>` remaps by unique basename or path suffix (`Overlay/GBuffer/PixelStage.hlsli` → `Geometry/Passes/GBuffer/PixelStage.hlsli`). Unknown files under a stage name fail closed.
 - [x] Raw Keen-relative overlay (`Overlay/Geometry/Materials/Standard/Pixel.hlsl`) still works.
 - [x] Named-stage GBuffer files still require `exclusive: ["GBuffer"]` when they replace Anomaly-owned inject stages.
@@ -286,4 +286,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **in-game** with **Debug velocity** (GBuffer vs CameraOnly on a moving grid; camera pan; Depth still compiles) or PluginHub pin. Framework code continues in [Extensibility.md](Extensibility.md) at slice **P**. Slice K (sample Hidden pack) stays deferred until a pack needs to demonstrate inject + defines.
+Next session is **in-game** with **Debug buffer** (velocity / linear depth / history / Hi-Z) or PluginHub pin. Framework code continues in [Extensibility.md](Extensibility.md) at slice **K**. Slice K (sample Hidden pack) stays deferred until a pack needs to demonstrate inject + defines.

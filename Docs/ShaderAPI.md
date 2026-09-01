@@ -115,7 +115,7 @@ Defer a second plugin’s wholesale Standard/Pixel fork until someone needs it; 
 
 ### 3 — Owned programs + published buffers
 
-Fullscreen camera MV, future dilation, debug vis: **Anomaly shaders**, not Keen overlays. Further owned buffers (Hi-Z, history color) are [Extensibility.md](Extensibility.md) slice S. The settings **Debug velocity** checkbox blits `IVelocityBuffer` onto the backbuffer after `DrawGameScene` (`VelocityDebug.hlsl`). Consumers bind `IVelocityBuffer` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
+Fullscreen camera MV, owned linear depth / Hi-Z / history color, debug vis: **Anomaly shaders**, not Keen overlays. Settings **Debug buffer** blits a catalog texture onto the backbuffer after `DrawGameScene` (`CatalogDebug.hlsl`). Consumers bind `IVelocityBuffer` or `BufferCatalog.Active(name)` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md), [ClientPlugin/Buffers/README.md](../ClientPlugin/Buffers/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
 
 Iris analog: `composite` / `final` — extra passes the framework owns.
 
@@ -136,6 +136,14 @@ Do **not** generate 215 replace slots. Public surface is **semantic**:
 | `Lighting.Dir` / `Lighting.Point` / `Lighting.Spot` | Deferred lighting programs |
 | `Post.Tonemap` / `Post.HBAO` / `Post.SSAO` / `Post.Bloom` / `Post.FXAA` / `Post.EyeAdaptation` / `Post.Luminance` / `Post.ChromaticAberration` | Named post files |
 | `Anomaly.CameraVelocity` | Owned fullscreen (`CameraVelocity.hlsl`, `Fullscreen.hlsl`) |
+| `Anomaly.LinearDepth` | Owned linear depth + Hi-Z (`LinearDepth.hlsl`, `HiZDownsample.hlsl`) |
+| `Anomaly.HistoryColor` | Owned previous-frame HDR copy (`HistoryCopy.hlsl`) |
+| `Shadows` | CSM screen mask (`Shadows/Shadows.hlsl`, `Csm.hlsli`) |
+| `Atmosphere` | Bruneton aerial perspective (`Transparent/Atmosphere/*`) |
+| `Decals` | Deferred decal volumes (`Decals/Decals.hlsl`) |
+| `GPUParticles` | GPU particle raster (`Transparent/GPUParticles/*`) |
+| `EnvProbe` | Probe blend / prefilter (`EnvProbe/*`) |
+| `Foliage` | Grass/rock cards (`Foliage/*`) |
 
 Escape hatch: overlay by Keen-relative path for a one-off file (`Overlay/Geometry/Materials/Standard/Pixel.hlsl`).
 

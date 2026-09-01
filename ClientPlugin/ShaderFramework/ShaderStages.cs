@@ -29,6 +29,14 @@ public static class ShaderStages
     public const string PostLuminance = "Post.Luminance";
     public const string PostChromaticAberration = "Post.ChromaticAberration";
     public const string AnomalyCameraVelocity = "Anomaly.CameraVelocity";
+    public const string AnomalyLinearDepth = "Anomaly.LinearDepth";
+    public const string AnomalyHistoryColor = "Anomaly.HistoryColor";
+    public const string Shadows = "Shadows";
+    public const string Atmosphere = "Atmosphere";
+    public const string Decals = "Decals";
+    public const string GpuParticles = "GPUParticles";
+    public const string EnvProbe = "EnvProbe";
+    public const string Foliage = "Foliage";
     /// <summary>
     /// Inject-only bucket (slice P wraps <c>Lighting/Light.hlsli</c>).
     /// Not an overlay stage name.
@@ -114,7 +122,43 @@ public static class ShaderStages
         {
             "CameraVelocity.hlsl",
             "Fullscreen.hlsl"
-        })
+        }),
+        new Stage(AnomalyLinearDepth, new[]
+        {
+            "LinearDepth.hlsl",
+            "HiZDownsample.hlsl",
+            "Fullscreen.hlsl"
+        }),
+        new Stage(AnomalyHistoryColor, new[]
+        {
+            "HistoryCopy.hlsl",
+            "Fullscreen.hlsl"
+        }),
+        new Stage(Shadows, new[]
+        {
+            "Shadows/Shadows.hlsl",
+            "Shadows/Csm.hlsli",
+            "Shadows/Shape.hlsl",
+            "Shadows/ShadowStats.hlsl"
+        }),
+        new Stage(Atmosphere, Under("Transparent/Atmosphere",
+            "AtmosphereCommon.hlsli", "AtmospherePrecompute.hlsl",
+            "AtmosphereGBuffer.hlsl", "AtmosphereEnv.hlsl", "AtmosphereVS.hlsl")),
+        new Stage(Decals, new[]
+        {
+            "Decals/Decals.hlsl",
+            "Decals/DecalsCommon.hlsli"
+        }),
+        new Stage(GpuParticles, Under("Transparent/GPUParticles",
+            "Render.hlsl", "Emit.hlsl", "EmitSkipFix.hlsl", "Simulation.hlsl",
+            "Simulation.hlsli", "SimulationArgs.hlsl", "InitDeadList.hlsl",
+            "Reset.hlsl", "Globals.hlsli")),
+        new Stage(EnvProbe, Under("EnvProbe",
+            "EnvProbe.hlsl", "EnvProbeCopy.hlsl", "EnvProbeBlend.hlsl",
+            "EnvPrefiltering.hlsl", "EnvPrefiltering.hlsli", "ForwardPostprocess.hlsl")),
+        new Stage(Foliage, Under("Foliage",
+            "Foliage.hlsl", "Foliage.hlsli", "GrassFoliage.hlsli",
+            "RockFoliage.hlsli", "FoliageStreaming.hlsl"))
     };
 
     static readonly string[] OwnedGBuffer =
@@ -500,6 +544,36 @@ public static class ShaderStages
             new StageCompileProbe("CameraVelocity.hlsl", true, "ps_5_0", "",
                 "Anomaly.StageProbe." + AnomalyCameraVelocity + ".PS")
         });
+        Add(AnomalyLinearDepth, new[]
+        {
+            new StageCompileProbe("Fullscreen.hlsl", true, "vs_5_0", "",
+                "Anomaly.StageProbe." + AnomalyLinearDepth + ".VS"),
+            new StageCompileProbe("LinearDepth.hlsl", true, "ps_5_0", "",
+                "Anomaly.StageProbe." + AnomalyLinearDepth + ".PS")
+        });
+        Add(AnomalyHistoryColor, new[]
+        {
+            new StageCompileProbe("Fullscreen.hlsl", true, "vs_5_0", "",
+                "Anomaly.StageProbe." + AnomalyHistoryColor + ".VS"),
+            new StageCompileProbe("HistoryCopy.hlsl", true, "ps_5_0", "",
+                "Anomaly.StageProbe." + AnomalyHistoryColor + ".PS")
+        });
+        Add(Shadows, new[] { Compute("Shadows/Shadows.hlsl", Shadows, "") });
+        Add(Atmosphere, new[]
+        {
+            Pixel("Transparent/Atmosphere/AtmosphereGBuffer.hlsl", Atmosphere, "LQ=1")
+        });
+        Add(Decals, new[]
+        {
+            Vertex("Decals/Decals.hlsl", Decals),
+            Pixel("Decals/Decals.hlsl", Decals)
+        });
+        Add(GpuParticles, new[]
+        {
+            Pixel("Transparent/GPUParticles/Render.hlsl", GpuParticles, "STREAKS=0;LIT_PARTICLE=0")
+        });
+        Add(EnvProbe, new[] { Pixel("EnvProbe/EnvProbeBlend.hlsl", EnvProbe) });
+        Add(Foliage, new[] { Pixel("Foliage/Foliage.hlsl", Foliage) });
     }
 
     static void Add(string stage, StageCompileProbe[] probes)
@@ -527,9 +601,14 @@ public static class ShaderStages
         };
     }
 
-    static StageCompileProbe Pixel(string path, string stage)
+    static StageCompileProbe Pixel(string path, string stage, string macros = "")
     {
-        return new StageCompileProbe(path, false, "ps_5_0", "", "Anomaly.StageProbe." + stage);
+        return new StageCompileProbe(path, false, "ps_5_0", macros, "Anomaly.StageProbe." + stage);
+    }
+
+    static StageCompileProbe Vertex(string path, string stage, string macros = "")
+    {
+        return new StageCompileProbe(path, false, "vs_5_0", macros, "Anomaly.StageProbe." + stage + ".VS");
     }
 
     static StageCompileProbe Compute(string path, string stage, string macros)

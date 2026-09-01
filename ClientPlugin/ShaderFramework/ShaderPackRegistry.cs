@@ -1287,6 +1287,11 @@ public static class ShaderPackRegistry
                 if (string.Equals(file, "CameraVelocity.hlsl", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(file, "Fullscreen.hlsl", StringComparison.OrdinalIgnoreCase))
                     return ShaderStages.AnomalyCameraVelocity;
+                if (string.Equals(file, "LinearDepth.hlsl", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(file, "HiZDownsample.hlsl", StringComparison.OrdinalIgnoreCase))
+                    return ShaderStages.AnomalyLinearDepth;
+                if (string.Equals(file, "HistoryCopy.hlsl", StringComparison.OrdinalIgnoreCase))
+                    return ShaderStages.AnomalyHistoryColor;
             }
             catch
             {

@@ -22,5 +22,6 @@ static class VelocityDebugDrawPatch
     static void Postfix(IRtvBindable renderTarget)
     {
         VelocityDebugPass.Draw(renderTarget);
+        OwnedBuffersPass.CaptureHistory();
     }
 }

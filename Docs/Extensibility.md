@@ -2,9 +2,9 @@
 
 What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.md](ShaderAPI.md). Velocity / hook slices: [ROADMAP.md](ROADMAP.md). Pack contract: [ShaderPacks.md](ShaderPacks.md). Keen inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Layers 0–3 exist. Velocity is the first tenant. Slices **M–R** are in this repo: stage-scoped inject, pack defines, GBuffer attachments, lighting/GBuffer-read wraps, pass-begin bind registry, buffer catalog.
+**Now:** Layers 0–3 exist. Velocity is the first tenant. Slices **M–T** are in this repo: stage-scoped inject, pack defines, GBuffer attachments, lighting/GBuffer-read wraps, pass-begin bind registry, buffer catalog, owned linear depth / Hi-Z / history color, and extra named stages (Shadows, Atmosphere, Decals, GPUParticles, EnvProbe, Foliage).
 
-**Next:** Slice **S** when a real consumer needs owned Hi-Z / history color. Slice **K** (sample Hidden pack) can now demonstrate lighting inject + velocity SRV.
+**Next:** Slice **K** (sample Hidden pack) can demonstrate lighting inject + velocity SRV, or overlay `Decals` / `Shadows`.
 
 ---
 
@@ -43,12 +43,12 @@ Every Keen permutation already goes through `MyShaderCompiler` (`ShaderCompileIn
 
 | Mechanism | Live today | Gap |
 |-----------|------------|-----|
-| Include dirs | Anomaly `Shaders` + pack `Inject/` | Lighting/post still need Anomaly wraps (slice P) |
+| Include dirs | Anomaly `Shaders` + pack `Inject/` | — |
 | Defines | `ANOMALY=1`; `ANOMALY_VELOCITY` + pack `defines` on GBuffer and lighting | — |
 | Overlay remap | `Overlay/<Stage>/…` or Keen-relative path | One owner per key (keep this) |
 | Generated includes | `Anomaly/Extras/<Stage>.hlsli`; GBuffer alias; attachment fields; lighting/read SRVs | Lighting extras included from Light wrap |
-| Pass-begin bind | GBuffer: velocity + extra attachment RTVs; Lighting/post: catalog SRVs + extras CB | Owned Hi-Z / history (slice S) |
-| Published buffer | `VelocityRegistry.Active`; `BufferCatalog.Active("velocity")`; `GBufferAttachments.TryGet` | `linearDepth` / history when a producer exists |
+| Pass-begin bind | GBuffer: velocity + extra attachment RTVs; Lighting/post: catalog SRVs + extras CB | — |
+| Published buffer | `VelocityRegistry.Active`; `BufferCatalog.Active("velocity"|"linearDepth"|"hiZ"|"historyColor")`; `GBufferAttachments.TryGet` | — |
 | Stage probes | Sentinel compile per live named stage (overlays + injects) | Safety for overlays; not a product |
 
 Velocity uses **layer 1** (GBuffer inject + `SV_Target3`) and **layer 3** (camera pass + registry). That pattern is the template. Do not add a second compile intercept.
@@ -197,26 +197,22 @@ Goal: `IVelocityBuffer` is the first published texture, not the only one. Same d
 
 ---
 
-## Slice S — Owned Hi-Z / history color (when a consumer exists)
+## Slice S — Owned Hi-Z / history color
 
 Goal: layer 3 products that are **not** Keen permutations. Camera velocity is the template: Anomaly HLSL → Anomaly draw → publish → consumer binds.
 
-Do **not** start this until a real consumer needs it (TAA or SSR in another repo, same relationship as SE-DLSS).
-
-- [ ] Linear depth / Hi-Z pyramid from `ResolvedDepthStencil` (SSR, contact shadows)
-- [ ] Previous-frame color for TAA history (owned pass after lighting, before HUD — not a GBuffer MRT)
-- [ ] Jitter ownership: today SE-DLSS owns jitter. TAA as an Anomaly pass needs Anomaly-owned unjittered VP (already true for velocity) plus a documented jitter contract with SE-DLSS
-- [ ] Debug vis of extras as Anomaly fullscreen (velocity debug overlay is the pattern), not Keen `Debug/*.hlsl`
+- [x] Linear depth / Hi-Z pyramid from `ResolvedDepthStencil` (SSR, contact shadows). Full-res `linearDepth` (`R32_Float`, `compute_depth`); `hiZ` is a half-res 2×2 **min** (not `GenerateMips`)
+- [x] Previous-frame color for TAA history (owned blit after post at `DrawGameScene` postfix — not a GBuffer MRT; first frame unpublished)
+- [x] Jitter ownership: SE-DLSS owns jitter. Anomaly velocity is unjittered VP; linearize ignores M31/M32. Documented in [Buffers/README.md](../ClientPlugin/Buffers/README.md)
+- [x] Debug vis of extras as Anomaly fullscreen (`CatalogDebug.hlsl` + settings **Debug buffer**), not Keen `Debug/*.hlsl`
 
 **Slice S done when:** a named catalog texture is inspectable in-game and unbound after the pass.
 
 ---
 
-## Slice T — More named stages (on demand)
+## Slice T — More named stages
 
 Slice J already maps GBuffer, Depth, Forward, Highlight, Transparent, lighting, and main post. Escape hatch: Keen-relative overlay.
-
-Add stage names when a **real pack** needs them, not all 215 files:
 
 | Stage | Keen root | Why |
 |-------|-----------|-----|
@@ -226,12 +222,14 @@ Add stage names when a **real pack** needs them, not all 215 files:
 | `GPUParticles` | `Transparent/GPUParticles/Render.hlsl` | Lit/streak extras |
 | `EnvProbe` | `EnvProbe/*` | IBL prefilter tweaks |
 | `Foliage` | `Foliage/*.hlsl` | Wind / coverage |
+| `Anomaly.LinearDepth` | `LinearDepth.hlsl`, `HiZDownsample.hlsl` | Owned depth / Hi-Z overlay |
+| `Anomaly.HistoryColor` | `HistoryCopy.hlsl` | Owned history blit overlay |
 
-- [ ] Map files in `ShaderStages`; unknown files under the new name fail closed
-- [ ] Sentinel compile in the probe table (slice L path)
-- [ ] Decals first if extras (slice O) ship — `Decals.hlsl` writes GBuffer after the main pass (velocity coverage hole)
+- [x] Map files in `ShaderStages`; unknown files under the new name fail closed
+- [x] Sentinel compile in the probe table (slice L path)
+- [x] Decals mapped. Anomaly’s `GBufferWrite` wrap always applies via include dir; `ANOMALY_VELOCITY` is **not** added for Decals/Foliage (no `RENDERING_PASS` on those compiles) — extra-attachment / velocity coverage on deferred decals is still a hole
 
-**Slice T done when:** `Overlay/Decals/…` (or the first demanded name) remaps and Show Status lists `stages=Decals`.
+**Slice T done when:** `Overlay/Decals/…` remaps and Show Status lists `stages=Decals`.
 
 ---
 
@@ -252,7 +250,7 @@ Add stage names when a **real pack** needs them, not all 215 files:
 
 ## Suggested order
 
-Do M before N if time is short: extras on PS unblocks additive work even with only `ANOMALY_VELOCITY`. Do not start S/T without a consumer or a pack that needs the stage. **M–R are implemented.**
+Do M before N if time is short: extras on PS unblocks additive work even with only `ANOMALY_VELOCITY`. **M–T are implemented.**
 
 | Order | Slice | Layer ([ShaderAPI.md](ShaderAPI.md)) | Depends on |
 |------:|-------|--------------------------------------|------------|
@@ -262,8 +260,8 @@ Do M before N if time is short: extras on PS unblocks additive work even with on
 | 4 | P Lighting / GBuffer-read wraps | 1 | M, O |
 | 5 | Q pass-begin bind registry | 0+3 bind | P (lighting must sample) |
 | 6 | R buffer catalog | 3 | Velocity registry (done) |
-| 7 | S owned Hi-Z / history | 3 | R + a real consumer |
-| 8 | T more named stages | 2 | A pack that needs the name |
+| 7 | S owned Hi-Z / history | 3 | R (done) |
+| 8 | T more named stages | 2 | J (done) |
 
 Slice K (sample Hidden pack) stays deferred until M/N exist so the sample can demonstrate inject + defines, not only overlay.
 
@@ -271,4 +269,4 @@ Slice K (sample Hidden pack) stays deferred until M/N exist so the sample can de
 
 ## First implementation session
 
-M–R are in this repo. Next code slice is **S** (owned Hi-Z / history) when a consumer exists, or **K** (sample pack that injects Lighting extras and samples `AnomalyVelocityBuffer`).
+M–T are in this repo. Next code slice is **K** (sample pack that injects Lighting extras and samples `AnomalyVelocityBuffer`, or overlays `Decals`).

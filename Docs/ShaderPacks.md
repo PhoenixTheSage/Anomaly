@@ -137,7 +137,7 @@ Inject/                      # optional: snippets Anomaly #includes (additive)
 }
 ```
 
-- **Named stages** (`ClientPlugin.Shaders.ShaderStages`): put files under `Overlay/<Stage>/`. Basename or path suffix maps to the Keen (or Anomaly) file for that stage. Unknown files under a stage name are skipped. Stages: `GBuffer`, `Depth`, `Forward`, `Highlight`, `Transparent`, `TransparentForDecals`, `Lighting.Dir` / `.Point` / `.Spot`, `Post.Tonemap` / `.HBAO` / `.SSAO` / `.Bloom` / `.FXAA` / `.EyeAdaptation` / `.Luminance` / `.ChromaticAberration`, `Anomaly.CameraVelocity`.
+- **Named stages** (`ClientPlugin.Shaders.ShaderStages`): put files under `Overlay/<Stage>/`. Basename or path suffix maps to the Keen (or Anomaly) file for that stage. Unknown files under a stage name are skipped. Stages: `GBuffer`, `Depth`, `Forward`, `Highlight`, `Transparent`, `TransparentForDecals`, `Lighting.Dir` / `.Point` / `.Spot`, `Post.Tonemap` / `.HBAO` / `.SSAO` / `.Bloom` / `.FXAA` / `.EyeAdaptation` / `.Luminance` / `.ChromaticAberration`, `Anomaly.CameraVelocity` / `.LinearDepth` / `.HistoryColor`, `Shadows`, `Atmosphere`, `Decals`, `GPUParticles`, `EnvProbe`, `Foliage`.
 - **Overlay** files replace Keen sources at the same relative path (layer 2) when the path is not a named stage. One owner per path; on conflict log both pack ids and **fail closed** (Keen/Anomaly default kept).
 - Overlay of Anomaly-owned GBuffer **write** stages (`Geometry/Passes/GBuffer/VertexStage.hlsli`, `Geometry/Passes/GBuffer/PixelStage.hlsli`, `GBuffer/GBufferWrite.hlsli`) is rejected unless `exclusive` contains `"GBuffer"`. That claim opts out of Anomaly velocity extras for those files.
 - Overlay of Anomaly **read wraps** (`GBuffer/GBuffer.hlsli`, `GBuffer/Surface.hlsli`) needs `exclusive: ["GBuffer"]` **or** `["Lighting"]` so a lighting pack does not have to kill velocity writes.
@@ -146,7 +146,7 @@ Inject/                      # optional: snippets Anomaly #includes (additive)
 - **Defines** (`anomaly.json` `"defines": ["ANOMALY_OBJECTID"]`) are merged onto GBuffer permutations and lighting / OIT-resolve compiles (never Depth). Reserved: `ANOMALY`, `ANOMALY_VELOCITY`, `RENDERING_PASS`, `DEPTH_ONLY`, `CUSTOM_DEPTH`, `ANOMALY_ATTACH_*`.
 - **Attachments** (`GBufferAttachments.Request` or `"attachments"` in json): named extra MRT (`R32_UINT`, `R16G16_Float`, …) or packed `GBuffer1.a`. Velocity keeps `SV_Target3`. Same name + format shares the slot; mismatched formats fail closed. Lighting samples extras as `AnomalyAttach_<name>` at t6+ (`ANOMALY_ATTACH_<NAME>_SRV`).
 - **Binds** (`ClientPlugin.Shaders.ShaderBindRegistry.RequestSrv(stage, catalogName)`): Anomaly binds catalog textures at reserved slots (Lighting/post t5 = `"velocity"`). Packs do not Harmony-patch lighting. Unbind after each pass.
-- **Catalog** (`ClientPlugin.Buffers.BufferCatalog.Active("velocity")`) aliases `VelocityRegistry.Active`. Live GBuffer attachments also resolve by name.
+- **Catalog** (`ClientPlugin.Buffers.BufferCatalog.Active("velocity"|"linearDepth"|"hiZ"|"historyColor")`) aliases `VelocityRegistry` for velocity. Live GBuffer attachments also resolve by name.
 - Missing Overlay file → Keen original (Iris-style fallback).
 
 Do not allow packs to replace Depth with a fourth MRT. After apply, Anomaly compiles a sentinel for each live named stage and rolls back the offending pack. Every compile error logs `pack=<id>`.

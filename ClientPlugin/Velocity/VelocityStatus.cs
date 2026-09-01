@@ -21,8 +21,9 @@ public static class VelocityStatus
             sb.Append("GBuffer attachments: ").AppendLine(GBufferAttachments.StatusLine);
             sb.Append("Pass binds: ").AppendLine(ShaderBindRegistry.StatusLine);
             sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
+            sb.Append("Owned buffers: ").AppendLine(OwnedBuffersPass.StatusLine);
             sb.Append("GBuffer injection: ").AppendLine(FormatGBuffer());
-            sb.Append("Velocity debug: ").AppendLine(FormatDebug());
+            sb.Append("Catalog debug: ").AppendLine(FormatDebug());
             sb.Append("History actors: ").AppendLine(ActorHistory.Instance.TrackedActorCount.ToString());
             sb.Append("History bones: ").AppendLine(BoneHistory.Instance.TrackedCount.ToString());
             if (buf == null || !buf.IsAvailable)
@@ -67,12 +68,17 @@ public static class VelocityStatus
     static string FormatDebug()
     {
         var cfg = Config.Current;
-        if (cfg == null || !cfg.DebugVelocity)
+        if (cfg == null)
+            return "off";
+        var mode = cfg.DebugBuffer != DebugBuffer.Off
+            ? cfg.DebugBuffer.ToString()
+            : cfg.DebugVelocity ? "Velocity (legacy)" : null;
+        if (mode == null)
             return "off";
         var err = VelocityDebugPass.LastError;
         if (!string.IsNullOrEmpty(err))
-            return "on (" + err + ")";
-        return "on  scale=" + cfg.DebugVelocityScale + "px";
+            return mode + " (" + err + ")";
+        return mode + "  scale=" + cfg.DebugVelocityScale + "px";
     }
 
     static string FormatGBuffer()

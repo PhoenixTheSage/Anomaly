@@ -39,6 +39,7 @@ public static class ConfigStorage
         try
         {
             using var streamReader = File.OpenText(path);
+            // Unknown VelocitySource values (leftover OwnedRaster) throw and fall back to GBuffer.
             return (Config)xmlSerializer.Deserialize(streamReader) ?? Config.Default;
         }
         catch (Exception e)

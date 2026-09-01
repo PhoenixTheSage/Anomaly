@@ -40,7 +40,10 @@ public sealed class Plugin : IPlugin
         VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
 
         var harmony = new Harmony(Name);
+        // PatchAll applies every [HarmonyPatch] in this assembly. Do not add
+        // NGX / AA / jitter / DRS patches here — those live in SE-DLSS.
         harmony.PatchAll(Assembly.GetExecutingAssembly());
+        LogHarmonyPatches();
         ShaderPackRegistry.ScanLocalDrop(GetConfigPath);
         ShaderPackRegistry.Apply();
         ShaderCompileIntercept.Activate();
@@ -118,5 +121,28 @@ public sealed class Plugin : IPlugin
         MyLog.Default.WriteLine("Anomaly named assets: " + assets.Count
             + (shaders != null ? " Shaders=" + shaders : ""));
         DebugLog.Write("LoadAssets(dict) count=" + assets.Count);
+    }
+
+    static void LogHarmonyPatches()
+    {
+        var names = new List<string>();
+        foreach (var type in Assembly.GetExecutingAssembly().GetTypes())
+        {
+            if (type.Namespace != null &&
+                type.Namespace.StartsWith("ClientPlugin.Dlss", StringComparison.Ordinal))
+            {
+                MyLog.Default.WriteLine("Anomaly: leftover DLSS type compiled: " + type.FullName);
+                continue;
+            }
+
+            if (type.GetCustomAttributes(typeof(HarmonyPatch), inherit: true).Length == 0)
+                continue;
+            names.Add(type.Name);
+        }
+
+        names.Sort(StringComparer.Ordinal);
+        var line = "Harmony patch types (" + names.Count + "): " + string.Join(", ", names);
+        MyLog.Default.WriteLine("Anomaly " + line);
+        DebugLog.Write(line);
     }
 }

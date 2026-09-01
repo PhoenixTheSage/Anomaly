@@ -13,7 +13,7 @@ DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces
 
 ## Current repo state
 
-`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Phase 0 and Slices A–D (compile intercept, camera `IVelocityBuffer`, ActorID history, GBuffer piggyback) are done. In-game proof of object MVs on a moving grid is still required.
+`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Slices A–F and H are in this repo. Slice G (SE-DLSS bind) is shipped and proven in the consumer repo. PluginHub registration is deferred.
 
 - **SE-DLSS** stays the consumer in its own repo. Do not compile Anomaly sources into SE-DLSS or the reverse.
 - Keep Harmony, publicizer, `VRage.Render11` access, settings/deploy/Pulsar XML shape, Rich HUD coexistence patterns.
@@ -262,9 +262,9 @@ Use this only if GBuffer inject is blocked and SE-DLSS needs object MVs before i
 
 ### 7 — Consumer wiring (SE-DLSS repo, not this one)
 
-- [ ] `VelocitySource`: `External` \| `CameraOnly`. If Anomaly’s `IVelocityBuffer` is null, log and use camera-only; do not Harmony-patch instance updates from DLSS.
-- [ ] `TryEvaluate` binds Anomaly’s texture. No second MV generate when External is live.
-- [ ] Optional `<DependencyIds>`. No compile-time project reference.
+- [x] `VelocitySource`: `External` \| `CameraOnly`. If Anomaly’s `IVelocityBuffer` is null, log and use camera-only; do not Harmony-patch instance updates from DLSS.
+- [x] `TryEvaluate` binds Anomaly’s texture. No second MV generate when External is live.
+- [ ] Optional `<DependencyIds>`. No compile-time project reference. PluginHub publish is later.
 
 ---
 

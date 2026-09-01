@@ -2,9 +2,9 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slices A–F are implemented. Compile intercept, camera `IVelocityBuffer`, ActorID history, GBuffer piggyback, coverage holes, and the shader pack registry are in. Default `VelocitySource` is `GBuffer`.
+**Now:** Slices A–H are implemented. Velocity pipeline, pack registry, and ship hygiene are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred.
 
-**Next:** Slice G in the SE-DLSS repo — bind `VelocityRegistry.Active` when Anomaly is present.
+**Next:** Slice I — pack safety (Depth compile rollback, log pack id on compile error).
 
 ---
 
@@ -41,8 +41,8 @@ Goal: Anomaly can add an include directory and a define on **every** Keen permut
 The tree may still contain leftover SE-DLSS sources (`ClientPlugin/Dlss/`, DLSS-oriented `Patches/`). Before new hooks:
 
 - [x] Confirm `Plugin.Init` does not patch NGX / AA / jitter / DRS from DLSS leftovers. `harmony.PatchAll` will apply **every** `[HarmonyPatch]` in the assembly.
-- [x] Delete leftover DLSS patches so they cannot run. Only `Patches/ShaderCompilerPatch.cs` is Harmony.
-- [x] Confirm `Native/SeDlssNgx` is not part of the ClientPlugin build.
+- [x] Delete leftover DLSS patches so they cannot run. Harmony is only the Anomaly intercept / velocity / history patches (Slice H re-checked).
+- [x] Confirm `Native/SeDlssNgx` is not part of the ClientPlugin build. `.gitignore` + `Compile Remove="Dlss/**"` keep leftovers out.
 
 ### A2. Find Keen’s compile entry
 
@@ -170,11 +170,19 @@ Do not block velocity on this. Layer 0 already makes it possible. Pack contract:
 
 ## Slice G — SE-DLSS consumer (other repo)
 
-Not this tree. [PLAN.md](PLAN.md) phase 7.
+Not this tree. [PLAN.md](PLAN.md) phase 7. **Shipped and proven** in SE-DLSS. PluginHub `<DependencyIds>` waits until Anomaly is registered.
 
-- [ ] Bind `VelocityRegistry.Active` when present; else camera-native.
-- [ ] No second MV generate when External is live.
+- [x] Bind `VelocityRegistry.Active` when present; else camera-native.
+- [x] No second MV generate when External is live.
 - [ ] Optional `<DependencyIds>` after Anomaly is on PluginHub.
+
+---
+
+## Slice H — Ship hygiene
+
+- [x] Leftover SE-DLSS C# / NGX must not compile or `PatchAll`. Guard: `Compile Remove="Dlss/**"`, `.gitignore` for `ClientPlugin/Dlss/` and `Native/SeDlssNgx/`. Init logs every Harmony patch type and leftover `ClientPlugin.Dlss` types.
+- [x] `OwnedRaster` is not a `VelocitySource` value. Settings only `GBuffer` / `CameraOnly`. Saved `Anomaly.cfg` with an unknown enum falls back to default (GBuffer).
+- [ ] Pin a reviewed commit in `Anomaly.xml` when registering on PluginHub (deferred).
 
 ---
 
@@ -191,8 +199,10 @@ Do A completely before B if time is short: a broken Depth compile is worse than 
 | 5 | E skinning / voxels | 6 | 1 |
 | 6 | F overlay registry | — | 2 (stub) |
 | 7 | G SE-DLSS bind | 7 | consumers |
+| 8 | H ship hygiene | 0 | — |
+| 9 | I pack safety | — | 2 |
 
-Phase 4 owned raster: only if D is blocked.
+Phase 4 owned raster: skipped. GBuffer piggyback shipped.
 
 ---
 
@@ -204,4 +214,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **slice G** (SE-DLSS repo: bind `VelocityRegistry.Active`) after in-game proof of D–F.
+Next session is **slice I** (pack safety: Depth compile rollback) after PluginHub if that lands first.

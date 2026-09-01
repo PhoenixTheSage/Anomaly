@@ -279,6 +279,12 @@
     <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
 
+  <!-- Leftover SE-DLSS sources must never compile if they reappear next to a local checkout. -->
+  <ItemGroup>
+    <Compile Remove="Dlss\**" />
+    <None Remove="Dlss\**" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Lib.Harmony" Version="2.4.2" />
     <PackageReference Include="Krafs.Publicizer" Version="2.3.0">

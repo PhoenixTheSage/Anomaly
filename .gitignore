@@ -366,3 +366,7 @@ MigrationBackup/
 
 # Plugin specific
 *.il
+
+# Leftover SE-DLSS sources (Anomaly must never ship NGX)
+/ClientPlugin/Dlss/
+/Native/SeDlssNgx/

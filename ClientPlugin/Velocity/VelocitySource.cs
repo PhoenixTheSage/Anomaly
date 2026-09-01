@@ -7,4 +7,6 @@ public enum VelocitySource
 
     /// <summary>Fullscreen camera-from-depth reprojection; no object motion.</summary>
     CameraOnly
+
+    // OwnedRaster is not shipped. GBuffer piggyback is the only object-MV path.
 }

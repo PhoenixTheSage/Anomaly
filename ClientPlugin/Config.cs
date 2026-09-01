@@ -24,7 +24,7 @@ public class Config : INotifyPropertyChanged
 
     [Separator("Velocity")]
 
-    [Dropdown(visibleRows: 4, label: "Velocity source",
+    [Dropdown(visibleRows: 2, label: "Velocity source",
         description: "GBuffer writes object motion on Keen's geometry pixels. CameraOnly is fullscreen depth reprojection.")]
     public VelocitySource VelocitySource
     {

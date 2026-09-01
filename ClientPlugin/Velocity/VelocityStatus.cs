@@ -19,6 +19,7 @@ public static class VelocityStatus
             sb.Append("GBuffer overlay: ").AppendLine(ShaderCompileIntercept.GBufferOverlayPresent ? "present" : "missing");
             sb.Append("Shader packs: ").AppendLine(ShaderPackRegistry.StatusLine);
             sb.Append("GBuffer attachments: ").AppendLine(GBufferAttachments.StatusLine);
+            sb.Append("Pass binds: ").AppendLine(ShaderBindRegistry.StatusLine);
             sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
             sb.Append("GBuffer injection: ").AppendLine(FormatGBuffer());
             sb.Append("Velocity debug: ").AppendLine(FormatDebug());

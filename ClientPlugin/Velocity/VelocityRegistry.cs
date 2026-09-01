@@ -1,3 +1,5 @@
+using ClientPlugin.Buffers;
+
 namespace ClientPlugin.Velocity;
 
 /// <summary>
@@ -11,5 +13,6 @@ public static class VelocityRegistry
     internal static void SetActive(IVelocityBuffer buffer)
     {
         Active = buffer ?? UnavailableVelocityBuffer.Instance;
+        BufferCatalog.PublishVelocity(Active);
     }
 }

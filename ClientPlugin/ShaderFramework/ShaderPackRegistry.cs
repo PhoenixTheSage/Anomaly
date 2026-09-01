@@ -18,10 +18,12 @@ namespace ClientPlugin.Shaders;
 /// compile-time reference to Anomaly. Call <see cref="Register"/> from
 /// the pack's <c>LoadAssets</c>. Instantiate order is not dependency-sorted.
 /// Slice L: sentinel compile per live named stage; roll back the pack that
-/// fails it. Overlay of Anomaly GBuffer stages needs
-/// <c>exclusive: ["GBuffer"]</c>.
+/// fails it. Overlay of Anomaly GBuffer <em>write</em> stages needs
+/// <c>exclusive: ["GBuffer"]</c>. Read wraps need <c>GBuffer</c> or
+/// <c>Lighting</c>; <c>Lighting/Light.hlsli</c> needs <c>Lighting</c>.
 /// Slice J: <see cref="ShaderStages"/> maps named overlay folders to Keen paths.
-/// Slices M–O: stage-scoped inject, pack defines, <see cref="GBufferAttachments"/>.
+/// Slices M–R: stage-scoped inject, pack defines, <see cref="GBufferAttachments"/>,
+/// lighting wraps, <see cref="ShaderBindRegistry"/>, buffer catalog.
 /// </summary>
 public static class ShaderPackRegistry
 {
@@ -32,6 +34,7 @@ public static class ShaderPackRegistry
     public const string GeneratedExtrasStagePath = "Anomaly/Extras/GBuffer.hlsli";
     public const string GeneratedFingerprintPath = "Anomaly/PackFingerprint.hlsli";
     public const string ExclusiveGBuffer = ShaderStages.GBuffer;
+    public const string ExclusiveLighting = ShaderStages.Lighting;
 
     static readonly object Gate = new();
     static readonly Dictionary<string, PendingPack> Pending = new(StringComparer.OrdinalIgnoreCase);
@@ -464,13 +467,8 @@ public static class ShaderPackRegistry
             }
 
             var owner = kv.Value[0];
-            if (IsOwnedGBufferStage(kv.Key) && !HasExclusiveStage(owner.Exclusive, ExclusiveGBuffer))
-            {
-                Warn("pack " + owner.ManifestId +
-                     " overlay of Anomaly GBuffer stage requires exclusive: [\"" +
-                     ExclusiveGBuffer + "\"]: " + kv.Key);
+            if (!CanOverlayOwned(kv.Key, owner.Exclusive, owner.ManifestId))
                 continue;
-            }
 
             string path = null;
             foreach (var overlay in owner.Overlays)
@@ -491,6 +489,7 @@ public static class ShaderPackRegistry
 
         var extrasByStage = new Dictionary<string, StringBuilder>(StringComparer.OrdinalIgnoreCase);
         EnsureStageExtrasHeader(extrasByStage, ShaderStages.GBuffer);
+        EnsureStageExtrasHeader(extrasByStage, ShaderStages.Lighting);
         var live = 0;
         var defineNames = new List<string>();
         var packAttachments = new List<GBufferAttachments.QueuedRequest>();
@@ -584,6 +583,8 @@ public static class ShaderPackRegistry
         fingerprintBytes = Utf8.GetBytes(
             "#ifndef ANOMALY_PACK_FINGERPRINT_HLSLI\n#define ANOMALY_PACK_FINGERPRINT_HLSLI\n// anomaly-packs none\n#endif\n");
         GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasStagePath)] = extrasBytes;
+        GeneratedFiles[NormalizeKeyOrEmpty(ShaderStages.ExtrasIncludePath(ShaderStages.Lighting))] =
+            Utf8.GetBytes(EmptyStageExtras(ShaderStages.Lighting));
         GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasPath)] = Utf8.GetBytes(GBufferExtrasAlias());
         GeneratedFiles[NormalizeKeyOrEmpty(GeneratedFingerprintPath)] = fingerprintBytes;
     }
@@ -620,6 +621,9 @@ public static class ShaderPackRegistry
         if (!GeneratedFiles.ContainsKey(NormalizeKeyOrEmpty(GeneratedExtrasStagePath)))
             GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasStagePath)] =
                 Utf8.GetBytes(EmptyStageExtras(ShaderStages.GBuffer));
+        var lightingExtras = NormalizeKeyOrEmpty(ShaderStages.ExtrasIncludePath(ShaderStages.Lighting));
+        if (!GeneratedFiles.ContainsKey(lightingExtras))
+            GeneratedFiles[lightingExtras] = Utf8.GetBytes(EmptyStageExtras(ShaderStages.Lighting));
         GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasPath)] = Utf8.GetBytes(GBufferExtrasAlias());
     }
 
@@ -777,13 +781,8 @@ public static class ShaderPackRegistry
                     !string.Equals(overlayRel, key, StringComparison.OrdinalIgnoreCase))
                     Log("pack " + pack.ManifestId + " stage " + stageName + " '" + overlayRel + "' → " + key);
 
-                if (IsOwnedGBufferStage(key) && !HasExclusiveStage(pack.Exclusive, ExclusiveGBuffer))
-                {
-                    Warn("pack " + pack.ManifestId +
-                         " overlay of Anomaly GBuffer stage requires exclusive: [\"" +
-                         ExclusiveGBuffer + "\"]: " + key);
+                if (!CanOverlayOwned(key, pack.Exclusive, pack.ManifestId))
                     continue;
-                }
 
                 var full = Path.GetFullPath(file);
                 if (!IsUnderRoot(overlayRoot, full))
@@ -1100,6 +1099,13 @@ public static class ShaderPackRegistry
         var hasEscape = false;
         foreach (var key in OverlayFiles.Keys)
         {
+            if (ShaderStages.IsAnomalyOwnedGBufferRead(key) ||
+                ShaderStages.IsAnomalyOwnedLightingWrap(key))
+            {
+                AddLightingFamily(names);
+                continue;
+            }
+
             if (ShaderStages.TryGetStageForKey(key, out var stage) && !string.IsNullOrEmpty(stage))
             {
                 AddUnique(names, stage);
@@ -1114,7 +1120,7 @@ public static class ShaderPackRegistry
             if (pack.Disabled)
                 continue;
             foreach (var inject in pack.InjectFiles)
-                AddUnique(names, inject.Stage);
+                AddStageOrLightingFamily(names, inject.Stage);
         }
 
         if (hasEscape)
@@ -1142,6 +1148,24 @@ public static class ShaderPackRegistry
         }
 
         names.Add(stage);
+    }
+
+    static void AddStageOrLightingFamily(List<string> names, string stage)
+    {
+        if (string.Equals(stage, ShaderStages.Lighting, StringComparison.OrdinalIgnoreCase))
+        {
+            AddLightingFamily(names);
+            return;
+        }
+
+        AddUnique(names, stage);
+    }
+
+    static void AddLightingFamily(List<string> names)
+    {
+        AddUnique(names, ShaderStages.LightingDir);
+        AddUnique(names, ShaderStages.LightingPoint);
+        AddUnique(names, ShaderStages.LightingSpot);
     }
 
     static List<RuntimeProbe> FilterProbes(List<RuntimeProbe> probes, string stage)
@@ -1426,6 +1450,10 @@ public static class ShaderPackRegistry
         {
             if (!OverlayFiles.ContainsKey(overlay.Key))
                 continue;
+            if (ShaderStages.IsLightingFamily(stage) &&
+                (ShaderStages.IsAnomalyOwnedGBufferRead(overlay.Key) ||
+                 ShaderStages.IsAnomalyOwnedLightingWrap(overlay.Key)))
+                return true;
             if (ShaderStages.TryGetStageForKey(overlay.Key, out var name) &&
                 string.Equals(name, stage, StringComparison.OrdinalIgnoreCase))
                 return true;
@@ -1434,6 +1462,9 @@ public static class ShaderPackRegistry
         foreach (var inject in pack.InjectFiles)
         {
             if (string.Equals(inject.Stage, stage, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (ShaderStages.IsLightingFamily(stage) &&
+                string.Equals(inject.Stage, ShaderStages.Lighting, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 
@@ -1504,9 +1535,40 @@ public static class ShaderPackRegistry
                n.IndexOf("VertexTemplate", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    static bool IsOwnedGBufferStage(string key)
+    static bool CanOverlayOwned(string key, string[] exclusive, string packId)
     {
-        return ShaderStages.IsAnomalyOwnedGBuffer(key);
+        if (ShaderStages.IsAnomalyOwnedGBuffer(key))
+        {
+            if (HasExclusiveStage(exclusive, ExclusiveGBuffer))
+                return true;
+            Warn("pack " + packId +
+                 " overlay of Anomaly GBuffer stage requires exclusive: [\"" +
+                 ExclusiveGBuffer + "\"]: " + key);
+            return false;
+        }
+
+        if (ShaderStages.IsAnomalyOwnedGBufferRead(key))
+        {
+            if (HasExclusiveStage(exclusive, ExclusiveGBuffer) ||
+                HasExclusiveStage(exclusive, ExclusiveLighting))
+                return true;
+            Warn("pack " + packId +
+                 " overlay of Anomaly GBuffer read wrap requires exclusive: [\"" +
+                 ExclusiveGBuffer + "\"] or [\"" + ExclusiveLighting + "\"]: " + key);
+            return false;
+        }
+
+        if (ShaderStages.IsAnomalyOwnedLightingWrap(key))
+        {
+            if (HasExclusiveStage(exclusive, ExclusiveLighting))
+                return true;
+            Warn("pack " + packId +
+                 " overlay of Anomaly Lighting wrap requires exclusive: [\"" +
+                 ExclusiveLighting + "\"]: " + key);
+            return false;
+        }
+
+        return true;
     }
 
     static bool HasExclusiveStage(string[] exclusive, string stage)
@@ -1527,19 +1589,20 @@ public static class ShaderPackRegistry
         var names = new List<string>();
         foreach (var key in OverlayFiles.Keys)
         {
+            if (ShaderStages.IsAnomalyOwnedLightingWrap(key) ||
+                ShaderStages.IsAnomalyOwnedGBufferRead(key))
+                AddUnique(names, ShaderStages.Lighting);
             if (!ShaderStages.TryGetStageForKey(key, out var stage) || string.IsNullOrEmpty(stage))
                 continue;
-            var found = false;
-            for (var i = 0; i < names.Count; i++)
-            {
-                if (!string.Equals(names[i], stage, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                found = true;
-                break;
-            }
+            AddUnique(names, stage);
+        }
 
-            if (!found)
-                names.Add(stage);
+        foreach (var pack in Pending.Values)
+        {
+            if (pack.Disabled || pack.InjectFiles == null)
+                continue;
+            foreach (var inject in pack.InjectFiles)
+                AddUnique(names, inject.Stage);
         }
 
         if (names.Count == 0)

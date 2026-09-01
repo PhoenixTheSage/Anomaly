@@ -1,5 +1,6 @@
 using System.Reflection;
 using ClientPlugin.ShaderFramework;
+using ClientPlugin.Shaders;
 using HarmonyLib;
 using VRage.Render11.Render;
 using VRageRender;
@@ -46,5 +47,6 @@ static class CameraVelocityDeviceEndPatch
     {
         CameraVelocityPass.Release();
         VelocityDebugPass.Release();
+        ShaderBindRegistry.Release();
     }
 }

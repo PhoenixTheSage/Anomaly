@@ -30,6 +30,7 @@ public static class GBufferAttachments
     public const string GeneratedFieldsPath = "Anomaly/Extras/GBufferAttachmentFields.hlsli";
     public const string GeneratedInitPath = "Anomaly/Extras/GBufferAttachmentInit.hlsli";
     public const string GeneratedDefsPath = "Anomaly/Extras/GBufferAttachmentDefs.hlsli";
+    public const string GeneratedReadSrvsPath = "Anomaly/Extras/GBufferReadSrvs.hlsli";
 
     static readonly object Gate = new();
     static readonly UTF8Encoding Utf8 = new(false);
@@ -43,6 +44,7 @@ public static class GBufferAttachments
     static byte[] fieldsBytes;
     static byte[] initBytes;
     static byte[] defsBytes;
+    static byte[] readSrvsBytes;
     static int conflictCount;
     static bool assigned;
 
@@ -181,6 +183,8 @@ public static class GBufferAttachments
                 bytes = initBytes;
             else if (KeysEqual(relativeKey, GeneratedDefsPath))
                 bytes = defsBytes;
+            else if (KeysEqual(relativeKey, GeneratedReadSrvsPath))
+                bytes = readSrvsBytes;
             else
                 return false;
             stream = new MemoryStream(bytes, writable: false);
@@ -224,6 +228,27 @@ public static class GBufferAttachments
                 if (index < 0 || index >= dest.Length)
                     continue;
                 dest[index] = a.Target.Rtv;
+            }
+        }
+    }
+
+    internal static int LightingSrvSlot(int svTarget)
+    {
+        return ShaderBindRegistry.LightingAttachBase + (svTarget - FirstExtraTarget);
+    }
+
+    internal static void ForEachColorSrv(Action<string, int, ISrvBindable> visit)
+    {
+        if (visit == null)
+            return;
+        lock (Gate)
+        {
+            for (var i = 0; i < Live.Count; i++)
+            {
+                var a = Live[i];
+                if (a.Packed || a.Target == null)
+                    continue;
+                visit(a.Name, LightingSrvSlot(a.SvTarget), a.Target);
             }
         }
     }
@@ -390,6 +415,7 @@ public static class GBufferAttachments
         var fields = new StringBuilder();
         var init = new StringBuilder();
         var defs = new StringBuilder();
+        var read = new StringBuilder();
         var macros = new List<ShaderMacro>();
 
         fields.AppendLine("#ifndef ANOMALY_GBUFFER_ATTACHMENT_FIELDS_HLSLI");
@@ -400,6 +426,12 @@ public static class GBufferAttachments
         init.AppendLine("{");
         defs.AppendLine("#ifndef ANOMALY_GBUFFER_ATTACHMENT_DEFS_HLSLI");
         defs.AppendLine("#define ANOMALY_GBUFFER_ATTACHMENT_DEFS_HLSLI");
+        read.AppendLine("#ifndef ANOMALY_GBUFFER_READ_SRVS_HLSLI");
+        read.AppendLine("#define ANOMALY_GBUFFER_READ_SRVS_HLSLI");
+        read.AppendLine("#include <Anomaly/LightingSlots.hlsli>");
+        read.AppendLine("#ifdef ANOMALY_VELOCITY");
+        read.AppendLine("Texture2D<float2> AnomalyVelocityBuffer : register(MERGE(t, ANOMALY_LIGHTING_VELOCITY_SLOT));");
+        read.AppendLine("#endif");
 
         for (var i = 0; i < Live.Count; i++)
         {
@@ -423,22 +455,30 @@ public static class GBufferAttachments
             defs.Append("#define ").Append(a.Macro).Append("_TARGET ").Append(a.SvTarget)
                 .AppendLine();
             defs.AppendLine("#endif");
+            var srvSlot = LightingSrvSlot(a.SvTarget);
+            read.Append("#ifdef ").AppendLine(a.Macro);
+            read.Append("#define ").Append(a.Macro).Append("_SRV ").Append(srvSlot).AppendLine();
+            read.Append("Texture2D<").Append(a.HlslType).Append("> AnomalyAttach_").Append(a.Name)
+                .Append(" : register(MERGE(t, ").Append(a.Macro).Append("_SRV));").AppendLine();
+            read.AppendLine("#endif");
         }
 
         fields.AppendLine("#endif");
         init.AppendLine("}");
         init.AppendLine("#endif");
         defs.AppendLine("#endif");
+        read.AppendLine("#endif");
 
         fieldsBytes = Utf8.GetBytes(fields.ToString());
         initBytes = Utf8.GetBytes(init.ToString());
         defsBytes = Utf8.GetBytes(defs.ToString());
+        readSrvsBytes = Utf8.GetBytes(read.ToString());
         liveMacros = macros.ToArray();
     }
 
     static void EnsureGeneratedUnlocked()
     {
-        if (fieldsBytes != null && initBytes != null && defsBytes != null)
+        if (fieldsBytes != null && initBytes != null && defsBytes != null && readSrvsBytes != null)
             return;
         if (!assigned)
             AssignUnlocked();

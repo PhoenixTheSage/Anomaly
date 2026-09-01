@@ -66,6 +66,7 @@ public sealed class Plugin : IPlugin
         ActorHistory.Instance.Clear();
         BoneHistory.Instance.Clear();
         VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
+        ShaderBindRegistry.Release();
         settingsGenerator = null;
         if (ReferenceEquals(Instance, this))
             Instance = null;

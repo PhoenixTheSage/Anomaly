@@ -124,6 +124,14 @@ public static class ShaderStages
         "GBuffer/GBufferWrite.hlsli"
     };
 
+    static readonly string[] OwnedGBufferRead =
+    {
+        "GBuffer/GBuffer.hlsli",
+        "GBuffer/Surface.hlsli"
+    };
+
+    const string OwnedLightingWrap = "Lighting/Light.hlsli";
+
     static readonly Dictionary<string, Stage> ByName =
         new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, string> KeyToStage =
@@ -294,6 +302,40 @@ public static class ShaderStages
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Deferred-read wraps. Overlay needs <c>exclusive: ["GBuffer"]</c> or
+    /// <c>["Lighting"]</c> so a lighting pack does not kill velocity writes.
+    /// </summary>
+    public static bool IsAnomalyOwnedGBufferRead(string keenKey)
+    {
+        var key = NormalizeSlashes(keenKey);
+        for (var i = 0; i < OwnedGBufferRead.Length; i++)
+        {
+            if (string.Equals(key, OwnedGBufferRead[i], StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// <c>Lighting/Light.hlsli</c> wrap. Overlay needs <c>exclusive: ["Lighting"]</c>
+    /// (not Lighting.Dir / .Point / .Spot).
+    /// </summary>
+    public static bool IsAnomalyOwnedLightingWrap(string keenKey)
+    {
+        return string.Equals(NormalizeSlashes(keenKey), OwnedLightingWrap,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsLightingFamily(string stageName)
+    {
+        return string.Equals(stageName, Lighting, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(stageName, LightingDir, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(stageName, LightingPoint, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(stageName, LightingSpot, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

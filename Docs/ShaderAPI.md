@@ -156,7 +156,7 @@ Rules:
 3. **Replace is exclusive per key**; inject is additive behind Anomaly-owned includes (`Anomaly/Extras/GBuffer.hlsli`, aliased as `Anomaly/GBufferExtras.hlsli`).
 4. **Consumers do not Harmony-patch `DrawGameScene` or instance updates.** They bind registry textures. Anomaly draws / binds RTs.
 5. **`ClearState` / DRS / device reset** stay Anomaly’s problem. Replacements must not leak RT/SRV ([Rich HUD](https://github.com/DarkHelmet/RichHudFramework)).
-6. **Anomaly-owned GBuffer stages** (`Geometry/Passes/GBuffer/*Stage.hlsli`, `GBuffer/GBufferWrite.hlsli`) stay Anomaly’s unless a pack sets `exclusive: ["GBuffer"]`.
+6. **Anomaly-owned GBuffer write stages** (`Geometry/Passes/GBuffer/*Stage.hlsli`, `GBuffer/GBufferWrite.hlsli`) stay Anomaly’s unless a pack sets `exclusive: ["GBuffer"]`. **Read wraps** (`GBuffer/GBuffer.hlsli`, `Surface.hlsli`) need `exclusive: ["GBuffer"]` or `["Lighting"]`. **`Lighting/Light.hlsli`** needs `exclusive: ["Lighting"]`.
 7. **Compile failure rolls back that pack** (sentinel per live named stage after apply; in-game overlay errors log `pack=<id>` and disable the owner).
 
 Injection + exclusive replace can coexist: velocity inject still applies to a replaced Standard pixel **only if** that pixel still includes `Passes/PixelStage.hlsli`. A full-file replace that omits the include opts out of extras — document that.

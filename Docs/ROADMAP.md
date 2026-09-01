@@ -6,7 +6,7 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 
 **Next (velocity proof):** Use the debug overlay in-game (PLAN test plan: moving grid vs camera pan, Depth still compiles) and, when ready, PluginHub pin.
 
-**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–O** are in this repo. Next code is **P** (lighting / GBuffer-read wraps).
+**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–R** are in this repo. Next code is **S** (owned Hi-Z / history) when a consumer exists.
 
 ---
 

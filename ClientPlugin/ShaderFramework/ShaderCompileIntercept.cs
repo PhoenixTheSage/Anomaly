@@ -165,6 +165,12 @@ public static class ShaderCompileIntercept
 
     public static void EnsureGBufferMacros(string filepath, ref ShaderMacro[] macros)
     {
+        if (IsDeferredReadCompile(filepath))
+        {
+            EnsureReadPassMacros(ref macros);
+            return;
+        }
+
         EnsureVelocityMacro(filepath, ref macros);
         AppendGBufferExtras(filepath, ref macros);
     }
@@ -191,6 +197,25 @@ public static class ShaderCompileIntercept
             return;
         AppendMissing(macros, ShaderPackRegistry.LiveDefineMacros);
         AppendMissing(macros, GBufferAttachments.LiveDefineMacros);
+    }
+
+    static void EnsureReadPassMacros(ref ShaderMacro[] macros)
+    {
+        if (IsDepthPermutation(macros))
+            return;
+        if (!ContainsNamed(macros, VelocityMacroName))
+            macros = AppendMacro(macros, VelocityMacroName, VelocityMacroValue);
+        AppendMissing(ref macros, ShaderPackRegistry.LiveDefineMacros);
+        AppendMissing(ref macros, GBufferAttachments.LiveDefineMacros);
+    }
+
+    static bool IsDeferredReadCompile(string filepath)
+    {
+        if (string.IsNullOrEmpty(filepath))
+            return false;
+        var n = filepath.Replace('\\', '/');
+        return n.IndexOf("/Lighting/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               n.IndexOf("/Transparent/OIT/Resolve", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     static void AppendMissing(ref ShaderMacro[] macros, ShaderMacro[] extra)
@@ -309,12 +334,36 @@ public static class ShaderCompileIntercept
         }
 
         if (string.IsNullOrEmpty(overlayPath) || !File.Exists(overlayPath))
+        {
+            if (TryOpenKeenLocal(includeType, relativeKey, out stream))
+                return true;
             return false;
+        }
         if (!IsUnderRoot(includeRoot, overlayPath))
             return false;
 
         stream = new FileStream(overlayPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         return true;
+    }
+
+    static bool TryOpenKeenLocal(IncludeType includeType, string relativeKey, out Stream stream)
+    {
+        stream = null;
+        if (includeType != IncludeType.Local || string.IsNullOrEmpty(relativeKey))
+            return false;
+        try
+        {
+            var shadersRoot = Path.GetFullPath(MyShaderCompiler.ShadersPath);
+            var keenPath = Path.GetFullPath(Path.Combine(shadersRoot, relativeKey));
+            if (!File.Exists(keenPath) || !IsUnderRoot(shadersRoot, keenPath))
+                return false;
+            stream = new FileStream(keenPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static void EnsureGlobalMacros(ref ShaderMacro[] macros)

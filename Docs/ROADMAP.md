@@ -2,9 +2,9 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slices A–H are implemented. Velocity pipeline, pack registry, and ship hygiene are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred.
+**Now:** Slices A–I are implemented. Velocity pipeline, pack registry, ship hygiene, and pack safety (Depth probe rollback + compile-error pack ids) are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred.
 
-**Next:** Slice I — pack safety (Depth compile rollback, log pack id on compile error).
+**Next:** Slice J — named stages (`GBuffer` / `Depth` / `Forward` / `Post.*` map to Keen paths). Path overlay stays as the escape hatch.
 
 ---
 
@@ -186,6 +186,22 @@ Not this tree. [PLAN.md](PLAN.md) phase 7. **Shipped and proven** in SE-DLSS. Pl
 
 ---
 
+## Slice I — Pack safety
+
+Goal: a bad overlay must not leave Depth broken. Log which pack did it.
+
+- [x] After packs apply and the compile intercept is live, compile Keen Standard Depth (`Geometry/Materials/Standard/Pixel.hlsl` + `Vertex.hlsl`, `DEPTH_ONLY` + `RENDERING_PASS=1`). No `ANOMALY_VELOCITY`.
+- [x] On probe failure, disable that pack (`RolledBack`), `Apply` again without it, rebuild extras/fingerprint. Isolate one pack at a time (high priority first); if none alone is enough, fail closed on all overlay packs. Baseline fail (still broken with overlays off) restores them and logs.
+- [x] Probe is deferred when `ShadersPath` is not ready; first successful `Compile` postfix retries. Probe never starts from inside an in-flight `Compile` (Keen’s static macro list).
+- [x] In-game Depth compile failure rolls back the overlay owner of that filepath, or Depth-related overlay packs if the owner is unknown.
+- [x] Every compile error logs `pack=<id|none>` plus live pack ids and the fingerprint.
+- [x] Overlay of Anomaly-owned GBuffer stages (`Geometry/Passes/GBuffer/VertexStage.hlsli`, `Geometry/Passes/GBuffer/PixelStage.hlsli`, `GBuffer/GBufferWrite.hlsli`) is rejected unless the pack sets `exclusive: ["GBuffer"]`.
+- [x] Show Status: `rolled-back=N` when any pack was rolled back.
+
+**Slice I code done when:** a local pack that breaks Standard Depth is disabled and Depth compiles; compile failures name the pack. **Slice I proven when:** that rollback is visible in `SpaceEngineers.log` / Show Status.
+
+---
+
 ## Suggested order on the calendar
 
 Do A completely before B if time is short: a broken Depth compile is worse than no velocity.
@@ -201,6 +217,7 @@ Do A completely before B if time is short: a broken Depth compile is worse than 
 | 7 | G SE-DLSS bind | 7 | consumers |
 | 8 | H ship hygiene | 0 | — |
 | 9 | I pack safety | — | 2 |
+| 10 | J named stages | — | 2 |
 
 Phase 4 owned raster: skipped. GBuffer piggyback shipped.
 
@@ -214,4 +231,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **slice I** (pack safety: Depth compile rollback) after PluginHub if that lands first.
+Next session is **slice J** (named stages: `GBuffer` / `Depth` / `Forward` / `Post.*`). PluginHub pin stays deferred.

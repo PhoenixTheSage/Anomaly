@@ -128,11 +128,12 @@ Inject/                      # optional: snippets Anomaly #includes
 }
 ```
 
-- **Overlay** files replace Keen sources at the same relative path (layer 2). One owner per path; on conflict log both pack ids and keep the higher `priority` (or fail closed — pick one rule and stick to it; prefer **fail closed** on Hub).
+- **Overlay** files replace Keen sources at the same relative path (layer 2). One owner per path; on conflict log both pack ids and **fail closed** (Keen/Anomaly default kept).
+- Overlay of Anomaly-owned GBuffer stages (`Geometry/Passes/GBuffer/VertexStage.hlsli`, `Geometry/Passes/GBuffer/PixelStage.hlsli`, `GBuffer/GBufferWrite.hlsli`) is rejected unless `exclusive` contains `"GBuffer"`. That claim opts out of Anomaly velocity extras for those files.
 - **Inject** files are additive includes (layer 1). Anomaly concatenates them into `Anomaly/GBufferExtras.hlsli`.
 - Missing Overlay file → Keen original (Iris-style fallback).
 
-Do not allow packs to replace Depth with a fourth MRT. Validate after compile.
+Do not allow packs to replace Depth with a fourth MRT. After apply, Anomaly compiles Standard Depth and rolls back the offending pack. Every compile error logs `pack=<id>`.
 
 ---
 
@@ -162,11 +163,12 @@ Each subdirectory or `.zip` is treated like `AnomalyPack`. **Not** for PluginHub
 
 PluginHub already requires hashed, reviewed assets. A pack plugin is still **full-trust C#** if it ships scripts — prefer **Hidden plugins whose only job is `LoadAssets` + Register**, with HLSL in the hashed zip and **no** extra Harmony.
 
-HLSL itself can still DoS the compile (infinite macros) or break Depth. Anomaly should:
+HLSL itself can still DoS the compile (infinite macros) or break Depth. Anomaly:
 
-- Restrict Overlay paths to `Content/Shaders`-relative, no `..`
-- Compile Depth after applying packs; roll back that pack on failure
-- Log pack id on every compile error
+- Restricts Overlay paths to `Content/Shaders`-relative, no `..`
+- Compiles Standard Depth after applying packs; rolls back that pack on failure
+- Logs `pack=<id>` on every compile error
+- Rejects Overlay of Anomaly-owned GBuffer stages unless `exclusive: ["GBuffer"]`
 
 ---
 

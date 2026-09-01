@@ -152,6 +152,8 @@ Rules:
 3. **Replace is exclusive per key**; inject is additive behind Anomaly-owned includes (e.g. `Anomaly/GBufferExtras.hlsli` that `#include`s registered snippets).
 4. **Consumers do not Harmony-patch `DrawGameScene` or instance updates.** They bind registry textures. Anomaly draws / binds RTs.
 5. **`ClearState` / DRS / device reset** stay Anomaly’s problem. Replacements must not leak RT/SRV ([Rich HUD](https://github.com/DarkHelmet/RichHudFramework)).
+6. **Anomaly-owned GBuffer stages** (`Geometry/Passes/GBuffer/*Stage.hlsli`, `GBuffer/GBufferWrite.hlsli`) stay Anomaly’s unless a pack sets `exclusive: ["GBuffer"]`.
+7. **Depth compile failure rolls back that pack** (Standard Depth probe after apply; in-game Depth errors log `pack=<id>`).
 
 Injection + exclusive replace can coexist: velocity inject still applies to a replaced Standard pixel **only if** that pixel still includes `Passes/PixelStage.hlsli`. A full-file replace that omits the include opts out of extras — document that.
 
@@ -165,6 +167,6 @@ Keep the [PLAN.md](PLAN.md) cut:
 
 1. Hook compile (include dir + `ANOMALY_VELOCITY` + Depth still compiles). That *is* the framework.
 2. Ship velocity as **injection**, not as a Standard/Pixel fork.
-3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md). Overlay replace is live (fail closed on conflict).
+3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md). Overlay replace is live (fail closed on conflict). Depth probe rolls back a pack that breaks Standard Depth. Named-stage keys (`GBuffer`, `Depth`, …) are Slice J.
 
 Iris’s lesson is semantic stages + compile-time rewrite + fallback, sitting on a renderer the framework controls. Anomaly’s rewrite sits on **Keen’s** renderer, because that renderer is the thing we cannot afford to clone.

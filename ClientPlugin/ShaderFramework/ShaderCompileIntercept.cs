@@ -129,15 +129,27 @@ public static class ShaderCompileIntercept
     {
         Interlocked.Increment(ref compileCount);
         if (bytecode != null && bytecode.Length != 0)
+        {
+            if (ShaderPackRegistry.DepthProbePending && !ShaderPackRegistry.DepthProbeInProgress)
+                ShaderPackRegistry.ValidateDepth();
+            return;
+        }
+
+        if (ShaderPackRegistry.DepthProbeInProgress)
             return;
 
         Interlocked.Increment(ref failureCount);
         var desc = sourceDescriptor ?? filepath ?? "(unknown)";
         var defines = MacrosToString(macros);
+        var owner = ShaderPackRegistry.DescribeCompileOwners(filepath);
+        var live = ShaderPackRegistry.DescribeLivePackIds();
         var msg = "Anomaly: shader compile failed " + desc + " profile=" + profile + " defines=[" + defines + "]"
-            + " packs=" + ShaderPackRegistry.Fingerprint;
+            + " pack=" + owner + " live=" + live + " packs=" + ShaderPackRegistry.Fingerprint;
         MyLog.Default.WriteLine(msg);
         DebugLog.Write(msg);
+
+        if (IsDepthPermutation(macros))
+            ShaderPackRegistry.OnDepthCompileFailed(filepath);
     }
 
     public static void EnsureIncludes(IReadOnlyList<string> includes)
@@ -312,7 +324,7 @@ public static class ShaderCompileIntercept
         field.SetValue(null, AppendMacro(current, MacroName, MacroValue));
     }
 
-    private static bool IsDepthPermutation(ShaderMacro[] macros)
+    internal static bool IsDepthPermutation(ShaderMacro[] macros)
     {
         if (macros == null)
             return false;

@@ -13,7 +13,7 @@ DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces
 
 ## Current repo state
 
-`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Slices A–F and H are in this repo. Slice G (SE-DLSS bind) is shipped and proven in the consumer repo. PluginHub registration is deferred.
+`T:\Cursor Projects\Anomaly` is the Anomaly shader-framework plugin. Slices A–I are in this repo. Slice G (SE-DLSS bind) is shipped and proven in the consumer repo. PluginHub registration is deferred.
 
 - **SE-DLSS** stays the consumer in its own repo. Do not compile Anomaly sources into SE-DLSS or the reverse.
 - Keep Harmony, publicizer, `VRage.Render11` access, settings/deploy/Pulsar XML shape, Rich HUD coexistence patterns.

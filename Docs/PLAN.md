@@ -18,7 +18,7 @@ DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces
 - **SE-DLSS** stays the consumer in its own repo. Do not compile Anomaly sources into SE-DLSS or the reverse.
 - Keep Harmony, publicizer, `VRage.Render11` access, settings/deploy/Pulsar XML shape, Rich HUD coexistence patterns.
 - PluginHub id is `A9C29274-E447-49EE-881B-C980E6D190FD`. Do not reuse SE-DLSS’s id (`B6469FEE-…`).
-- GPU work is C# D3D11 (SharpDX). Camera-MV HLSL lives in `ClientPlugin/Shaders/`. `Native/AnomalyGfx` is deferred.
+- GPU work is C# D3D11 (SharpDX). Camera-MV HLSL lives in `Assets/Shaders/`. `Native/AnomalyGfx` is deferred.
 - The link to consumers is a well-known interface + Pulsar `<DependencyIds>`.
 
 ## Goal
@@ -125,7 +125,7 @@ Folder: `ClientPlugin/Velocity/`. No `NgxHost`, no `DlssRuntime` types.
 
 Config on Anomaly:
 
-- `VelocitySource`: `GBuffer` (target) \| `OwnedRaster` (bootstrap) \| `CameraOnly`
+- `VelocitySource`: `GBuffer` (target) \| `CameraOnly`
 - Status: source, history actor count, whether GBuffer injection is live
 
 PluginHub (when ready to register):
@@ -239,7 +239,7 @@ Phase 0 is done. Slice A (compile intercept) is implemented: `ANOMALY=1` + inclu
 
 - [ ] Depth-tested Stage 2 dynamic instances; camera background for the rest.
 - [ ] Old-pipeline proxies if Stage 2 alone is not enough to kill ship ghosting in-game.
-- [ ] Config `OwnedRaster`. Skip if phase 5 is close.
+- [x] Config `OwnedRaster` skipped; GBuffer piggyback is the shipped path.
 
 Use this only if GBuffer inject is blocked and SE-DLSS needs object MVs before inject is real.
 
@@ -251,7 +251,7 @@ Use this only if GBuffer inject is blocked and SE-DLSS needs object MVs before i
 - [x] Statics: camera term only. Movers: load prev world from SRV.
 - [x] Alpha / `GbufferWriteBlend` / `CUSTOM_DEPTH` / coverage: write a defined velocity (usually camera or discarded).
 - [ ] In-game: moving large grid no longer ghosts; static look-around no worse than camera-only.
-- [x] Default `VelocitySource` → `GBuffer`. Remove or hide `OwnedRaster` once stable.
+- [x] Default `VelocitySource` → `GBuffer`. `OwnedRaster` is not shipped.
 
 ### 6 — Skinning, voxels, the rest
 

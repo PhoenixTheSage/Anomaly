@@ -35,9 +35,9 @@ static class ShaderIncludeOverlayPatch
         });
     }
 
-    static bool Prefix(IncludeType includeType, string fileName, Stream parentStream, ref Stream __result)
+    static bool Prefix(IncludeType type, string fileName, Stream parentStream, ref Stream __result)
     {
-        if (!ShaderCompileIntercept.TryOpenOverlay(includeType, fileName, parentStream, out var overlay))
+        if (!ShaderCompileIntercept.TryOpenOverlay(type, fileName, parentStream, out var overlay))
             return true;
         __result = overlay;
         return false;

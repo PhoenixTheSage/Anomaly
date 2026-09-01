@@ -1,13 +1,14 @@
 ﻿<?xml version="1.0"?>
 <PluginData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="GitHubPlugin">
 
+    <!-- Stable plugin id. Never change this. PluginHub consumers depend on it. -->
     <Id>A9C29274-E447-49EE-881B-C980E6D190FD</Id>
     <RepoId>PhoenixTheSage/Anomaly</RepoId>
     <FriendlyName>Anomaly Shader Framework</FriendlyName>
     <Author>PhoenixTheSage</Author>
-    <Tooltip>Shader framework for Space Engineers 1.</Tooltip>
+    <Tooltip>Shader Framework for Space Engineers</Tooltip>
     <Description>
-Intercepts Keen's DX11 GBuffer and publishes shared GPU buffers for other plugins. 
+Does nothing on its own. API that provides a common layer for shaders and advanced rendering.
     </Description>
 
     <SourceDirectories>
@@ -15,11 +16,8 @@ Intercepts Keen's DX11 GBuffer and publishes shared GPU buffers for other plugin
         <Directory>Assets</Directory>
     </SourceDirectories>
 
-    <!-- Named Pulsar assets. AssetFolder is reserved for LoadAssets(string). -->
-    <Asset Name="AssetFolder" Path="Assets" />
-    <Asset Name="Shaders" Path="Assets/Shaders" />
-
-    <Platforms>Windows</Platforms>
+    <!-- Pulsar 2.3.1 copies this tree and calls LoadAssets(string). Named Asset / Platforms tags are post-2.3.1. -->
+    <AssetFolder>Assets</AssetFolder>
 
     <Hidden>false</Hidden>
 

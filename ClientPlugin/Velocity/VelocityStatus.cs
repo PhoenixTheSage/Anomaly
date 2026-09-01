@@ -20,7 +20,6 @@ public static class VelocityStatus
             sb.Append("Shader packs: ").AppendLine(ShaderPackRegistry.StatusLine);
             sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
             sb.Append("GBuffer injection: ").AppendLine(FormatGBuffer());
-            sb.Append("Owned raster: ").AppendLine("not live");
             sb.Append("History actors: ").AppendLine(ActorHistory.Instance.TrackedActorCount.ToString());
             sb.Append("History bones: ").AppendLine(BoneHistory.Instance.TrackedCount.ToString());
             if (buf == null || !buf.IsAvailable)

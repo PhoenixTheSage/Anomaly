@@ -24,8 +24,8 @@ public class Config : INotifyPropertyChanged
 
     [Separator("Velocity")]
 
-    [Dropdown(visibleRows: 10, label: "Velocity source",
-        description: "GBuffer piggyback writes object motion on Keen's geometry pixels. CameraOnly is fullscreen depth reprojection. OwnedRaster is unused bootstrap.")]
+    [Dropdown(visibleRows: 4, label: "Velocity source",
+        description: "GBuffer writes object motion on Keen's geometry pixels. CameraOnly is fullscreen depth reprojection.")]
     public VelocitySource VelocitySource
     {
         get => velocitySource;

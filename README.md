@@ -2,23 +2,24 @@
 
 Pulsar client plugin that intercepts Space Engineers 1’s DX11 GBuffer and publishes shared GPU buffers. First product: a real velocity buffer (object motion plus camera fallback). First consumer: [SE-DLSS](https://github.com/PhoenixTheSage/SE-DLSS).
 
-This is not a graphics preset. Other plugins bind `IVelocityBuffer` by well-known type name; see [ClientPlugin/Velocity/README.md](ClientPlugin/Velocity/README.md).
+This is not a graphics preset. It does not change the picture by itself. Other plugins bind `IVelocityBuffer` by well-known type name; see [ClientPlugin/Velocity/README.md](ClientPlugin/Velocity/README.md).
 
 Architecture supports [Rich HUD Framework](https://github.com/DarkHelmet/RichHudFramework) coexistence (Anomaly must not leave RT/SRV bound).
 
-## Requirements
+## Install
 
 - Space Engineers with [Pulsar](https://github.com/SpaceGT/Pulsar), Windows
-- NVIDIA RTX is **not** required for Anomaly. Consumers such as SE-DLSS have their own GPU requirements.
+- Enable **Anomaly Shader Framework** from PluginHub, or locally from this repo
+- Enable it whenever a consumer plugin (SE-DLSS, a shader pack) lists it as a dependency
+
+NVIDIA RTX is **not** required for Anomaly. Consumers such as SE-DLSS have their own GPU requirements.
 
 ## Settings
 
-Plugin config:
-
-- **Velocity source** — `GBuffer` (target piggyback), `OwnedRaster` (bootstrap only), or `CameraOnly`
+- **Velocity source** — `GBuffer` (object motion on Keen geometry pixels) or `CameraOnly` (fullscreen depth reprojection)
 - **Show Status** — compile intercept, camera pass, velocity source, buffer size, `HistoryValid`
 
-Compile intercept (Slice A) is live: Keen permutations get `ANOMALY=1` and Anomaly’s include directory. Camera velocity (Slice B) writes an `RG16F` buffer at internal resolution after GBuffer when the source is `CameraOnly`. Actor history (Slice C) snapshots absolute world matrices by ActorID. GBuffer piggyback (Slice D) overlays `Geometry/Passes/GBuffer` + `GBufferWrite.hlsli`, binds a fourth `RG16F` target on GBuffer only (`ANOMALY_VELOCITY`), and packs previous worlds in Stage 2 instance order. Slice E fills coverage holes: previous bones on t16 (count mismatch → camera term), clipmap cells stay camera-only, and a composite pass keeps GBuffer MVs on geometry while filling sky/particles/foliage from depth so the buffer is never left at clear-zero. Slice F is the pack registry: named Pulsar assets (`AssetFolder` + `Shaders`), `ClientPlugin.Shaders.ShaderPackRegistry.Register`, Keen-relative `Overlay/` (fail closed on conflict), additive `Inject/`, and a developer-only local drop under Pulsar `Data/Anomaly/Packs`. Default velocity source is `GBuffer`.
+Default velocity source is `GBuffer`. Compile intercept is live: Keen permutations get `ANOMALY=1` and Anomaly’s include directory. Camera velocity writes an `RG16F` buffer at internal resolution after GBuffer. Actor history snapshots world matrices by ActorID. GBuffer piggyback overlays `Geometry/Passes/GBuffer` + `GBufferWrite.hlsli`, binds a fourth `RG16F` target on GBuffer only (`ANOMALY_VELOCITY`), and packs previous worlds in Stage 2 instance order. A composite pass keeps GBuffer MVs on geometry while filling sky/particles/foliage from depth. Pack registry: named Pulsar assets (`AssetFolder` + `Shaders`), `ClientPlugin.Shaders.ShaderPackRegistry.Register`, Keen-relative `Overlay/` (fail closed on conflict), additive `Inject/`, and a developer-only local drop under Pulsar `Data/Anomaly/Packs`.
 
 Docs: [implementation roadmap](Docs/ROADMAP.md) · [shader API](Docs/ShaderAPI.md) · [shader packs](Docs/ShaderPacks.md) · [product plan](Docs/PLAN.md) · [Keen shaders](Docs/KeenShaders.md).
 
@@ -26,6 +27,7 @@ Docs: [implementation roadmap](Docs/ROADMAP.md) · [shader API](Docs/ShaderAPI.m
 
 - .NET Framework 4.8.1 targeting pack and .NET 10 SDK
 - Build `ClientPlugin` (deploys to Pulsar `Legacy\Local` or `Interim\Local`; close the game if the DLL is in use)
+- PluginHub compiles from GitHub source (this repo’s `ClientPlugin` tree + `Assets`). Confirm a Pulsar **dev folder** / `-sources` build before pinning a commit.
 
 GPU work uses Keen / SharpDX D3D11 from C#. There is no NGX native wrapper in this repo.
 

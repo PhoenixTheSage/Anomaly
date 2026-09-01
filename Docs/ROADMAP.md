@@ -87,12 +87,12 @@ Do **not** rewrite Keen files on disk. Do **not** `#include` Anomaly from Keen f
 
 Goal: `VelocitySource.CameraOnly` publishes a real `RG16F` buffer. SE-DLSS can bind it later without Anomaly GBuffer inject.
 
-HLSL already exists: `ClientPlugin/Shaders/CameraVelocity.hlsl` + `Fullscreen.hlsl`. Wire it.
+HLSL lives in `Assets/Shaders/CameraVelocity.hlsl` + `Fullscreen.hlsl`.
 
 - [x] Create/resize an `RG16F` RT at internal (`ResolutionI` / DRS) size. Follow device create, `SetDRS` (`CreateScreenResources`), dispose (`OnDeviceEnd`).
 - [x] Bind Keen resolved depth (`MyGBuffer.Main.ResolvedDepthStencil.SrvDepth`); draw fullscreen with unjittered current + previous view-proj. **Anomaly owns these matrices** (zero `Projection.M31/M32`; do not depend on SE-DLSS `Jitter`).
 - [x] Implement `IVelocityBuffer` (`CameraVelocityBuffer`: SRV, native resource, size, `VelocityConvention`, `HistoryValid` after the second frame / camera-cut reset).
-- [x] `VelocityRegistry.SetActive` on this producer when the pass runs (fallback for GBuffer / OwnedRaster until those exist).
+- [x] `VelocityRegistry.SetActive` on this producer when the pass runs (fallback until GBuffer inject is live).
 - [x] Status: size, convention, `HistoryValid`, `Camera velocity: live`.
 - [x] Unbind RT/SRV after the pass.
 - [ ] PIX/Nsight: static look-around looks like camera motion, not zeros.

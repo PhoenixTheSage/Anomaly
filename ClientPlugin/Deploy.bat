@@ -82,20 +82,9 @@ if !ERRORLEVEL! NEQ 0 (
     exit /b 1
 )
 
-if not "%ASSETS%"=="" if exist "%ASSETS%\*.dll" (
-    echo Copying native DLLs from "%ASSETS%" to "!PLUGIN_DIR!\"
-    copy /y "%ASSETS%\*.dll" "!PLUGIN_DIR!\" >nul
-)
-
 if not "%ASSETS%"=="" if exist "%ASSETS%\Shaders" (
     echo Copying shader assets from "%ASSETS%\Shaders" to "!PLUGIN_DIR!\Shaders\"
     xcopy /e /i /y "%ASSETS%\Shaders" "!PLUGIN_DIR!\Shaders\" >nul
-)
-
-set "LOCAL_SHADERS=%~dp0Shaders"
-if exist "%LOCAL_SHADERS%" (
-    echo Copying ClientPlugin shaders from "%LOCAL_SHADERS%" to "!PLUGIN_DIR!\Shaders\"
-    xcopy /e /i /y "%LOCAL_SHADERS%" "!PLUGIN_DIR!\Shaders\" >nul
 )
 
 exit /b 0

@@ -111,8 +111,10 @@ Root = the path Pulsar put in `assets["AnomalyPack"]`.
 
 ```
 anomaly.json                 # required: id, name, optional priority
-Overlay/                     # optional: Keen-relative replacements
-  Geometry/Passes/GBuffer/PixelStage.hlsli
+Overlay/                     # optional: named stages and/or Keen-relative replacements
+  GBuffer/PixelStage.hlsli   # → Geometry/Passes/GBuffer/PixelStage.hlsli
+  Post.HBAO/CoarseAO.hlsl    # → Postprocess/HBAO/CoarseAO.hlsl
+  Geometry/Materials/Standard/Pixel.hlsl   # escape hatch
 Inject/                      # optional: snippets Anomaly #includes
   GBufferExtras.hlsli
 ```
@@ -128,7 +130,8 @@ Inject/                      # optional: snippets Anomaly #includes
 }
 ```
 
-- **Overlay** files replace Keen sources at the same relative path (layer 2). One owner per path; on conflict log both pack ids and **fail closed** (Keen/Anomaly default kept).
+- **Named stages** (`ClientPlugin.Shaders.ShaderStages`): put files under `Overlay/<Stage>/`. Basename or path suffix maps to the Keen (or Anomaly) file for that stage. Unknown files under a stage name are skipped. Stages: `GBuffer`, `Depth`, `Forward`, `Highlight`, `Transparent`, `TransparentForDecals`, `Lighting.Dir` / `.Point` / `.Spot`, `Post.Tonemap` / `.HBAO` / `.SSAO` / `.Bloom` / `.FXAA` / `.EyeAdaptation` / `.Luminance` / `.ChromaticAberration`, `Anomaly.CameraVelocity`.
+- **Overlay** files replace Keen sources at the same relative path (layer 2) when the path is not a named stage. One owner per path; on conflict log both pack ids and **fail closed** (Keen/Anomaly default kept).
 - Overlay of Anomaly-owned GBuffer stages (`Geometry/Passes/GBuffer/VertexStage.hlsli`, `Geometry/Passes/GBuffer/PixelStage.hlsli`, `GBuffer/GBufferWrite.hlsli`) is rejected unless `exclusive` contains `"GBuffer"`. That claim opts out of Anomaly velocity extras for those files.
 - **Inject** files are additive includes (layer 1). Anomaly concatenates them into `Anomaly/GBufferExtras.hlsli`.
 - Missing Overlay file → Keen original (Iris-style fallback).
@@ -166,6 +169,7 @@ PluginHub already requires hashed, reviewed assets. A pack plugin is still **ful
 HLSL itself can still DoS the compile (infinite macros) or break Depth. Anomaly:
 
 - Restricts Overlay paths to `Content/Shaders`-relative, no `..`
+- Maps named stages (`Overlay/GBuffer/…`) to a fixed Keen path table; unknown files under a stage name fail closed
 - Compiles Standard Depth after applying packs; rolls back that pack on failure
 - Logs `pack=<id>` on every compile error
 - Rejects Overlay of Anomaly-owned GBuffer stages unless `exclusive: ["GBuffer"]`

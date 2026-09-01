@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using ClientPlugin.Shaders;
 using ClientPlugin.Velocity;
 using SharpDX.D3DCompiler;
 using SharpDX.Direct3D;
@@ -312,6 +313,8 @@ public static class CameraVelocityPass
 
     static string FindHlsl(string fileName)
     {
+        if (ShaderPackRegistry.TryResolveOverlay(fileName, out var overlay) && File.Exists(overlay))
+            return overlay;
         foreach (var dir in ShaderDirs())
         {
             var path = Path.Combine(dir, fileName);

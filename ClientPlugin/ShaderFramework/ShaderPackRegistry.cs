@@ -20,6 +20,7 @@ namespace ClientPlugin.Shaders;
 /// Slice I: Standard Depth probe after apply; roll back the pack that
 /// fails it. Overlay of Anomaly GBuffer stages needs
 /// <c>exclusive: ["GBuffer"]</c>.
+/// Slice J: <see cref="ShaderStages"/> maps named overlay folders to Keen paths.
 /// </summary>
 public static class ShaderPackRegistry
 {
@@ -28,14 +29,7 @@ public static class ShaderPackRegistry
     public const string InjectFolder = "Inject";
     public const string GeneratedExtrasPath = "Anomaly/GBufferExtras.hlsli";
     public const string GeneratedFingerprintPath = "Anomaly/PackFingerprint.hlsli";
-    public const string ExclusiveGBuffer = "GBuffer";
-
-    static readonly string[] OwnedGBufferStages =
-    {
-        "Geometry/Passes/GBuffer/VertexStage.hlsli",
-        "Geometry/Passes/GBuffer/PixelStage.hlsli",
-        "GBuffer/GBufferWrite.hlsli"
-    };
+    public const string ExclusiveGBuffer = ShaderStages.GBuffer;
 
     static readonly string DepthProbePixel =
         Path.Combine("Geometry", "Materials", "Standard", "Pixel.hlsl");
@@ -60,6 +54,7 @@ public static class ShaderPackRegistry
     public static int LivePackCount { get; private set; }
     public static int ConflictCount { get; private set; }
     public static int RolledBackCount { get; private set; }
+    public static string LiveStages { get; private set; } = "";
     public static string LastError { get; private set; }
 
     internal static bool DepthProbePending
@@ -86,6 +81,8 @@ public static class ShaderPackRegistry
                 var line = LivePackCount + " live  conflicts=" + ConflictCount + "  fp=" + fp;
                 if (RolledBackCount > 0)
                     line += "  rolled-back=" + RolledBackCount;
+                if (!string.IsNullOrEmpty(LiveStages))
+                    line += "  stages=" + LiveStages;
                 return line;
             }
         }
@@ -268,19 +265,44 @@ public static class ShaderPackRegistry
     {
         if (string.IsNullOrEmpty(filepath))
             return false;
-        string shadersRoot;
+
+        string full;
         try
         {
-            shadersRoot = Path.GetFullPath(MyShaderCompiler.ShadersPath);
+            full = Path.GetFullPath(filepath);
         }
         catch
         {
             return false;
         }
 
-        var full = Path.GetFullPath(filepath);
-        if (!TryRelativize(shadersRoot, full, out var rel))
-            return false;
+        string rel = null;
+        try
+        {
+            var shadersRoot = Path.GetFullPath(MyShaderCompiler.ShadersPath);
+            TryRelativize(shadersRoot, full, out rel);
+        }
+        catch
+        {
+            // ShadersPath not ready.
+        }
+
+        if (string.IsNullOrEmpty(rel))
+        {
+            var include = ShaderCompileIntercept.IncludeDirectory;
+            if (string.IsNullOrEmpty(include))
+                return false;
+            try
+            {
+                if (!TryRelativize(Path.GetFullPath(include), full, out rel))
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         if (!TryResolveOverlay(rel, out var overlay) || string.IsNullOrEmpty(overlay))
             return false;
         filepath = overlay;
@@ -471,6 +493,7 @@ public static class ShaderPackRegistry
 
         LivePackCount = live;
         RolledBackCount = CountRolledBack(packs);
+        LiveStages = CollectLiveStages();
         fingerprintBytes = Utf8.GetBytes(
             "#ifndef ANOMALY_PACK_FINGERPRINT_HLSLI\n" +
             "#define ANOMALY_PACK_FINGERPRINT_HLSLI\n" +
@@ -479,7 +502,9 @@ public static class ShaderPackRegistry
 
         ShaderCompileIntercept.SetPackIncludeDirectories(PackIncludeDirs);
         Log("packs applied live=" + LivePackCount + " overlays=" + OverlayFiles.Count +
-            " conflicts=" + ConflictCount + " rolled-back=" + RolledBackCount + " fp=" + Fingerprint);
+            " conflicts=" + ConflictCount + " rolled-back=" + RolledBackCount +
+            (string.IsNullOrEmpty(LiveStages) ? "" : " stages=" + LiveStages) +
+            " fp=" + Fingerprint);
     }
 
     static void EnsureStubsUnlocked()
@@ -517,11 +542,22 @@ public static class ShaderPackRegistry
                     continue;
                 var rel = file.Substring(overlayRoot.Length)
                     .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (!TryNormalizeKey(rel, out var key))
+                if (!TryNormalizeKey(rel, out var overlayRel))
                 {
                     Warn("pack " + pack.ManifestId + " skipped overlay path: " + rel);
                     continue;
                 }
+
+                if (!ShaderStages.TryMapOverlayPath(overlayRel, out var key, out var stageName))
+                {
+                    Warn("pack " + pack.ManifestId + " skipped overlay (unknown named-stage file): " +
+                         overlayRel);
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(stageName) &&
+                    !string.Equals(overlayRel, key, StringComparison.OrdinalIgnoreCase))
+                    Log("pack " + pack.ManifestId + " stage " + stageName + " '" + overlayRel + "' → " + key);
 
                 if (IsOwnedGBufferStage(key) && !HasExclusiveStage(pack.Exclusive, ExclusiveGBuffer))
                 {
@@ -841,6 +877,9 @@ public static class ShaderPackRegistry
 
     static bool IsDepthRelatedKey(string key)
     {
+        if (ShaderStages.TryGetStageForKey(key, out var stage) &&
+            string.Equals(stage, ShaderStages.Depth, StringComparison.OrdinalIgnoreCase))
+            return true;
         var n = (key ?? "").Replace('\\', '/');
         return n.IndexOf("/Depth", StringComparison.OrdinalIgnoreCase) >= 0 ||
                n.StartsWith("Depth", StringComparison.OrdinalIgnoreCase) ||
@@ -852,13 +891,7 @@ public static class ShaderPackRegistry
 
     static bool IsOwnedGBufferStage(string key)
     {
-        for (var i = 0; i < OwnedGBufferStages.Length; i++)
-        {
-            if (KeysEqual(key, OwnedGBufferStages[i]))
-                return true;
-        }
-
-        return false;
+        return ShaderStages.IsAnomalyOwnedGBuffer(key);
     }
 
     static bool HasExclusiveStage(string[] exclusive, string stage)
@@ -872,6 +905,32 @@ public static class ShaderPackRegistry
         }
 
         return false;
+    }
+
+    static string CollectLiveStages()
+    {
+        var names = new List<string>();
+        foreach (var key in OverlayFiles.Keys)
+        {
+            if (!ShaderStages.TryGetStageForKey(key, out var stage) || string.IsNullOrEmpty(stage))
+                continue;
+            var found = false;
+            for (var i = 0; i < names.Count; i++)
+            {
+                if (!string.Equals(names[i], stage, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                found = true;
+                break;
+            }
+
+            if (!found)
+                names.Add(stage);
+        }
+
+        if (names.Count == 0)
+            return "";
+        names.Sort(StringComparer.OrdinalIgnoreCase);
+        return string.Join(",", names);
     }
 
     static int CountRolledBack(List<PendingPack> packs)
@@ -914,7 +973,10 @@ public static class ShaderPackRegistry
     static bool IsForbiddenDepthMrt(string key, string fullPath)
     {
         var n = key.Replace('\\', '/');
-        var depth = n.IndexOf("/Depth", StringComparison.OrdinalIgnoreCase) >= 0 ||
+        var depth = ShaderStages.TryGetStageForKey(n, out var stage) &&
+                    string.Equals(stage, ShaderStages.Depth, StringComparison.OrdinalIgnoreCase);
+        if (!depth)
+            depth = n.IndexOf("/Depth", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     n.StartsWith("Depth", StringComparison.OrdinalIgnoreCase);
         if (!depth)
             return false;

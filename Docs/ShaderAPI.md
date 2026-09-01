@@ -127,15 +127,19 @@ Do **not** generate 215 replace slots. Public surface is **semantic**:
 
 | Stage name | Maps to Keen |
 |------------|----------------|
-| `GBuffer` | All opaque materials × GBuffer pass |
+| `GBuffer` | Shared GBuffer pass + `GBufferWrite` / `GBuffer.hlsli` (not a Materials fork) |
 | `Depth` | Depth pass — **no extra MRT**; replacements must stay 0-target |
 | `Forward` | Probe / far forward |
-| `Transparent` | OIT |
-| `Lighting.Dir` / `Lighting.Point` | Deferred lighting programs |
-| `Post.Tonemap` / `Post.HBAO` | Named post files |
-| `Anomaly.CameraVelocity` | Owned fullscreen |
+| `Highlight` | Selection outline |
+| `Transparent` | OIT pass + resolve |
+| `TransparentForDecals` | Glass receiving decals |
+| `Lighting.Dir` / `Lighting.Point` / `Lighting.Spot` | Deferred lighting programs |
+| `Post.Tonemap` / `Post.HBAO` / `Post.SSAO` / `Post.Bloom` / `Post.FXAA` / `Post.EyeAdaptation` / `Post.Luminance` / `Post.ChromaticAberration` | Named post files |
+| `Anomaly.CameraVelocity` | Owned fullscreen (`CameraVelocity.hlsl`, `Fullscreen.hlsl`) |
 
-Escape hatch: overlay by relative path for a one-off file.
+Escape hatch: overlay by Keen-relative path for a one-off file (`Overlay/Geometry/Materials/Standard/Pixel.hlsl`).
+
+Pack layout: `Overlay/<Stage>/<file>` (unique basename or suffix). Implemented in `ClientPlugin.Shaders.ShaderStages`.
 
 Fallbacks: replacement missing or compile `#error` → Keen original. A Depth replacement that adds `SV_Target3` must fail compile, not ship.
 
@@ -167,6 +171,6 @@ Keep the [PLAN.md](PLAN.md) cut:
 
 1. Hook compile (include dir + `ANOMALY_VELOCITY` + Depth still compiles). That *is* the framework.
 2. Ship velocity as **injection**, not as a Standard/Pixel fork.
-3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md). Overlay replace is live (fail closed on conflict). Depth probe rolls back a pack that breaks Standard Depth. Named-stage keys (`GBuffer`, `Depth`, …) are Slice J.
+3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md). Overlay replace is live (fail closed on conflict). Depth probe rolls back a pack that breaks Standard Depth. Named-stage keys (`Overlay/GBuffer/…`, `Post.*`, …) map through `ShaderStages`.
 
 Iris’s lesson is semantic stages + compile-time rewrite + fallback, sitting on a renderer the framework controls. Anomaly’s rewrite sits on **Keen’s** renderer, because that renderer is the thing we cannot afford to clone.

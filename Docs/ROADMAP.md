@@ -2,9 +2,9 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slices A–I are implemented. Velocity pipeline, pack registry, ship hygiene, and pack safety (Depth probe rollback + compile-error pack ids) are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred.
+**Now:** Slices A–J are implemented. Velocity pipeline, pack registry, pack safety, and named-stage overlay keys are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred. **Slice K** (sample Hidden pack plugin, separate repo) is deferred.
 
-**Next:** Slice J — named stages (`GBuffer` / `Depth` / `Forward` / `Post.*` map to Keen paths). Path overlay stays as the escape hatch.
+**Next:** Slice L — stage compile probes. After apply, compile a sentinel permutation for each *live* named stage (GBuffer / Forward / Post.* / Anomaly.CameraVelocity), not only Standard Depth, and roll back that pack on failure.
 
 ---
 
@@ -202,6 +202,39 @@ Goal: a bad overlay must not leave Depth broken. Log which pack did it.
 
 ---
 
+## Slice J — Named stages
+
+Goal: packs register by semantic stage, not 215 Keen file keys. Path overlay stays as the escape hatch.
+
+- [x] `ClientPlugin.Shaders.ShaderStages` maps `GBuffer`, `Depth`, `Forward`, `Highlight`, `Transparent`, `TransparentForDecals`, `Lighting.Dir` / `.Point` / `.Spot`, `Post.Tonemap` / `.HBAO` / `.SSAO` / `.Bloom` / `.FXAA` / `.EyeAdaptation` / `.Luminance` / `.ChromaticAberration`, `Anomaly.CameraVelocity` to Keen (or Anomaly) relative paths.
+- [x] `Overlay/<Stage>/<file>` remaps by unique basename or path suffix (`Overlay/GBuffer/PixelStage.hlsli` → `Geometry/Passes/GBuffer/PixelStage.hlsli`). Unknown files under a stage name fail closed.
+- [x] Raw Keen-relative overlay (`Overlay/Geometry/Materials/Standard/Pixel.hlsl`) still works.
+- [x] Named-stage GBuffer files still require `exclusive: ["GBuffer"]` when they replace Anomaly-owned inject stages.
+- [x] Compile remap also covers Anomaly include-dir roots (`CameraVelocity.hlsl`).
+- [x] Show Status: `stages=GBuffer,Post.HBAO` when live overlays sit on named stages.
+
+**Slice J code done when:** a local pack with `Overlay/GBuffer/PixelStage.hlsli` (and `exclusive: ["GBuffer"]`) applies as that Keen key. **Slice J proven when:** Show Status lists `stages=GBuffer`.
+
+---
+
+## Slice K — Sample Hidden pack (deferred)
+
+Separate repo. Hidden Pulsar plugin: `LoadAssets` + `ShaderPackRegistry.Register`, hashed zip, no extra Harmony. Pick up when a real overlay consumer is needed.
+
+---
+
+## Slice L — Stage compile probes
+
+Goal: Slice I only proves Standard Depth. A broken `exclusive: ["GBuffer"]` or `Post.HBAO` overlay can still ship. After apply, for each live named stage, compile one known Keen (or Anomaly) file with that stage’s macros and roll back the pack on empty bytecode — same isolate-one-then-fail-closed path as Depth.
+
+- [ ] GBuffer: Standard Pixel/Vertex, `RENDERING_PASS=0` (velocity macro allowed)
+- [ ] Forward: Standard Pixel, `RENDERING_PASS=2`
+- [ ] Post.* / Lighting.*: the mapped compile root for that stage
+- [ ] `Anomaly.CameraVelocity`: existing fullscreen compile
+- [ ] In-game compile failure on a named-stage overlay rolls back that pack (not only Depth)
+
+---
+
 ## Suggested order on the calendar
 
 Do A completely before B if time is short: a broken Depth compile is worse than no velocity.
@@ -218,6 +251,8 @@ Do A completely before B if time is short: a broken Depth compile is worse than 
 | 8 | H ship hygiene | 0 | — |
 | 9 | I pack safety | — | 2 |
 | 10 | J named stages | — | 2 |
+| — | K sample Hidden pack | — | 2 (deferred) |
+| 11 | L stage compile probes | — | 2 |
 
 Phase 4 owned raster: skipped. GBuffer piggyback shipped.
 
@@ -231,4 +266,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **slice J** (named stages: `GBuffer` / `Depth` / `Forward` / `Post.*`). PluginHub pin stays deferred.
+Next session is **slice L** (compile a sentinel for each live named stage; roll back like Depth). Slice K (sample Hidden pack plugin) is deferred. PluginHub pin stays deferred.

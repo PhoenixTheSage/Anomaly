@@ -7,6 +7,7 @@ In-game: Anomaly settings → Show Status. Also `SpaceEngineers.log` and Anomaly
 | Compile intercept: not live | Hook failed or assets not loaded | Confirm `LoadAssets` ran; Shaders folder next to the DLL. |
 | Crash finishing world load (`construct_matrix_43`) | GBuffer PS compiled Keen’s VS-only helper | Rebuild Anomaly so `Anomaly.hlsli` deploys. Velocity reconstruct is VS-only (`ANOMALY_PIXEL_STAGE`). |
 | Crash finishing world load (`AnomalyInitAttachments` / X3508) | Empty `inout GbufferOutput` — FXC requires every `SV_Target` field written | Rebuild so `GBufferWrite` / generated `GBufferAttachmentInit.hlsli` zero the struct. Hits old pipeline, Decals, Foliage, Sprites. |
+| Crash finishing world load (`Destination array was not long enough` in `ActorHistory`) | Stage 2 and old-pipeline snapshots both wrote `Current` on Parallel.Scheduler | Rebuild. Snapshots share a lock; once-per-frame flags do not serialize the two pipelines. |
 | Depth / shadows broken | Pack overlay added a target or failed a sentinel | Status `rolled-back=N`. Remove exclusive GBuffer overlay or fix HLSL. |
 | Pack missing from Status | Register used `Plugin.Instance` or ran before Anomaly loaded | Register on static `ShaderPackRegistry` from `LoadAssets`. |
 | Magenta debug overlay | `HistoryValid` false | Look around one frame; avoid huge camera cuts; wait after resize. |

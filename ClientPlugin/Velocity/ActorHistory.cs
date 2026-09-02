@@ -14,6 +14,9 @@ namespace ClientPlugin.Velocity;
 /// <c>DrawGameScene</c> postfix. Do not hook <c>MyInstance.UpdateWorldMatrix</c>.
 /// <c>UpdateMatrices</c> runs per view (GBuffer + shadows + env probe). Snapshot
 /// once per frame — repeating it was Parallel.Scheduler / Thread CPU Load.
+/// Stage 2 and the old pipeline still run on different scheduler workers, so
+/// dictionary writes take a lock (unsynchronized <c>Current[id]=</c> resized
+/// under two threads and crashed after world load).
 /// </summary>
 public sealed class ActorHistory : IVelocityHistory
 {
@@ -22,6 +25,7 @@ public sealed class ActorHistory : IVelocityHistory
 
     public static readonly ActorHistory Instance = new();
 
+    static readonly object Gate = new();
     static readonly float TeleportDistanceSq = TeleportMeters * TeleportMeters;
     static readonly Dictionary<uint, Slot> Previous = new();
     static readonly Dictionary<uint, Slot> Current = new();
@@ -38,14 +42,24 @@ public sealed class ActorHistory : IVelocityHistory
         public int LastSeen;
     }
 
-    public int TrackedActorCount => Previous.Count;
+    public int TrackedActorCount
+    {
+        get
+        {
+            lock (Gate)
+                return Previous.Count;
+        }
+    }
 
     public bool TryGetPrevious(uint actorId, out MatrixD world)
     {
-        if (Previous.TryGetValue(actorId, out var slot))
+        lock (Gate)
         {
-            world = slot.World;
-            return true;
+            if (Previous.TryGetValue(actorId, out var slot))
+            {
+                world = slot.World;
+                return true;
+            }
         }
 
         world = default;
@@ -54,7 +68,8 @@ public sealed class ActorHistory : IVelocityHistory
 
     public bool WasTeleported(uint actorId)
     {
-        return Teleported.Contains(actorId);
+        lock (Gate)
+            return Teleported.Contains(actorId);
     }
 
     internal void BeginFrame()
@@ -67,21 +82,24 @@ public sealed class ActorHistory : IVelocityHistory
     internal void EndFrame()
     {
         var now = Volatile.Read(ref frame);
-        foreach (var kv in Current)
-            Previous[kv.Key] = kv.Value;
-        Current.Clear();
-        Teleported.Clear();
-
-        PruneScratch.Clear();
-        foreach (var kv in Previous)
+        lock (Gate)
         {
-            if (now - kv.Value.LastSeen > KeepFrames)
-                PruneScratch.Add(kv.Key);
-        }
+            foreach (var kv in Current)
+                Previous[kv.Key] = kv.Value;
+            Current.Clear();
+            Teleported.Clear();
 
-        for (var i = 0; i < PruneScratch.Count; i++)
-            Previous.Remove(PruneScratch[i]);
-        PruneScratch.Clear();
+            PruneScratch.Clear();
+            foreach (var kv in Previous)
+            {
+                if (now - kv.Value.LastSeen > KeepFrames)
+                    PruneScratch.Add(kv.Key);
+            }
+
+            for (var i = 0; i < PruneScratch.Count; i++)
+                Previous.Remove(PruneScratch[i]);
+            PruneScratch.Clear();
+        }
     }
 
     internal void SnapshotStage2(MyCullQuery cullQuery)
@@ -114,10 +132,14 @@ public sealed class ActorHistory : IVelocityHistory
 
     internal void Clear()
     {
-        Previous.Clear();
-        Current.Clear();
-        Teleported.Clear();
-        PruneScratch.Clear();
+        lock (Gate)
+        {
+            Previous.Clear();
+            Current.Clear();
+            Teleported.Clear();
+            PruneScratch.Clear();
+        }
+
         Volatile.Write(ref frame, 0);
         Volatile.Write(ref stage2Once, 0);
         Volatile.Write(ref oldOnce, 0);
@@ -151,12 +173,15 @@ public sealed class ActorHistory : IVelocityHistory
             return;
 
         var world = actor.LastWorldMatrix;
-        if (Previous.TryGetValue(id, out var prev))
+        lock (Gate)
         {
-            if (Vector3D.DistanceSquared(prev.World.Translation, world.Translation) > TeleportDistanceSq)
-                Teleported.Add(id);
-        }
+            if (Previous.TryGetValue(id, out var prev))
+            {
+                if (Vector3D.DistanceSquared(prev.World.Translation, world.Translation) > TeleportDistanceSq)
+                    Teleported.Add(id);
+            }
 
-        Current[id] = new Slot { World = world, LastSeen = now };
+            Current[id] = new Slot { World = world, LastSeen = now };
+        }
     }
 }

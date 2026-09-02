@@ -66,8 +66,6 @@ void __pixel_shader(PixelStageInput input, out GbufferOutput output, uint covera
 
 #ifdef ANOMALY_VELOCITY
 	float2 anomaly_velocity = input.anomaly_velocity;
-#else
-	float2 anomaly_velocity = 0;
 #endif
 
 	#ifdef STATIC_DECAL
@@ -88,18 +86,36 @@ void __pixel_shader(PixelStageInput input, out GbufferOutput output, uint covera
 
         #ifdef CUSTOM_DEPTH
             float depth = material_output.depth > 0 ? material_output.depth : input.position.z;
+            #ifdef ANOMALY_VELOCITY
             GbufferWriteBlend(output, material_output.base_color, material_output.metalness, material_output.normal, material_output.gloss, ao,
                 material_output.emissive, decalAlpha, normalAlpha, 1, anomaly_velocity, depth);
+            #else
+            GbufferWriteBlend(output, material_output.base_color, material_output.metalness, material_output.normal, material_output.gloss, ao,
+                material_output.emissive, decalAlpha, normalAlpha, 1, depth);
+            #endif
         #else
+            #ifdef ANOMALY_VELOCITY
             GbufferWriteBlend(output, material_output.base_color, material_output.metalness, material_output.normal, material_output.gloss, ao,
                 material_output.emissive, decalAlpha, normalAlpha, 1, anomaly_velocity);
+            #else
+            GbufferWriteBlend(output, material_output.base_color, material_output.metalness, material_output.normal, material_output.gloss, ao,
+                material_output.emissive, decalAlpha, normalAlpha, 1);
+            #endif
         #endif
 
 	#elif defined(CUSTOM_DEPTH)
 		float depth = material_output.depth > 0 ? material_output.depth : input.position.z;
+        #ifdef ANOMALY_VELOCITY
         GbufferWrite(output, material_output.base_color, material_output.metalness, material_output.gloss, material_output.normal, material_output.ao, material_output.emissive, material_output.coverage, material_output.LOD, anomaly_velocity, depth);
+        #else
+        GbufferWrite(output, material_output.base_color, material_output.metalness, material_output.gloss, material_output.normal, material_output.ao, material_output.emissive, material_output.coverage, material_output.LOD, depth);
+        #endif
 	#else
+        #ifdef ANOMALY_VELOCITY
         GbufferWrite(output, material_output.base_color, material_output.metalness, material_output.gloss, material_output.normal, material_output.ao, material_output.emissive, material_output.coverage, material_output.LOD, anomaly_velocity);
+        #else
+        GbufferWrite(output, material_output.base_color, material_output.metalness, material_output.gloss, material_output.normal, material_output.ao, material_output.emissive, material_output.coverage, material_output.LOD);
+        #endif
 	#endif
 
 #ifndef STATIC_DECAL

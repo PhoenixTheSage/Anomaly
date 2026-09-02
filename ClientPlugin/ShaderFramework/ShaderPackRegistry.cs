@@ -1122,11 +1122,6 @@ public static class ShaderPackRegistry
     {
         if (stageProbeInProgress)
             return;
-        if (!HasAnythingToProbeUnlocked())
-        {
-            stageProbePending = false;
-            return;
-        }
 
         if (!ShaderCompileIntercept.IsLive)
         {
@@ -1252,25 +1247,6 @@ public static class ShaderPackRegistry
         }
     }
 
-    static bool HasAnythingToProbeUnlocked()
-    {
-        if (OverlayFiles.Count > 0)
-            return true;
-        if (GBufferAttachments.HasColorTargets)
-            return true;
-        foreach (var pack in Pending.Values)
-        {
-            if (pack.Disabled)
-                continue;
-            if (pack.InjectFiles != null && pack.InjectFiles.Count > 0)
-                return true;
-            if (pack.Defines != null && pack.Defines.Length > 0)
-                return true;
-        }
-
-        return false;
-    }
-
     static bool TryBuildRuntimeProbes(out List<RuntimeProbe> probes, out bool notReady)
     {
         probes = new List<RuntimeProbe>();
@@ -1373,8 +1349,14 @@ public static class ShaderPackRegistry
             AddUnique(names, ShaderStages.TransparentForDecals);
         }
 
-        if (names.Count == 0 && GBufferAttachments.HasColorTargets)
-            AddUnique(names, ShaderStages.GBuffer);
+        // Include-dir wraps are always live (not pack OverlayFiles). Probe
+        // every Keen compile that includes them so old-pipeline GBufferWrite
+        // consumers fail at Init instead of on first draw.
+        AddUnique(names, ShaderStages.GBuffer);
+        AddLightingFamily(names);
+        AddUnique(names, ShaderStages.Atmosphere);
+        AddUnique(names, ShaderStages.Decals);
+        AddUnique(names, ShaderStages.Foliage);
 
         return names;
     }

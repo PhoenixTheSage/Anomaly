@@ -1,12 +1,12 @@
 # Frame graph
 
-Keen’s order, not a pack’s. The important freeze: velocity, linear depth, and Hi-Z are published at `MyRenderScheduler.Done` — before atmosphere and transparent.
+Keen’s order, not a pack’s. The important freeze: **velocity** is published at `MyRenderScheduler.Done` — before atmosphere and transparent. `linearDepth` / `hiZ` / `historyColor` are produced only when a pack is live or the matching Debug buffer is on. Idle Anomaly (no packs) must not pay those full-res copies.
 
 | Moment | Who | Live state |
 |--------|-----|------------|
 | GBuffer + velocity MRT | Keen + inject | Object MVs on geometry pixels |
 | Lighting | Keen + Light wrap | Velocity at t5, extras CB b6 |
-| Scheduler.Done | Anomaly | Publish `velocity`, `linearDepth`, `hiZ` — frozen |
+| Scheduler.Done | Anomaly | Publish `velocity`. `linearDepth` / `hiZ` only if a pack or debug wants them |
 | AfterLighting | `OwnedPassRegistry` + `FullscreenPassRegistry` | HDR LBuffer; atmosphere not yet. `Fullscreen/` first, then C# |
 | Atmosphere | Keen + Common wrap | DensityLut t5; Anomaly velocity t6, extras t7+, CB b6 |
 | AfterAtmosphere | Same registries | After unbind. Aurora-class: `Fullscreen/` or C# |
@@ -17,7 +17,7 @@ Keen’s order, not a pack’s. The important freeze: velocity, linear depth, an
 | AfterTonemap | `OwnedPassRegistry` (First) | Internal LDR, before SE-DLSS evaluate |
 | SE-DLSS evaluate | Consumer | LDR + `VelocityRegistry.Active`. Jitter owner. |
 | AfterUpscale | `NotifyUpscaleComplete` | Output res; fallback at `DrawGameScene` if nobody notifies |
-| History + debug | Anomaly | `historyColor` copy; catalog debug is `Priority.Last` |
+| History + debug | Anomaly | `historyColor` copy only if a pack or debug wants it; catalog debug is `Priority.Last` |
 
 ## Jitter
 

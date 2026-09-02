@@ -24,6 +24,8 @@ Same name + same format from two packs share the slot. Mismatched formats fail c
 
 ## What gets generated
 
-Struct fields in `Anomaly/Extras/GBufferAttachmentFields.hlsli`. Lighting samples `AnomalyAttach_objectid` at t6+ when `ANOMALY_ATTACH_OBJECTID` is defined. Packed extras use format `GBuffer1.a`.
+Struct fields in `Anomaly/Extras/GBufferAttachmentFields.hlsli`. `AnomalyInitAttachments` zeros the whole `GbufferOutput` (FXC X3508 if any `SV_Target` field is left unwritten). Lighting samples `AnomalyAttach_objectid` at t6+ when `ANOMALY_ATTACH_OBJECTID` is defined. Packed extras use format `GBuffer1.a`.
+
+`GbufferWrite` / `GbufferWriteBlend` keep Keen’s argument list unless `ANOMALY_VELOCITY` is set. Decals, foliage, and sprites include this header and must still compile.
 
 → [[Pass-begin-binds|How lighting actually sees the SRV]]

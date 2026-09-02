@@ -424,6 +424,10 @@ public static class GBufferAttachments
         init.AppendLine("#define ANOMALY_GBUFFER_ATTACHMENT_INIT_HLSLI");
         init.AppendLine("void AnomalyInitAttachments(inout GbufferOutput output)");
         init.AppendLine("{");
+        // FXC X3508: SV_Target structs passed inout/out must be fully written
+        // in the callee. Empty body crashes GBuffer / Decals / Foliage / Sprites
+        // (old pipeline included) even with zero extra attachments.
+        init.AppendLine("    output = (GbufferOutput)0;");
         defs.AppendLine("#ifndef ANOMALY_GBUFFER_ATTACHMENT_DEFS_HLSLI");
         defs.AppendLine("#define ANOMALY_GBUFFER_ATTACHMENT_DEFS_HLSLI");
         read.AppendLine("#ifndef ANOMALY_GBUFFER_READ_SRVS_HLSLI");

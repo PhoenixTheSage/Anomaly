@@ -42,7 +42,7 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | [AnomalyFullscreen.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/AnomalyFullscreen.hlsli) | Fullscreen bus t0–t3 / b6 / b7 |
 | [FrameTemporal.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/FrameTemporal.cs) | Jitter + unjittered VP |
 | [CameraVelocityPass.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/CameraVelocityPass.cs) | Camera MV |
-| [Anomaly.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Anomaly.hlsli) | Geometry velocity CB / prev-world |
+| [Anomaly.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Anomaly.hlsli) | Geometry velocity CB / prev-world (VS reconstruct) |
 | [LightingSlots.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Anomaly/LightingSlots.hlsli) | Lighting t5 / b6 |
 | [AtmosphereSlots.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Anomaly/AtmosphereSlots.hlsli) | Atmosphere t6 / b6 (t5 is DensityLut) |
 | [AtmosphereCommon.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Transparent/Atmosphere/AtmosphereCommon.hlsli) | Thin `Keen/` wrap + extras |

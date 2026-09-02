@@ -30,6 +30,7 @@ void GbufferWrite(out GbufferOutput output,
 #endif
 	)
 {
+    output = (GbufferOutput)0;
     AnomalyInitAttachments(output);
     float3 nview = normalize(world_to_view(N));
     float2 nenc = pack_normals2(nview);
@@ -57,6 +58,7 @@ void GbufferWriteBlend(out GbufferOutput output,
 #endif
     )
 {
+    output = (GbufferOutput)0;
     AnomalyInitAttachments(output);
     output.gbuffer0 = float4(color, alpha) * fadeAlpha;
 

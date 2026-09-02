@@ -5,9 +5,9 @@ Resolve `ClientPlugin.Buffers.BufferCatalog` by type name. `Active(name)` never 
 | Name | When it exists | Format |
 |------|----------------|--------|
 | `velocity` | After GBuffer / camera pass | RG16F, internal resolution |
-| `linearDepth` | After scheduler Done | R32_Float, full res, positive view Z |
-| `hiZ` | Right after linearDepth | R32_Float, half res, 2×2 min (not GenerateMips) |
-| `historyColor` | After DrawGameScene postfix | RGBA16F HDR LBuffer copy; unpublished until one copy |
+| `linearDepth` | After scheduler Done, only if a pack is live or Debug buffer is Linear depth / Hi-Z | R32_Float, full res, positive view Z |
+| `hiZ` | Right after linearDepth, only if a pack is live or Debug buffer is Hi-Z | R32_Float, half res, 2×2 min (not GenerateMips) |
+| `historyColor` | After DrawGameScene postfix, only if a pack is live or Debug buffer is History color | RGBA16F HDR LBuffer copy; unpublished until one copy |
 | `reactiveMask` | When an owned pass sets `TemporalPolicy.Reactive` | R8, full res; white = do not trust history |
 | `objectId` (or any attachment name) | If a pack requested it | Pack format; also `GBufferAttachments.TryGet` |
 | `fullscreenIsolated` | After a `Fullscreen/` program runs | Last isolated RT; reserved |

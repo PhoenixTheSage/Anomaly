@@ -4,8 +4,8 @@ Compile intercept is not enough. Extra SRVs and CBs must be bound when Keen draw
 
 | Where | Slot | What |
 |-------|------|------|
-| Geometry GBuffer | b6 | Anomaly velocity CB (unjittered VP, prev count, …) |
-| Geometry GBuffer | t15 / t16 | Previous worlds / previous bones |
+| Geometry GBuffer | b6 | Anomaly velocity CB (unjittered VP, prev count, …) — **VS only** |
+| Geometry GBuffer | t15 / t16 | Previous worlds / previous bones — **VS only** |
 | Lighting / post | t5 | Catalog velocity (`AnomalyVelocityBuffer`) |
 | Lighting | t6–t9 | Extra GBuffer color attachments, then `RequestSrv` leftovers |
 | Atmosphere | t5 | Keen `DensityLut` — never steal this slot |

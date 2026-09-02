@@ -155,44 +155,16 @@ static class GBufferClearPatch
 }
 
 [HarmonyPatch]
-static class ColorPrepareInitPatch
+static class GBufferPreparePackPatch
 {
     static bool Prepare() => TargetMethod() != null;
 
     static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyColorPreparePass0), nameof(MyColorPreparePass0.InitInstanceElements));
+        AccessTools.Method(typeof(MyPreparePass<MyColorPreparePass0, MyColorPreparePass1>), "PrepareInstanceableGroups");
 
-    static void Postfix(int elementsCount)
+    static void Postfix(MyPreparePass<MyColorPreparePass0, MyColorPreparePass1> __instance)
     {
-        GBufferVelocity.OnInitInstanceElements(elementsCount);
-    }
-}
-
-[HarmonyPatch]
-static class ColorPrepareAddPatch
-{
-    static bool Prepare() => TargetMethod() != null;
-
-    static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyColorPreparePass0), nameof(MyColorPreparePass0.AddInstanceIntoInstanceElements));
-
-    static void Postfix(int bufferOffset, MyInstance instance)
-    {
-        GBufferVelocity.OnAddInstance(bufferOffset, instance);
-    }
-}
-
-[HarmonyPatch]
-static class ColorPrepareWritePatch
-{
-    static bool Prepare() => TargetMethod() != null;
-
-    static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyColorPreparePass0), nameof(MyColorPreparePass0.WriteData));
-
-    static void Postfix()
-    {
-        GBufferVelocity.OnWriteInstanceData();
+        GBufferVelocity.PackAfterGBufferPrepare(__instance);
     }
 }
 
@@ -202,12 +174,11 @@ static class GBufferProxyConstantsPatch
     static bool Prepare() => TargetMethod() != null;
 
     static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyRenderingPass), "SetProxyConstants", new[] { typeof(MyRenderableProxy) });
+        AccessTools.Method(typeof(MyGBufferPass), "RecordCommandsInternal", new[] { typeof(MyRenderableProxy) });
 
-    static void Postfix(MyRenderingPass __instance, MyRenderableProxy proxy)
+    static void Prefix(MyGBufferPass __instance, MyRenderableProxy proxy)
     {
-        if (__instance is MyGBufferPass)
-            GBufferVelocity.OnProxyDraw(__instance.RC, proxy);
+        GBufferVelocity.OnProxyDraw(__instance.RC, proxy);
     }
 }
 

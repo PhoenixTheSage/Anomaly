@@ -96,6 +96,11 @@ public static class OwnedBuffersPass
         {
             if (!Enabled)
                 return;
+            if (!WantDepthBuffers())
+            {
+                ClearDepthCatalog();
+                return;
+            }
             try
             {
                 ExecuteDepthUnlocked();
@@ -117,6 +122,11 @@ public static class OwnedBuffersPass
         {
             if (!Enabled)
                 return;
+            if (!WantHistoryBuffer())
+            {
+                ClearHistoryCatalog();
+                return;
+            }
             try
             {
                 CaptureHistoryUnlocked();
@@ -153,6 +163,28 @@ public static class OwnedBuffersPass
         }
     }
 
+    static bool WantDepthBuffers()
+    {
+        if (ShaderPackRegistry.LivePackCount > 0)
+            return true;
+        var dbg = Config.Current?.DebugBuffer ?? DebugBuffer.Off;
+        return dbg == DebugBuffer.LinearDepth || dbg == DebugBuffer.HiZ;
+    }
+
+    static bool WantHistoryBuffer()
+    {
+        if (ShaderPackRegistry.LivePackCount > 0)
+            return true;
+        return (Config.Current?.DebugBuffer ?? DebugBuffer.Off) == DebugBuffer.HistoryColor;
+    }
+
+    static bool WantHiZ()
+    {
+        if (ShaderPackRegistry.LivePackCount > 0)
+            return true;
+        return (Config.Current?.DebugBuffer ?? DebugBuffer.Off) == DebugBuffer.HiZ;
+    }
+
     static void ExecuteDepthUnlocked()
     {
         var gbuffer = MyGBuffer.Main;
@@ -168,8 +200,10 @@ public static class OwnedBuffersPass
         EnsureShaders();
         EnsureDepthTargets();
         EnsureLinearCb();
-        if (!ShadersReady || linearTarget == null || hiZTarget == null || linearCb == null ||
-            vertexShader == null || linearShader == null || hiZShader == null)
+        if (!ShadersReady || linearTarget == null || linearCb == null ||
+            vertexShader == null || linearShader == null)
+            return;
+        if (WantHiZ() && (hiZTarget == null || hiZShader == null))
             return;
 
         var cb = new LinearConstants
@@ -189,17 +223,26 @@ public static class OwnedBuffersPass
         rc.PixelShader.SetSrv(0, depth);
         rc.Draw(3, 0);
 
-        BindFullscreen(rc, hiZShader);
-        rc.SetViewport(0f, 0f, hiZWidth, hiZHeight, 0f, 1f);
-        rc.SetRtv(hiZTarget);
-        rc.PixelShader.SetConstantBuffer(0, null);
-        rc.PixelShader.SetSampler(0, null);
-        rc.PixelShader.SetSrv(0, linearTarget);
-        rc.Draw(3, 0);
+        if (WantHiZ() && hiZTarget != null && hiZShader != null)
+        {
+            BindFullscreen(rc, hiZShader);
+            rc.SetViewport(0f, 0f, hiZWidth, hiZHeight, 0f, 1f);
+            rc.SetRtv(hiZTarget);
+            rc.PixelShader.SetConstantBuffer(0, null);
+            rc.PixelShader.SetSampler(0, null);
+            rc.PixelShader.SetSrv(0, linearTarget);
+            rc.Draw(3, 0);
+            Publish(HiZPublished, BufferCatalog.HiZ, hiZTarget, hiZWidth, hiZHeight);
+        }
+        else
+        {
+            HiZPublished.Clear();
+            BufferCatalog.Set(BufferCatalog.HiZ, null);
+        }
+
         rc.ClearState();
 
         Publish(LinearPublished, BufferCatalog.LinearDepth, linearTarget, linearWidth, linearHeight);
-        Publish(HiZPublished, BufferCatalog.HiZ, hiZTarget, hiZWidth, hiZHeight);
         LastError = null;
         loggedError = false;
     }

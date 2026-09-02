@@ -6,9 +6,11 @@
 
 // Compile intercept: ANOMALY=1 on every permutation.
 // ANOMALY_VELOCITY is GBuffer-only (RENDERING_PASS == 0). Depth must never see it.
+// Velocity reconstruct is VS-only (PixelStage defines ANOMALY_PIXEL_STAGE).
 //
-// Prev-world SRV is packed in Stage 2 instance-buffer order (SV_InstanceID).
-// Slot 15 is unused by geometry (lighting BRDF LUT is later; unbind after GBuffer).
+// t15 is packed in Stage 2 instance-buffer order (SV_InstanceID): previous world
+// as a camera-relative 4x3. The VS inverts current local_matrix (GPU ALU; CPU
+// packing of currToPrev showed up as Thread CPU Load / Parallel.Scheduler).
 // Slot 16 is previous bones for the current GBuffer draw (old pipeline skinning).
 // CB slot 6 is unused by geometry (0 frame, 1 projection, 2 object, 3 material, 4 foliage, 5 alphamask, 7 forward).
 
@@ -17,6 +19,14 @@
 #define ANOMALY_BONE_SLOT 16
 
 #ifdef ANOMALY_VELOCITY
+#ifndef ANOMALY_PIXEL_STAGE
+
+// Keen's construct_matrix_43 lives in Geometry/VertexTemplateBase.hlsli (VS only).
+// GBuffer PixelStage includes this file and must not depend on that helper.
+matrix AnomalyConstructMatrix43(float4 a, float4 b, float4 c)
+{
+    return transpose(matrix(a, b, c, float4(0, 0, 0, 1)));
+}
 
 struct AnomalyPrevInstance
 {
@@ -101,7 +111,7 @@ float2 AnomalyComputeVelocity(float3 positionLocal, matrix localMatrix, uint svI
             [branch]
             if (prev.flags.x > 0.5)
             {
-                prevM = construct_matrix_43(prev.col0, prev.col1, prev.col2);
+                prevM = AnomalyConstructMatrix43(prev.col0, prev.col1, prev.col2);
                 hasPrevWorld = true;
             }
         }
@@ -109,7 +119,7 @@ float2 AnomalyComputeVelocity(float3 positionLocal, matrix localMatrix, uint svI
         [branch]
         if (AnomalyHasPrevWorld != 0)
         {
-            prevM = construct_matrix_43(AnomalyPrevRow0, AnomalyPrevRow1, AnomalyPrevRow2);
+            prevM = AnomalyConstructMatrix43(AnomalyPrevRow0, AnomalyPrevRow1, AnomalyPrevRow2);
             hasPrevWorld = true;
         }
 #endif
@@ -150,6 +160,7 @@ float2 AnomalyComputeVelocity(float3 positionLocal, matrix localMatrix, uint svI
     return AnomalyComputeVelocity(positionLocal, localMatrix, svInstanceId, uint4(0, 0, 0, 0), float4(0, 0, 0, 0));
 }
 
+#endif // !ANOMALY_PIXEL_STAGE
 #endif // ANOMALY_VELOCITY
 
 #include <Anomaly/GBufferExtras.hlsli>

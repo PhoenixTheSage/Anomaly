@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using VRage.Render.Scene;
 using VRage.Render11.Culling;
 using VRage.Render11.GeometryStage2.Instancing;
@@ -10,6 +11,8 @@ namespace ClientPlugin.Velocity;
 /// Absolute <see cref="MatrixD"/> history keyed by Keen ActorID. Snapshot after
 /// Stage 2 <c>UpdateMatrices</c> and old <c>UpdateCullProxies</c>; swap at
 /// <c>DrawGameScene</c> postfix. Do not hook <c>MyInstance.UpdateWorldMatrix</c>.
+/// <c>UpdateMatrices</c> runs per view (GBuffer + shadows + env probe). Snapshot
+/// once per frame — repeating it was Parallel.Scheduler / Thread CPU Load.
 /// </summary>
 public sealed class ActorHistory : IVelocityHistory
 {
@@ -19,13 +22,14 @@ public sealed class ActorHistory : IVelocityHistory
     public static readonly ActorHistory Instance = new();
 
     static readonly float TeleportDistanceSq = TeleportMeters * TeleportMeters;
-    static readonly object Gate = new();
     static readonly Dictionary<uint, Slot> Previous = new();
     static readonly Dictionary<uint, Slot> Current = new();
     static readonly HashSet<uint> Teleported = new();
     static readonly List<uint> PruneScratch = new();
 
     int frame;
+    int stage2Once;
+    int oldOnce;
 
     struct Slot
     {
@@ -33,24 +37,14 @@ public sealed class ActorHistory : IVelocityHistory
         public int LastSeen;
     }
 
-    public int TrackedActorCount
-    {
-        get
-        {
-            lock (Gate)
-                return Previous.Count;
-        }
-    }
+    public int TrackedActorCount => Previous.Count;
 
     public bool TryGetPrevious(uint actorId, out MatrixD world)
     {
-        lock (Gate)
+        if (Previous.TryGetValue(actorId, out var slot))
         {
-            if (Previous.TryGetValue(actorId, out var slot))
-            {
-                world = slot.World;
-                return true;
-            }
+            world = slot.World;
+            return true;
         }
 
         world = default;
@@ -59,112 +53,106 @@ public sealed class ActorHistory : IVelocityHistory
 
     public bool WasTeleported(uint actorId)
     {
-        lock (Gate)
-            return Teleported.Contains(actorId);
+        return Teleported.Contains(actorId);
     }
 
     internal void BeginFrame()
     {
-        lock (Gate)
-            frame++;
+        Interlocked.Increment(ref frame);
+        Interlocked.Exchange(ref stage2Once, 0);
+        Interlocked.Exchange(ref oldOnce, 0);
     }
 
     internal void EndFrame()
     {
-        lock (Gate)
+        var now = Volatile.Read(ref frame);
+        foreach (var kv in Current)
+            Previous[kv.Key] = kv.Value;
+        Current.Clear();
+        Teleported.Clear();
+
+        PruneScratch.Clear();
+        foreach (var kv in Previous)
         {
-            foreach (var kv in Current)
-                Previous[kv.Key] = kv.Value;
-            Current.Clear();
-            Teleported.Clear();
-
-            PruneScratch.Clear();
-            foreach (var kv in Previous)
-            {
-                if (frame - kv.Value.LastSeen > KeepFrames)
-                    PruneScratch.Add(kv.Key);
-            }
-
-            for (var i = 0; i < PruneScratch.Count; i++)
-                Previous.Remove(PruneScratch[i]);
-            PruneScratch.Clear();
+            if (now - kv.Value.LastSeen > KeepFrames)
+                PruneScratch.Add(kv.Key);
         }
+
+        for (var i = 0; i < PruneScratch.Count; i++)
+            Previous.Remove(PruneScratch[i]);
+        PruneScratch.Clear();
     }
 
     internal void SnapshotStage2(MyCullQuery cullQuery)
     {
         if (cullQuery?.Results?.Instances == null)
             return;
+        if (Interlocked.CompareExchange(ref stage2Once, 1, 0) != 0)
+            return;
 
         var instances = cullQuery.Results.Instances;
-        lock (Gate)
-        {
-            var count = instances.Count;
-            for (var i = 0; i < count; i++)
-                RecordUnlocked(instances[i]);
-        }
+        var count = instances.Count;
+        var now = Volatile.Read(ref frame);
+        for (var i = 0; i < count; i++)
+            Record(instances[i], now);
     }
 
     internal void SnapshotOld(MyCullQuery cullQuery)
     {
         if (cullQuery?.Results?.CullProxies == null)
             return;
+        if (Interlocked.CompareExchange(ref oldOnce, 1, 0) != 0)
+            return;
 
         var proxies = cullQuery.Results.CullProxies;
-        lock (Gate)
-        {
-            var count = proxies.Count;
-            for (var i = 0; i < count; i++)
-                RecordUnlocked(proxies[i]);
-        }
+        var count = proxies.Count;
+        var now = Volatile.Read(ref frame);
+        for (var i = 0; i < count; i++)
+            Record(proxies[i], now);
     }
 
     internal void Clear()
     {
-        lock (Gate)
-        {
-            Previous.Clear();
-            Current.Clear();
-            Teleported.Clear();
-            PruneScratch.Clear();
-            frame = 0;
-        }
+        Previous.Clear();
+        Current.Clear();
+        Teleported.Clear();
+        PruneScratch.Clear();
+        Volatile.Write(ref frame, 0);
+        Volatile.Write(ref stage2Once, 0);
+        Volatile.Write(ref oldOnce, 0);
     }
 
-    void RecordUnlocked(MyInstance instance)
+    void Record(MyInstance instance, int now)
     {
         if (instance == null)
             return;
         var actor = instance.Owner?.Owner;
-        RecordActorUnlocked(actor, instance.ActorID);
+        RecordActor(actor, instance.ActorID, now);
     }
 
-    void RecordUnlocked(MyCullProxy proxy)
+    void Record(MyCullProxy proxy, int now)
     {
         if (proxy?.Parent == null)
             return;
-        RecordActorUnlocked(proxy.Parent.Owner, proxy.OwnerID);
+        RecordActor(proxy.Parent.Owner, proxy.OwnerID, now);
     }
 
-    void RecordActorUnlocked(IMyActor actor, uint fallbackId)
+    void RecordActor(IMyActor actor, uint fallbackId, int now)
     {
         if (actor != null && actor.IsDestroyed)
             return;
 
         var id = actor != null ? actor.ID : fallbackId;
-        if (id == 0)
+        if (id == 0 || actor == null)
             return;
 
-        var world = actor != null ? actor.LastWorldMatrix : default;
-        if (actor == null)
-            return;
-
+        var world = actor.LastWorldMatrix;
         if (Previous.TryGetValue(id, out var prev))
         {
             if (Vector3D.DistanceSquared(prev.World.Translation, world.Translation) > TeleportDistanceSq)
                 Teleported.Add(id);
         }
 
-        Current[id] = new Slot { World = world, LastSeen = frame };
+        Current[id] = new Slot { World = world, LastSeen = now };
     }
 }

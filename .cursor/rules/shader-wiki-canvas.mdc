@@ -1,0 +1,24 @@
+---
+description: Keep the shader developer wiki canvas current; do not recommend Hidden Pulsar plugins
+alwaysApply: true
+---
+
+# Shader wiki canvas
+
+When this workspace’s public shader API, pack contract, named stages, catalog buffers, binds, owned passes, or onboarding docs change, update the wiki canvas in the **same turn**. Do not leave the canvas describing a previous slice.
+
+The canvas is not in git. Write it at the Cursor canvases path for this workspace:
+
+`~/.cursor/projects/t-Cursor-Projects-Anomaly/canvases/shader-developer-wiki.canvas.tsx`
+
+On Windows that is typically `C:\Users\<you>\.cursor\projects\t-Cursor-Projects-Anomaly\canvases\shader-developer-wiki.canvas.tsx`. Follow the canvas skill (`cursor/canvas` only, no extra files).
+
+Do **not** tell pack authors to create Pulsar Hidden plugins, set `<Hidden>true</Hidden>`, or hide packs from the plugin list. Packs are normal Pulsar plugins that depend on Anomaly.
+
+```text
+# BAD — pushing Hidden packs
+Ship a Hidden Pulsar plugin. Prefer Hidden so the list stays clean.
+
+# GOOD
+Ship a Pulsar plugin that depends on Anomaly (DependencyIds). Prefer Inject/ and hashed HLSL; no extra Harmony.
+```

@@ -175,6 +175,7 @@ public static class ShaderStages
     };
 
     const string OwnedLightingWrap = "Lighting/Light.hlsli";
+    const string OwnedAtmosphereWrap = "Transparent/Atmosphere/AtmosphereCommon.hlsli";
 
     static readonly Dictionary<string, Stage> ByName =
         new(StringComparer.OrdinalIgnoreCase);
@@ -371,6 +372,16 @@ public static class ShaderStages
     public static bool IsAnomalyOwnedLightingWrap(string keenKey)
     {
         return string.Equals(NormalizeSlashes(keenKey), OwnedLightingWrap,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// <c>Transparent/Atmosphere/AtmosphereCommon.hlsli</c> wrap. Overlay needs
+    /// <c>exclusive: ["Atmosphere"]</c>. Inject extras are included from this wrap.
+    /// </summary>
+    public static bool IsAnomalyOwnedAtmosphereWrap(string keenKey)
+    {
+        return string.Equals(NormalizeSlashes(keenKey), OwnedAtmosphereWrap,
             StringComparison.OrdinalIgnoreCase);
     }
 

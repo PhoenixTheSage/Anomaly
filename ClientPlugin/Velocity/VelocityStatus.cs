@@ -20,6 +20,9 @@ public static class VelocityStatus
             sb.Append("Shader packs: ").AppendLine(ShaderPackRegistry.StatusLine);
             sb.Append("GBuffer attachments: ").AppendLine(GBufferAttachments.StatusLine);
             sb.Append("Pass binds: ").AppendLine(ShaderBindRegistry.StatusLine);
+            sb.Append("Owned passes: ").AppendLine(OwnedPassRegistry.StatusLine);
+            sb.Append("Fullscreen: ").AppendLine(FullscreenPassRegistry.StatusLine);
+            sb.Append("Frame temporal: ").AppendLine(FormatTemporal());
             sb.Append("Camera velocity: ").AppendLine(FormatCameraPass());
             sb.Append("Owned buffers: ").AppendLine(OwnedBuffersPass.StatusLine);
             sb.Append("GBuffer injection: ").AppendLine(FormatGBuffer());
@@ -52,6 +55,14 @@ public static class VelocityStatus
             + "  " + ShaderCompileIntercept.MacroName + "=" + ShaderCompileIntercept.MacroValue
             + "  compiles=" + ShaderCompileIntercept.CompileCount
             + "  fails=" + ShaderCompileIntercept.FailureCount;
+    }
+
+    static string FormatTemporal()
+    {
+        return "frame=" + FrameTemporal.FrameIndex
+            + " jitter=" + FrameTemporal.JitterX.ToString("0.###") + "," +
+            FrameTemporal.JitterY.ToString("0.###")
+            + " history=" + (FrameTemporal.HistoryValid ? "yes" : "no");
     }
 
     static string FormatCameraPass()

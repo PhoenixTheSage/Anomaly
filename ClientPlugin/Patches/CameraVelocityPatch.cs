@@ -34,6 +34,7 @@ static class CameraVelocityScreenResourcesPatch
     {
         CameraVelocityPass.OnResolutionChanged();
         OwnedBuffersPass.OnResolutionChanged();
+        OwnedPassRegistry.OnResolutionChanged();
     }
 }
 
@@ -51,5 +52,6 @@ static class CameraVelocityDeviceEndPatch
         OwnedBuffersPass.Release();
         VelocityDebugPass.Release();
         ShaderBindRegistry.Release();
+        OwnedPassRegistry.Release();
     }
 }

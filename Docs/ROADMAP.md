@@ -2,11 +2,11 @@
 
 Ordered work to turn the compile-and-load stub into a living shader framework. Architecture: [ShaderAPI.md](ShaderAPI.md). Product phases and Keen facts: [PLAN.md](PLAN.md). Shader inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Slices A–J and L are implemented, plus an in-game **Debug velocity** overlay of `IVelocityBuffer`. Velocity pipeline, pack registry, named stages, and per-stage compile probes are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred. **Slice K** (sample Hidden pack plugin) is deferred.
+**Now:** Slices A–J and L are implemented, plus an in-game **Debug velocity** overlay of `IVelocityBuffer`. Velocity pipeline, pack registry, named stages, and per-stage compile probes are in this repo. Slice G is proven in SE-DLSS. PluginHub registration is deferred. **Slice K** (sample pack plugin) is deferred.
 
 **Next (velocity proof):** Use the debug overlay in-game (PLAN test plan: moving grid vs camera pan, Depth still compiles) and, when ready, PluginHub pin.
 
-**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–T** are in this repo. Next code is **K** (sample Hidden pack) when a pack needs to demonstrate inject or a named-stage overlay.
+**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–Z** and **AA–AF** are in this repo (owned-pass scheduler, `FullscreenPassRegistry`, temporal policy, Atmosphere wrap at t6, catalog publish). Next code is **K** (sample pack) when a pack needs to demonstrate `Fullscreen/AfterAtmosphere`, inject, or a named-stage overlay.
 
 ---
 
@@ -18,7 +18,7 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 | [ShaderAPI.md](ShaderAPI.md) | Hook / inject / replace / owned-pass layers; Iris comparison |
 | [ShaderPacks.md](ShaderPacks.md) | Pulsar named assets; pack plugins register HLSL with Anomaly |
 | [KeenShaders.md](KeenShaders.md) | All Keen HLSL files and GBuffer layout |
-| [Extensibility.md](Extensibility.md) | Post-velocity slices M–T (inject, slots, bind, catalog) |
+| [Extensibility.md](Extensibility.md) | Post-velocity slices M–Z and AA–AF (inject, slots, bind, catalog, owned passes, fullscreen programs) |
 | This file | Velocity + hook slices A–L |
 
 ---
@@ -220,9 +220,9 @@ Goal: packs register by semantic stage, not 215 Keen file keys. Path overlay sta
 
 ---
 
-## Slice K — Sample Hidden pack (deferred)
+## Slice K — Sample pack (deferred)
 
-Separate repo. Hidden Pulsar plugin: `LoadAssets` + `ShaderPackRegistry.Register`, hashed zip, no extra Harmony. Pick up when a real overlay consumer is needed.
+Separate repo. Pulsar plugin: `LoadAssets` + `ShaderPackRegistry.Register`, hashed zip, no extra Harmony. Pick up when a real overlay consumer is needed.
 
 ---
 
@@ -271,7 +271,7 @@ Do A completely before B if time is short: a broken Depth compile is worse than 
 | 8 | H ship hygiene | 0 | — |
 | 9 | I pack safety | — | 2 |
 | 10 | J named stages | — | 2 |
-| — | K sample Hidden pack | — | 2 (deferred) |
+| — | K sample pack | — | 2 (deferred) |
 | 11 | L stage compile probes | — | 2 |
 
 Phase 4 owned raster: skipped. GBuffer piggyback shipped.
@@ -286,4 +286,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **in-game** with **Debug buffer** (velocity / linear depth / history / Hi-Z) or PluginHub pin. Framework code continues in [Extensibility.md](Extensibility.md) at slice **K**. Slice K (sample Hidden pack) stays deferred until a pack needs to demonstrate inject + defines.
+Next session is **in-game** with **Debug buffer** (velocity / linear depth / history / Hi-Z) or PluginHub pin. Framework code continues in [Extensibility.md](Extensibility.md) at slice **K**. Slice K (sample pack) stays deferred until a pack needs to demonstrate inject + defines.

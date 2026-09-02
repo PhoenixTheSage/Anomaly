@@ -69,6 +69,7 @@ public sealed class Plugin : IPlugin
         BoneHistory.Instance.Clear();
         VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
         ShaderBindRegistry.Release();
+        OwnedPassRegistry.Release();
         settingsGenerator = null;
         if (ReferenceEquals(Instance, this))
             Instance = null;

@@ -9,5 +9,7 @@ public enum DebugBuffer
     Velocity,
     LinearDepth,
     HistoryColor,
-    HiZ
+    HiZ,
+    ReactiveMask,
+    FullscreenIsolated
 }

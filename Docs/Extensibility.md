@@ -2,9 +2,9 @@
 
 What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.md](ShaderAPI.md). Velocity / hook slices: [ROADMAP.md](ROADMAP.md). Pack contract: [ShaderPacks.md](ShaderPacks.md). Keen inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Layers 0–3 exist. Velocity is the first tenant. Slices **M–T** are in this repo: stage-scoped inject, pack defines, GBuffer attachments, lighting/GBuffer-read wraps, pass-begin bind registry, buffer catalog, owned linear depth / Hi-Z / history color, and extra named stages (Shadows, Atmosphere, Decals, GPUParticles, EnvProbe, Foliage).
+**Now:** Layers 0–3 exist. Velocity is the first tenant. Slices **M–T**, **U–Z**, and **AA–AF** are in this repo: stage-scoped inject, pack defines, GBuffer attachments, lighting/GBuffer-read/atmosphere wraps, pass-begin bind registry, owned-pass scheduler, temporal policy, `FrameTemporal`, buffer catalog publish/lifetime, owned linear depth / Hi-Z / history / reactive mask, extra named stages, and **data-driven `Fullscreen/<Slot>` programs** (`FullscreenPassRegistry`).
 
-**Next:** Slice **K** (sample Hidden pack) can demonstrate lighting inject + velocity SRV, or overlay `Decals` / `Shadows`.
+**Next:** Slice **K** (sample pack) can demonstrate `Fullscreen/AfterAtmosphere/*.hlsl` + `passes[]`, lighting inject + velocity SRV, a C# AfterAtmosphere owned pass, or overlay `Decals` / `Shadows`.
 
 ---
 
@@ -14,7 +14,7 @@ What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.m
 |-----|------|
 | [ROADMAP.md](ROADMAP.md) | Velocity + hook slices A–L (done except Hub pin / sample pack) |
 | [ShaderAPI.md](ShaderAPI.md) | Four layers; Iris comparison; composition rules |
-| This file | Ordered work to generalize those layers beyond motion vectors |
+| This file | Ordered work to generalize those layers beyond motion vectors (M–Z, AA–AF) |
 | [ShaderPacks.md](ShaderPacks.md) | How a pack reaches Anomaly today |
 | [PLAN.md](PLAN.md) | Why velocity; TAA / SSR named as later buffer products |
 | [KeenShaders.md](KeenShaders.md) | Shared files worth wrapping vs 215 replace slots |
@@ -25,7 +25,7 @@ What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.m
 
 Same as [ROADMAP.md](ROADMAP.md), plus:
 
-- The compile intercept is the **only** compile door. Packs never Harmony-patch `MyShader` / `DrawGameScene`.
+- The compile intercept is the **only** compile door. Packs never Harmony-patch `MyShader`, `DrawGameScene`, `MyTransparentRendering.Render`, `MyAtmosphereRenderer`, or `MyToneMapping.Run`. Use `OwnedPassRegistry` or ship `Fullscreen/<Slot>/*.hlsl`. Anomaly owns `Draw(3)` for pack fullscreen programs.
 - Do not fork `Materials/*`. Inject shared stages; replace is exclusive per key.
 - Do not inject into Depth or `VertexTemplateBase` / `PixelTemplateBase` (those are shared with Depth).
 - Anomaly owns extra GBuffer attachments. Plugins **request a slot**; they do not splice `SV_Target3`.
@@ -44,11 +44,13 @@ Every Keen permutation already goes through `MyShaderCompiler` (`ShaderCompileIn
 | Mechanism | Live today | Gap |
 |-----------|------------|-----|
 | Include dirs | Anomaly `Shaders` + pack `Inject/` | — |
-| Defines | `ANOMALY=1`; `ANOMALY_VELOCITY` + pack `defines` on GBuffer and lighting | — |
+| Defines | `ANOMALY=1`; `ANOMALY_VELOCITY` + pack `defines` on GBuffer, lighting, and atmosphere | — |
 | Overlay remap | `Overlay/<Stage>/…` or Keen-relative path | One owner per key (keep this) |
-| Generated includes | `Anomaly/Extras/<Stage>.hlsli`; GBuffer alias; attachment fields; lighting/read SRVs | Lighting extras included from Light wrap |
-| Pass-begin bind | GBuffer: velocity + extra attachment RTVs; Lighting/post: catalog SRVs + extras CB | — |
-| Published buffer | `VelocityRegistry.Active`; `BufferCatalog.Active("velocity"|"linearDepth"|"hiZ"|"historyColor")`; `GBufferAttachments.TryGet` | — |
+| Generated includes | `Anomaly/Extras/<Stage>.hlsli`; GBuffer alias; attachment fields; lighting/atmosphere extras | Lighting from Light wrap; Atmosphere from AtmosphereCommon wrap (`Keen/` prefix) |
+| Pass-begin bind | GBuffer: velocity + extra attachment RTVs; Lighting/post: catalog SRVs + extras CB; Atmosphere: velocity **t6** (t5 is DensityLut) | — |
+| Owned-pass slots | AfterLighting / AfterAtmosphere / AfterTransparent / BeforeTonemap / AfterTonemap / AfterUpscale | SE-DLSS calls `NotifyUpscaleComplete` |
+| Fullscreen programs | `Fullscreen/<Slot>/*.hlsl` + `passes[]` → `FullscreenPassRegistry` | Anomaly compiles, binds t0–t3 / b6 / b7, merges, unbinds |
+| Published buffer | `VelocityRegistry.Active`; `BufferCatalog.Active("velocity"|"linearDepth"|"hiZ"|"historyColor"|"reactiveMask"|"fullscreenIsolated")`; `Publish` / `RegisterLifetime`; `GBufferAttachments.TryGet` | Reserved names fail closed. Isolated outputs also publish `pass.<id>` |
 | Stage probes | Sentinel compile per live named stage (overlays + injects) | Safety for overlays; not a product |
 
 Velocity uses **layer 1** (GBuffer inject + `SV_Target3`) and **layer 3** (camera pass + registry). That pattern is the template. Do not add a second compile intercept.
@@ -62,10 +64,11 @@ Pulsar loads many plugins. [ShaderAPI.md](ShaderAPI.md) composition rules stay t
 1. Anomaly owns extra attachments; plugins request slots.
 2. Defines are merged by Anomaly.
 3. Replace is exclusive per key; inject is additive behind Anomaly includes.
-4. Consumers bind registry textures.
-5. `ClearState` / DRS / device reset stay Anomaly’s problem.
-6. `exclusive: ["GBuffer"]` opts out of Anomaly-owned GBuffer stages (and velocity extras).
+4. Consumers bind registry textures, register `OwnedPassRegistry` draws, or ship `Fullscreen/` programs. They do not patch Keen pass methods or call `Draw`.
+5. `ClearState` / DRS / device reset stay Anomaly’s problem (`RegisterLifetime` for pack RTs).
+6. `exclusive: ["GBuffer"]` opts out of Anomaly-owned GBuffer stages (and velocity extras). Atmosphere wrap needs `["Atmosphere"]`.
 7. Depth stays 3-attachment-free.
+8. Atmosphere inject does not invent motion vectors. After `Scheduler.Done`, use `ContributeVelocity` / `Reactive`.
 
 A TAA plugin + SE-DLSS + a tonemap pack coexist if TAA **injects** and **binds**, the tonemap pack **replaces** `Post.Tonemap` only, and both read velocity from the registry.
 
@@ -233,6 +236,173 @@ Slice J already maps GBuffer, Depth, Forward, Highlight, Transparent, lighting, 
 
 ---
 
+## Slice U — Owned-pass scheduler
+
+Goal: visual plugins (Aurora-class) draw at named Keen moments without shipping Harmony. Anomaly owns the prefixes and the Rich HUD unbind.
+
+Slots: `AfterLighting`, `AfterAtmosphere`, `AfterTransparent`, `BeforeTonemap`, `AfterTonemap`, `AfterUpscale`.
+
+- [x] Well-known `OwnedPassRegistry.Register(id, slot, priority, temporalPolicy, draw)` (string/int reflection API + typed overload)
+- [x] Harmony: prefix `Transparent.Render` / postfix after OIT; prefix+postfix `Atmosphere.RenderGBuffer` (unbind then AfterAtmosphere); `ToneMapping.Run` Last/First so AfterTonemap runs before SE-DLSS evaluate
+- [x] `NotifyUpscaleComplete` after upscale evaluate; DrawGameScene postfix fallback if nobody notifies
+- [x] Per-invocation `OwnedPassContext` (`Rc`, size, `LBuffer`, `ReactiveTarget`, `ContributeVelocity`)
+- [x] Show Status: `Owned passes:`
+
+**Do not** Harmony-patch `MyAtmosphereRenderer` from a pack. AfterAtmosphere runs after Anomaly unbinds extras so the tenant can set t20–t25.
+
+**Slice U done when:** a pack can register AfterAtmosphere without a Harmony attribute.
+
+---
+
+## Slice V — Temporal policy
+
+Goal: color-in / motion-out is explicit. Animated emission after scheduler Done is invisible to frozen MVs unless the pass opts in.
+
+- [x] `TemporalPolicy` flags: `InColor`, `ContributeVelocity`, `Reactive`
+- [x] Catalog `reactiveMask` (R8, cleared each frame when a Reactive pass runs)
+- [x] `ContributeVelocity` composites extra MVs (mask &gt; 0.5) and republishes `velocity`
+- [x] Debug buffer mode for the mask
+
+SE-DLSS binding `reactiveMask` / calling `NotifyUpscaleComplete` lives in that repo. Anomaly only publishes the contract.
+
+**Slice V done when:** an AfterAtmosphere pass can write reject pixels and overlay MVs without patching the velocity composite.
+
+---
+
+## Slice W — Frame temporal / jitter republish
+
+Goal: one jitter owner (SE-DLSS). Anomaly reads `Projection.M31` / `M32` and republishes an unjittered VP on the extras CB.
+
+- [x] `FrameTemporal` well-known type (`JitterX`/`JitterY`, `UnjitteredViewProj`, `PrevViewProj`, `InvalidateHistory`)
+- [x] Same extras CB for lighting / atmosphere / post (append-only: frame index, jitter, two matrices)
+- [x] Packs do not patch the projection
+
+**Slice W done when:** lighting and atmosphere extras see the same unjittered matrices as owned passes.
+
+---
+
+## Slice X — Atmosphere wrap (not t5)
+
+Goal: additive atmosphere HLSL without exclusive-replacing `AtmosphereGBuffer.hlsl`, and without stealing Keen `DensityLut` at t5.
+
+- [x] Thin wrap of `Transparent/Atmosphere/AtmosphereCommon.hlsli` that `#include`s Keen via `Keen/` prefix
+- [x] Compile intercept opens `Keen/…` from `Content/Shaders` and skips overlay remap
+- [x] `#include <AnomalyAtmosphere.hlsli>` + `Anomaly/Extras/Atmosphere.hlsli` (`ANOMALY_ATMOSPHERE_STAGE`)
+- [x] Bind velocity at **t6**; extras from t7; extras CB b6. Rebind per planet (`RenderOne`) because Keen `RenderEnd` clears t5–t6
+- [x] Overlay of the wrap requires `exclusive: ["Atmosphere"]`
+- [x] Empty `Anomaly/Extras/Atmosphere.hlsli` always generated; pack `defines` apply to `Transparent/Atmosphere/` compiles
+
+**Do not** vendor a full copy of Keen AtmosphereCommon. **Do not** bind Anomaly extras at t5.
+
+**Slice X done when:** `Inject/Atmosphere.hlsli` is visible to `AtmosphereGBuffer` and DensityLut still works.
+
+---
+
+## Slice Y — Catalog publish + lifetime
+
+Goal: packs publish their own named textures (`aurora.noise`) without `OnDeviceReset` Harmony.
+
+- [x] `BufferCatalog.Publish` / `Unpublish` / `UnpublishAll` by pack id
+- [x] Reserved names (`velocity`, `linearDepth`, `hiZ`, `historyColor`, `reactiveMask`) fail closed
+- [x] Same name from two pack ids fails closed
+- [x] `RegisterLifetime` for DRS / device-end callbacks
+- [x] `PublishedBuffer` helper (`ISharedBuffer`)
+
+**Slice Y done when:** a pack can publish a texture and drop it on resize without patching `CreateScreenResources`.
+
+---
+
+## Slice Z — Frame-graph docs
+
+Goal: the public story matches the real frame (velocity frozen at Scheduler.Done; transparent emission invisible to MVs; DLSS is LDR after tonemap; jitter owner is SE-DLSS).
+
+- [x] [ShaderAPI.md](ShaderAPI.md) frame graph + owned-pass scheduler
+- [x] This file (U–Z)
+- [x] [ShaderPacks.md](ShaderPacks.md), [Buffers/README.md](../ClientPlugin/Buffers/README.md), [README.md](../README.md)
+- [x] Shader developer wiki canvas
+
+**Slice Z done when:** a pack author can read why Atmosphere inject does not fix DLSS ghosting.
+
+---
+
+## Slice AA — Ingest `Fullscreen/<Slot>` + `passes[]`
+
+Goal: pack HLSL under `Fullscreen/` becomes a program spec. Overlay/Inject stay compile-time; this is **runtime compose**.
+
+- [x] Scan `Fullscreen/<Slot>/<name>.hlsl` (skip `.hlsli`). Unknown slot fail closed
+- [x] Defaults: `IsolatedAdd`, id `{packId}.{name}`, output `pass.{id}`, temporal `InColor`, priority from the pack
+- [x] Parse `anomaly.json` `passes[]` (`id`, `slot`, `file`, `compose`, `priority`, `temporal`, `output`). Json overrides folder defaults
+- [x] Hash fullscreen files into the pack fingerprint
+- [x] `Apply` calls `FullscreenPassRegistry.ReplaceAll` for live packs only (rollback drops them)
+
+**Slice AA done when:** a local pack’s PS is listed on Show Status `Fullscreen:` and Depth sentinels are unchanged.
+
+---
+
+## Slice AB — Dispatcher IsolatedAdd + Replace + owned scratch
+
+Goal: Anomaly owns the draw. Packs do not create RTs or call `Draw`.
+
+- [x] IsolatedAdd: pack PS → HDR scratch → additive merge into the slot dest
+- [x] Replace: one owner per slot; two Replace claims fail closed; one Replace disables other compose on that slot
+- [x] Dual scratch pairs (`ResolutionI` vs `ViewportResolution`) so AfterUpscale does not thrash HDR scratches
+- [x] Data-driven programs run **before** C# `OwnedPassRegistry` callbacks
+- [x] AfterTonemap postfix passes Keen’s `__result` as dest; HDR slots default to `LBuffer`
+
+**Slice AB done when:** two IsolatedAdd AfterAtmosphere programs both merge; two Replace on the same slot both disable.
+
+---
+
+## Slice AC — Fixed bus + extras CB + unbind
+
+Goal: packs stop inventing t20–t25 for Anomaly-drawn fullscreen.
+
+- [x] t0 scene, t1 `linearDepth`, t2 `velocity`, t3 `reactiveMask`
+- [x] b6 extras (same append-only layout as lighting: size, jitter, unjittered VP, prev VP, frame)
+- [x] Shared `Fullscreen.hlsl` VS. Unbind SRVs/CBs/RTV before return (Rich HUD)
+- [x] Merge copies dest to the other scratch first so dest is never sampled as an SRV while it is the RTV
+- [x] Do not bind velocity at atmosphere t5
+
+**Slice AC done when:** a pack PS can `#include <AnomalyFullscreen.hlsli>` and sample t0–t2 without `RequestSrv`.
+
+---
+
+## Slice AD — Debug + Status
+
+Goal: name which tenant wrote a pixel.
+
+- [x] Show Status `Fullscreen:` (`slot/compose:id`)
+- [x] Debug buffer **FullscreenIsolated** (catalog `fullscreenIsolated`, last isolated output)
+- [x] Reserved catalog name `fullscreenIsolated` (packs cannot `Publish` it)
+
+**Slice AD done when:** Status lists programs and the debug overlay can show the last isolated RT.
+
+---
+
+## Slice AE — Temporal default + PublishOnly + PassUniforms
+
+Goal: Aurora-class can be HLSL + json + a small uniform writer. DLSS contract is loud.
+
+- [x] Folder default temporal is `InColor`. After `Scheduler.Done`, InColor without `Reactive` / `ContributeVelocity` logs once (`motion-out`)
+- [x] `PublishOnly` draws isolated and skips merge (named `pass.<id>` still publishes)
+- [x] `FullscreenPassRegistry.SetUniforms(id, float[])` writes b7 (`AnomalyPassUniform0–3`, 16 floats max)
+
+**Slice AE done when:** a pack can drive intensity from C# without a private CB, and motion-out is visible in the log.
+
+---
+
+## Slice AF — Chain + IsolatedMix + DirectAdd
+
+Goal: grades stack; veils can over-composite; cheap curtains stay opt-in.
+
+- [x] Chain: each tenant samples the previous isolated (or scene); last copies to dest
+- [x] IsolatedMix: `src + dest * (1 - src.a)`
+- [x] DirectAdd: isolated then additive merge (same bus; dest is never the pack PS target)
+
+**Slice AF done when:** two Chain programs ping-pong scratch and the last result lands in `LBuffer`.
+
+---
+
 ## What not to add
 
 | Idea | Why not |
@@ -244,13 +414,17 @@ Slice J already maps GBuffer, Depth, Forward, Highlight, Transparent, lighting, 
 | Widen Keen’s 64-byte instance VB | Shared with depth packing |
 | ReShade Present hook for geometry buffers | Cannot see object velocity or GBuffer extras |
 | Iris full renderer swap | Reimplement Keen’s deferred engine |
-| Pack Harmony on `DrawGameScene` | Bind registry + catalog exist so they do not |
+| Pack Harmony on `DrawGameScene` / atmosphere / tonemap | `OwnedPassRegistry` + bind registry + catalog exist so they do not |
+| Pack `MyPixelShaders.Create` / pack-owned fullscreen RTs | Anomaly owns `FullscreenPassRegistry` and the scratch pair |
+| Last-writer-wins Replace on a slot | Same as silent Overlay overwrite — fail closed |
+| Pack-chosen CB slot for uniforms | Anomaly allocates b7; `SetUniforms` is size-capped |
+| Steal atmosphere t5 for AfterAtmosphere programs | `DensityLut` is Keen’s and already unbound |
 
 ---
 
 ## Suggested order
 
-Do M before N if time is short: extras on PS unblocks additive work even with only `ANOMALY_VELOCITY`. **M–T are implemented.**
+Do M before N if time is short: extras on PS unblocks additive work even with only `ANOMALY_VELOCITY`. **M–Z and AA–AF are implemented.**
 
 | Order | Slice | Layer ([ShaderAPI.md](ShaderAPI.md)) | Depends on |
 |------:|-------|--------------------------------------|------------|
@@ -262,11 +436,23 @@ Do M before N if time is short: extras on PS unblocks additive work even with on
 | 6 | R buffer catalog | 3 | Velocity registry (done) |
 | 7 | S owned Hi-Z / history | 3 | R (done) |
 | 8 | T more named stages | 2 | J (done) |
+| 9 | U owned-pass scheduler | 3 | Q |
+| 10 | V temporal policy | 3 | U, R |
+| 11 | W FrameTemporal / extras CB | 1+3 | Q, S |
+| 12 | X Atmosphere wrap (t6) | 1 | M, Q |
+| 13 | Y catalog publish + lifetime | 3 | R |
+| 14 | Z frame-graph docs | docs | U–Y |
+| 15 | AA Fullscreen ingest | 3 | U, pack registry |
+| 16 | AB IsolatedAdd / Replace dispatcher | 3 | AA, U |
+| 17 | AC fixed bus + extras CB | 3 | AB, W |
+| 18 | AD debug + Status | 3 | AB, S |
+| 19 | AE PublishOnly + uniforms + motion-out | 3 | AB, V |
+| 20 | AF Chain / IsolatedMix / DirectAdd | 3 | AB |
 
-Slice K (sample Hidden pack) stays deferred until M/N exist so the sample can demonstrate inject + defines, not only overlay.
+Slice K (sample pack) stays deferred. It can now demonstrate `Fullscreen/AfterAtmosphere` + `SetUniforms`, not only overlay.
 
 ---
 
 ## First implementation session
 
-M–T are in this repo. Next code slice is **K** (sample pack that injects Lighting extras and samples `AnomalyVelocityBuffer`, or overlays `Decals`).
+M–Z and AA–AF are in this repo. Next code slice is **K** (sample pack that ships `Fullscreen/AfterAtmosphere/*.hlsl`, injects Lighting extras, registers a C# AfterAtmosphere callback, or overlays `Decals`).

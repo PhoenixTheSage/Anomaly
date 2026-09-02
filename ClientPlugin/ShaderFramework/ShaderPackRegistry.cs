@@ -20,21 +20,27 @@ namespace ClientPlugin.Shaders;
 /// Slice L: sentinel compile per live named stage; roll back the pack that
 /// fails it. Overlay of Anomaly GBuffer <em>write</em> stages needs
 /// <c>exclusive: ["GBuffer"]</c>. Read wraps need <c>GBuffer</c> or
-/// <c>Lighting</c>; <c>Lighting/Light.hlsli</c> needs <c>Lighting</c>.
+/// <c>Lighting</c>; <c>Lighting/Light.hlsli</c> needs <c>Lighting</c>;
+/// <c>Transparent/Atmosphere/AtmosphereCommon.hlsli</c> needs <c>Atmosphere</c>.
 /// Slice J: <see cref="ShaderStages"/> maps named overlay folders to Keen paths.
-/// Slices M–R: stage-scoped inject, pack defines, <see cref="GBufferAttachments"/>,
-/// lighting wraps, <see cref="ShaderBindRegistry"/>, buffer catalog.
+/// Slices M–T plus owned-pass / temporal / catalog publish: stage-scoped inject,
+/// pack defines, <see cref="GBufferAttachments"/>, lighting and atmosphere wraps,
+/// <see cref="ShaderBindRegistry"/>, <see cref="OwnedPassRegistry"/>,
+/// <see cref="FullscreenPassRegistry"/> (<c>Fullscreen/&lt;Slot&gt;</c> +
+/// <c>passes[]</c>), buffer catalog.
 /// </summary>
 public static class ShaderPackRegistry
 {
     public const string ManifestName = "anomaly.json";
     public const string OverlayFolder = "Overlay";
     public const string InjectFolder = "Inject";
+    public const string FullscreenFolder = "Fullscreen";
     public const string GeneratedExtrasPath = "Anomaly/GBufferExtras.hlsli";
     public const string GeneratedExtrasStagePath = "Anomaly/Extras/GBuffer.hlsli";
     public const string GeneratedFingerprintPath = "Anomaly/PackFingerprint.hlsli";
     public const string ExclusiveGBuffer = ShaderStages.GBuffer;
     public const string ExclusiveLighting = ShaderStages.Lighting;
+    public const string ExclusiveAtmosphere = ShaderStages.Atmosphere;
 
     static readonly object Gate = new();
     static readonly Dictionary<string, PendingPack> Pending = new(StringComparer.OrdinalIgnoreCase);
@@ -531,6 +537,15 @@ public static class ShaderPackRegistry
                         stageExtras.Append("// failed to read: ").AppendLine(e.Message);
                     }
                 }
+
+                if (pack.FullscreenPrograms != null)
+                {
+                    foreach (var fs in pack.FullscreenPrograms)
+                    {
+                        WriteUtf8(fingerprintStream, "fullscreen:" + fs.Id);
+                        WriteFile(fingerprintStream, fs.File);
+                    }
+                }
             }
 
             defineNames.Sort(StringComparer.OrdinalIgnoreCase);
@@ -567,6 +582,7 @@ public static class ShaderPackRegistry
         GeneratedFiles[NormalizeKeyOrEmpty(GeneratedFingerprintPath)] = fingerprintBytes;
 
         ShaderCompileIntercept.SetPackIncludeDirectories(PackIncludeDirs);
+        PushFullscreenUnlocked(packs);
         Log("packs applied live=" + LivePackCount + " overlays=" + OverlayFiles.Count +
             " conflicts=" + ConflictCount + " rolled-back=" + RolledBackCount +
             (string.IsNullOrEmpty(LiveStages) ? "" : " stages=" + LiveStages) +
@@ -624,6 +640,9 @@ public static class ShaderPackRegistry
         var lightingExtras = NormalizeKeyOrEmpty(ShaderStages.ExtrasIncludePath(ShaderStages.Lighting));
         if (!GeneratedFiles.ContainsKey(lightingExtras))
             GeneratedFiles[lightingExtras] = Utf8.GetBytes(EmptyStageExtras(ShaderStages.Lighting));
+        var atmosphereExtras = NormalizeKeyOrEmpty(ShaderStages.ExtrasIncludePath(ShaderStages.Atmosphere));
+        if (!GeneratedFiles.ContainsKey(atmosphereExtras))
+            GeneratedFiles[atmosphereExtras] = Utf8.GetBytes(EmptyStageExtras(ShaderStages.Atmosphere));
         GeneratedFiles[NormalizeKeyOrEmpty(GeneratedExtrasPath)] = Utf8.GetBytes(GBufferExtrasAlias());
     }
 
@@ -737,6 +756,218 @@ public static class ShaderPackRegistry
         }
     }
 
+    static void PushFullscreenUnlocked(List<PendingPack> packs)
+    {
+        var specs = new List<FullscreenProgramSpec>();
+        for (var i = 0; i < packs.Count; i++)
+        {
+            var pack = packs[i];
+            if (pack.Disabled || pack.FullscreenPrograms == null)
+                continue;
+            for (var p = 0; p < pack.FullscreenPrograms.Count; p++)
+                specs.Add(pack.FullscreenPrograms[p]);
+        }
+
+        FullscreenPassRegistry.ReplaceAll(specs);
+    }
+
+    static void ScanFullscreenFolder(PendingPack pack)
+    {
+        var root = Path.Combine(pack.Root, FullscreenFolder);
+        if (!Directory.Exists(root))
+            return;
+        root = Path.GetFullPath(root);
+        foreach (var file in Directory.EnumerateFiles(root, "*.hlsl", SearchOption.AllDirectories))
+        {
+            var full = Path.GetFullPath(file);
+            if (!IsUnderRoot(root, full))
+                continue;
+            if (!string.Equals(Path.GetExtension(full), ".hlsl", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var rel = file.Substring(root.Length)
+                .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (!TryNormalizeKey(rel, out var key))
+            {
+                Warn("pack " + pack.ManifestId + " skipped fullscreen path: " + rel);
+                continue;
+            }
+
+            var parts = key.Split('/');
+            if (parts.Length != 2)
+            {
+                Warn("pack " + pack.ManifestId +
+                     " skipped fullscreen (expected Fullscreen/<Slot>/<file>.hlsl): " + key);
+                continue;
+            }
+
+            if (!OwnedPassRegistry.TryParseSlot(parts[0], out var slot))
+            {
+                Warn("pack " + pack.ManifestId + " skipped fullscreen unknown slot '" + parts[0] +
+                     "'");
+                continue;
+            }
+
+            var name = Path.GetFileNameWithoutExtension(parts[1]);
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+            var id = pack.ManifestId + "." + name;
+            for (var i = 0; i < pack.FullscreenPrograms.Count; i++)
+            {
+                if (!string.Equals(pack.FullscreenPrograms[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                id = pack.ManifestId + "." + slot + "." + name;
+                break;
+            }
+
+            pack.FullscreenPrograms.Add(new FullscreenProgramSpec
+            {
+                Id = id,
+                PackId = pack.ManifestId,
+                Slot = slot,
+                Compose = FullscreenCompose.IsolatedAdd,
+                Priority = pack.Priority,
+                Policy = TemporalPolicy.InColor,
+                File = full,
+                OutputName = "pass." + id
+            });
+        }
+    }
+
+    static void ApplyPassManifest(PendingPack pack, PassSpec[] passes)
+    {
+        if (passes == null || pack.FullscreenPrograms == null)
+            return;
+        for (var i = 0; i < passes.Length; i++)
+        {
+            var spec = passes[i];
+            if (spec == null || string.IsNullOrWhiteSpace(spec.File))
+            {
+                Warn("pack " + pack.ManifestId + " skipped pass with no file");
+                continue;
+            }
+
+            if (!TryNormalizeKey(spec.File, out var fileKey))
+            {
+                Warn("pack " + pack.ManifestId + " skipped pass path: " + spec.File);
+                continue;
+            }
+
+            var full = CombineRelative(pack.Root, fileKey);
+            if (!File.Exists(full) ||
+                !string.Equals(Path.GetExtension(full), ".hlsl", StringComparison.OrdinalIgnoreCase))
+            {
+                Warn("pack " + pack.ManifestId + " skipped pass missing hlsl: " + fileKey);
+                continue;
+            }
+
+            if (!OwnedPassRegistry.TryParseSlot(spec.Slot, out var slot))
+            {
+                Warn("pack " + pack.ManifestId + " skipped pass unknown slot '" + spec.Slot + "'");
+                continue;
+            }
+
+            var compose = FullscreenCompose.IsolatedAdd;
+            if (!string.IsNullOrWhiteSpace(spec.Compose) &&
+                !Enum.TryParse(spec.Compose, true, out compose))
+            {
+                Warn("pack " + pack.ManifestId + " skipped pass unknown compose '" + spec.Compose +
+                     "'");
+                continue;
+            }
+
+            var name = Path.GetFileNameWithoutExtension(full);
+            var id = string.IsNullOrWhiteSpace(spec.Id)
+                ? pack.ManifestId + "." + name
+                : spec.Id.Trim();
+            var output = string.IsNullOrWhiteSpace(spec.Output) ? "pass." + id : spec.Output.Trim();
+            var priority = spec.Priority ?? pack.Priority;
+            var policy = ParseTemporal(pack.ManifestId, spec.Temporal);
+            FullscreenProgramSpec existing = null;
+            for (var p = 0; p < pack.FullscreenPrograms.Count; p++)
+            {
+                var cur = pack.FullscreenPrograms[p];
+                if (string.Equals(cur.File, full, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(cur.Id, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    existing = cur;
+                    break;
+                }
+            }
+
+            if (existing == null)
+            {
+                existing = new FullscreenProgramSpec();
+                pack.FullscreenPrograms.Add(existing);
+            }
+
+            existing.Id = id;
+            existing.PackId = pack.ManifestId;
+            existing.Slot = slot;
+            existing.Compose = compose;
+            existing.Priority = priority;
+            existing.Policy = policy;
+            existing.File = full;
+            existing.OutputName = output;
+        }
+    }
+
+    static TemporalPolicy ParseTemporal(string packId, string[] names)
+    {
+        if (names == null || names.Length == 0)
+            return TemporalPolicy.InColor;
+        TemporalPolicy policy = 0;
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(names[i]))
+                continue;
+            if (!Enum.TryParse(names[i].Trim(), true, out TemporalPolicy flag))
+            {
+                Warn("pack " + packId + " skipped unknown temporal '" + names[i] + "'");
+                continue;
+            }
+
+            policy |= flag;
+        }
+
+        return policy == 0 ? TemporalPolicy.InColor : policy;
+    }
+
+    static PassSpec[] ReadJsonPasses(string json)
+    {
+        var m = Regex.Match(json, "\"passes\"\\s*:\\s*\\[(.*?)\\]", RegexOptions.Singleline);
+        if (!m.Success)
+            return null;
+        var inner = m.Groups[1].Value;
+        var objects = Regex.Matches(inner, "\\{[^}]*\\}");
+        if (objects.Count == 0)
+            return Array.Empty<PassSpec>();
+        var list = new List<PassSpec>(objects.Count);
+        for (var i = 0; i < objects.Count; i++)
+        {
+            var obj = objects[i].Value;
+            var file = ReadJsonString(obj, "file");
+            var slot = ReadJsonString(obj, "slot");
+            if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(slot))
+                continue;
+            int? priority = null;
+            var pri = ReadJsonNumber(obj, "priority");
+            if (pri != null && int.TryParse(pri, out var parsed))
+                priority = parsed;
+            list.Add(new PassSpec
+            {
+                Id = ReadJsonString(obj, "id"),
+                Slot = slot,
+                File = file,
+                Compose = ReadJsonString(obj, "compose"),
+                Priority = priority,
+                Temporal = ReadJsonStringArray(obj, "temporal"),
+                Output = ReadJsonString(obj, "output")
+            });
+        }
+
+        return list.ToArray();
+    }
+
     static PendingPack ScanPack(string registerId, string root, Manifest manifest, bool local)
     {
         var pack = new PendingPack
@@ -751,8 +982,11 @@ public static class ShaderPackRegistry
             Root = root,
             Local = local,
             Overlays = new List<OverlayFile>(),
-            InjectFiles = new List<InjectFile>()
+            InjectFiles = new List<InjectFile>(),
+            FullscreenPrograms = new List<FullscreenProgramSpec>()
         };
+        ScanFullscreenFolder(pack);
+        ApplyPassManifest(pack, manifest.Passes);
 
         var overlayRoot = Path.Combine(root, OverlayFolder);
         if (Directory.Exists(overlayRoot))
@@ -1103,6 +1337,12 @@ public static class ShaderPackRegistry
                 ShaderStages.IsAnomalyOwnedLightingWrap(key))
             {
                 AddLightingFamily(names);
+                continue;
+            }
+
+            if (ShaderStages.IsAnomalyOwnedAtmosphereWrap(key))
+            {
+                AddUnique(names, ShaderStages.Atmosphere);
                 continue;
             }
 
@@ -1459,6 +1699,9 @@ public static class ShaderPackRegistry
                 (ShaderStages.IsAnomalyOwnedGBufferRead(overlay.Key) ||
                  ShaderStages.IsAnomalyOwnedLightingWrap(overlay.Key)))
                 return true;
+            if (string.Equals(stage, ShaderStages.Atmosphere, StringComparison.OrdinalIgnoreCase) &&
+                ShaderStages.IsAnomalyOwnedAtmosphereWrap(overlay.Key))
+                return true;
             if (ShaderStages.TryGetStageForKey(overlay.Key, out var name) &&
                 string.Equals(name, stage, StringComparison.OrdinalIgnoreCase))
                 return true;
@@ -1573,6 +1816,16 @@ public static class ShaderPackRegistry
             return false;
         }
 
+        if (ShaderStages.IsAnomalyOwnedAtmosphereWrap(key))
+        {
+            if (HasExclusiveStage(exclusive, ExclusiveAtmosphere))
+                return true;
+            Warn("pack " + packId +
+                 " overlay of Anomaly Atmosphere wrap requires exclusive: [\"" +
+                 ExclusiveAtmosphere + "\"]: " + key);
+            return false;
+        }
+
         return true;
     }
 
@@ -1597,6 +1850,8 @@ public static class ShaderPackRegistry
             if (ShaderStages.IsAnomalyOwnedLightingWrap(key) ||
                 ShaderStages.IsAnomalyOwnedGBufferRead(key))
                 AddUnique(names, ShaderStages.Lighting);
+            if (ShaderStages.IsAnomalyOwnedAtmosphereWrap(key))
+                AddUnique(names, ShaderStages.Atmosphere);
             if (!ShaderStages.TryGetStageForKey(key, out var stage) || string.IsNullOrEmpty(stage))
                 continue;
             AddUnique(names, stage);
@@ -1604,10 +1859,16 @@ public static class ShaderPackRegistry
 
         foreach (var pack in Pending.Values)
         {
-            if (pack.Disabled || pack.InjectFiles == null)
+            if (pack.Disabled)
                 continue;
-            foreach (var inject in pack.InjectFiles)
-                AddUnique(names, inject.Stage);
+            if (pack.InjectFiles != null)
+            {
+                foreach (var inject in pack.InjectFiles)
+                    AddUnique(names, inject.Stage);
+            }
+
+            if (pack.FullscreenPrograms != null && pack.FullscreenPrograms.Count > 0)
+                AddUnique(names, "Fullscreen");
         }
 
         if (names.Count == 0)
@@ -1700,7 +1961,8 @@ public static class ShaderPackRegistry
             Priority = priority,
             Exclusive = ReadJsonStringArray(json, "exclusive"),
             Defines = ReadJsonStringArray(json, "defines"),
-            Attachments = ReadJsonAttachments(json)
+            Attachments = ReadJsonAttachments(json),
+            Passes = ReadJsonPasses(json)
         };
         return true;
     }
@@ -1891,6 +2153,7 @@ public static class ShaderPackRegistry
         public bool RolledBack;
         public List<OverlayFile> Overlays;
         public List<InjectFile> InjectFiles;
+        public List<FullscreenProgramSpec> FullscreenPrograms;
     }
 
     struct OverlayFile
@@ -1920,5 +2183,17 @@ public static class ShaderPackRegistry
         public string[] Exclusive;
         public string[] Defines;
         public AttachmentSpec[] Attachments;
+        public PassSpec[] Passes;
+    }
+
+    sealed class PassSpec
+    {
+        public string Id;
+        public string Slot;
+        public string File;
+        public string Compose;
+        public int? Priority;
+        public string[] Temporal;
+        public string Output;
     }
 }

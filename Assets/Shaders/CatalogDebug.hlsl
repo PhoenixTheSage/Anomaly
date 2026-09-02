@@ -36,5 +36,10 @@ float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Targ
         return float4(g, g, g, 1);
     }
 
-    return float4(Tex.SampleLevel(PointSamp, uv, 0).rgb, 1);
+    if (Mode < 2.5)
+        return float4(Tex.SampleLevel(PointSamp, uv, 0).rgb, 1);
+
+    // Mode 3: reactive mask (R8, white = do not trust history).
+    float r = saturate(Tex.SampleLevel(PointSamp, uv, 0).r);
+    return float4(r, r, r, 1);
 }

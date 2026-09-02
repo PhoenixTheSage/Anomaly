@@ -127,6 +127,14 @@ public static class VelocityDebugPass
                 buf = BufferCatalog.Active(BufferCatalog.HistoryColor);
                 shaderMode = 2f;
                 break;
+            case DebugBuffer.ReactiveMask:
+                buf = BufferCatalog.Active(BufferCatalog.ReactiveMask);
+                shaderMode = 3f;
+                break;
+            case DebugBuffer.FullscreenIsolated:
+                buf = BufferCatalog.Active(BufferCatalog.FullscreenIsolated);
+                shaderMode = 2f;
+                break;
             default:
                 buf = BufferCatalog.Active(BufferCatalog.Velocity);
                 shaderMode = 0f;

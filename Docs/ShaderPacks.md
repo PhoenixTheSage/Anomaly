@@ -35,7 +35,7 @@ Instantiate order is the enabled-plugin list, **not** a topological sort of `Dep
 | **Pulsar plugin** (PluginHub / Local / dev folder) | Yes. This is the supported path. |
 | **Steam Workshop / `.sbc` mod** | No. Workshop content is not Pulsar `Asset` XML and is not SHA-256 gated the same way. |
 
-“Shader mods” in this design are **Pulsar plugins** that depend on Anomaly. They can be `Hidden` so they do not clutter the plugin list (same pattern as `linux-compat`).
+“Shader mods” in this design are **Pulsar plugins** that depend on Anomaly.
 
 ---
 
@@ -59,7 +59,6 @@ Anomaly’s **own** shaders stay Anomaly assets (`Shaders`). Packs never write i
 
 ```xml
 <Id>…pack guid…</Id>
-<Hidden>true</Hidden>
 <DependencyIds>
   <Id>A9C29274-E447-49EE-881B-C980E6D190FD</Id>
 </DependencyIds>
@@ -101,7 +100,7 @@ Migrate off a single `<AssetFolder>` when implementing packs:
 
 Keep `LoadAssets(string)` for the reserved `AssetFolder` name **and** add `LoadAssets(IReadOnlyDictionary<string, string>)`. Use `assets["Shaders"]` as the first include directory for the compile hook.
 
-Implemented: `ClientPlugin.Shaders.ShaderPackRegistry.Register`. Local drop is `{GetConfigPath("Anomaly")}/Packs` (developer-only). Overlay conflicts fail closed. Inject files concatenate into `Anomaly/Extras/<Stage>.hlsli` (`GBufferExtras.hlsli` aliases GBuffer; Lighting extras are included from `Lighting/Light.hlsli`). Pack `defines` merge onto GBuffer and lighting compiles. `GBufferAttachments.Request` (or json `attachments`) allocates extra GBuffer targets. `ShaderBindRegistry.RequestSrv` binds catalog textures on lighting/post. `BufferCatalog.Active("velocity")` aliases `VelocityRegistry`. Pack fingerprints are `#include`d from `Anomaly.hlsli` so Keen’s preprocess cache misses when packs change.
+Implemented: `ClientPlugin.Shaders.ShaderPackRegistry.Register`. Local drop is `{GetConfigPath("Anomaly")}/Packs` (developer-only). Overlay conflicts fail closed. Inject files concatenate into `Anomaly/Extras/<Stage>.hlsli` (`GBufferExtras.hlsli` aliases GBuffer; Lighting extras from `Lighting/Light.hlsli`; Atmosphere extras from the AtmosphereCommon wrap). Pack `defines` merge onto GBuffer, lighting, and `Transparent/Atmosphere/` compiles. `GBufferAttachments.Request` (or json `attachments`) allocates extra GBuffer targets. `ShaderBindRegistry.RequestSrv` binds catalog textures on lighting/post/atmosphere (Atmosphere velocity is **t6**; t5 is Keen `DensityLut`). `OwnedPassRegistry.Register` draws at named slots; `FullscreenPassRegistry` compiles `Fullscreen/<Slot>/*.hlsl` and `passes[]` (Anomaly owns the draw); `BufferCatalog.Publish` / `RegisterLifetime` for pack textures; `BufferCatalog.Active("velocity")` aliases `VelocityRegistry`. Pack fingerprints are `#include`d from `Anomaly.hlsli` so Keen’s preprocess cache misses when packs change.
 
 ---
 
@@ -119,7 +118,10 @@ Inject/                      # optional: snippets Anomaly #includes (additive)
   GBuffer.hlsli              # → Anomaly/Extras/GBuffer.hlsli (also unscoped *.hlsli)
   GBuffer/PsHelpers.hlsli    # same stage, concatenated
   Lighting.hlsli             # → Anomaly/Extras/Lighting.hlsli (included from Lighting/Light.hlsli wrap)
+  Atmosphere.hlsli           # → Anomaly/Extras/Atmosphere.hlsli (included from AtmosphereCommon wrap)
   Post.HBAO/Hint.hlsli
+Fullscreen/                  # optional: Anomaly-drawn programs (not Keen overlays)
+  AfterAtmosphere/Curtain.hlsl
 ```
 
 `anomaly.json` (v1, keep small):
@@ -133,6 +135,17 @@ Inject/                      # optional: snippets Anomaly #includes (additive)
   "defines": ["ANOMALY_OBJECTID"],
   "attachments": [
     { "name": "objectid", "format": "R32_UINT" }
+  ],
+  "passes": [
+    {
+      "id": "example.curtain",
+      "slot": "AfterAtmosphere",
+      "file": "Fullscreen/AfterAtmosphere/Curtain.hlsl",
+      "compose": "IsolatedAdd",
+      "priority": 0,
+      "temporal": ["InColor", "Reactive"],
+      "output": "pass.example.curtain"
+    }
   ]
 }
 ```
@@ -142,11 +155,14 @@ Inject/                      # optional: snippets Anomaly #includes (additive)
 - Overlay of Anomaly-owned GBuffer **write** stages (`Geometry/Passes/GBuffer/VertexStage.hlsli`, `Geometry/Passes/GBuffer/PixelStage.hlsli`, `GBuffer/GBufferWrite.hlsli`) is rejected unless `exclusive` contains `"GBuffer"`. That claim opts out of Anomaly velocity extras for those files.
 - Overlay of Anomaly **read wraps** (`GBuffer/GBuffer.hlsli`, `GBuffer/Surface.hlsli`) needs `exclusive: ["GBuffer"]` **or** `["Lighting"]` so a lighting pack does not have to kill velocity writes.
 - Overlay of `Lighting/Light.hlsli` needs `exclusive: ["Lighting"]` (not `Lighting.Dir` / `.Point` / `.Spot`). That wrap is Keen-relative (`Overlay/Lighting/Light.hlsli`); `Lighting` is inject-only as a folder name.
-- **Inject** files are additive includes (layer 1). Stage-scoped: `Inject/GBuffer.hlsli` or `Inject/GBuffer/*.hlsli` concatenates into `Anomaly/Extras/GBuffer.hlsli`. `Inject/Lighting.hlsli` is included from the Light wrap (`ANOMALY_LIGHTING_STAGE`). Unscoped `Inject/*.hlsli` still goes to GBuffer (v1). Unknown folders fail closed. Depth inject is rejected. Pixel-only helpers wrap in `#ifdef ANOMALY_PIXEL_STAGE` (GBuffer PS defines it; VS does not).
-- **Defines** (`anomaly.json` `"defines": ["ANOMALY_OBJECTID"]`) are merged onto GBuffer permutations and lighting / OIT-resolve compiles (never Depth). Reserved: `ANOMALY`, `ANOMALY_VELOCITY`, `RENDERING_PASS`, `DEPTH_ONLY`, `CUSTOM_DEPTH`, `ANOMALY_ATTACH_*`.
+- Overlay of `Transparent/Atmosphere/AtmosphereCommon.hlsli` needs `exclusive: ["Atmosphere"]`. The wrap `#include`s Keen via `<Keen/Transparent/Atmosphere/AtmosphereCommon.hlsli>` (compile intercept skips overlay remap). Do not vendor a full copy of Keen’s file.
+- **Inject** files are additive includes (layer 1). Stage-scoped: `Inject/GBuffer.hlsli` or `Inject/GBuffer/*.hlsli` concatenates into `Anomaly/Extras/GBuffer.hlsli`. `Inject/Lighting.hlsli` is included from the Light wrap (`ANOMALY_LIGHTING_STAGE`). `Inject/Atmosphere.hlsli` is included from the Atmosphere wrap (`ANOMALY_ATMOSPHERE_STAGE`). Unscoped `Inject/*.hlsli` still goes to GBuffer (v1). Unknown folders fail closed. Depth inject is rejected. Pixel-only helpers wrap in `#ifdef ANOMALY_PIXEL_STAGE` (GBuffer PS defines it; VS does not).
+- **Defines** (`anomaly.json` `"defines": ["ANOMALY_OBJECTID"]`) are merged onto GBuffer permutations, lighting / OIT-resolve, and `Transparent/Atmosphere/` compiles (never Depth). Reserved: `ANOMALY`, `ANOMALY_VELOCITY`, `RENDERING_PASS`, `DEPTH_ONLY`, `CUSTOM_DEPTH`, `ANOMALY_ATTACH_*`.
 - **Attachments** (`GBufferAttachments.Request` or `"attachments"` in json): named extra MRT (`R32_UINT`, `R16G16_Float`, …) or packed `GBuffer1.a`. Velocity keeps `SV_Target3`. Same name + format shares the slot; mismatched formats fail closed. Lighting samples extras as `AnomalyAttach_<name>` at t6+ (`ANOMALY_ATTACH_<NAME>_SRV`).
-- **Binds** (`ClientPlugin.Shaders.ShaderBindRegistry.RequestSrv(stage, catalogName)`): Anomaly binds catalog textures at reserved slots (Lighting/post t5 = `"velocity"`). Packs do not Harmony-patch lighting. Unbind after each pass.
-- **Catalog** (`ClientPlugin.Buffers.BufferCatalog.Active("velocity"|"linearDepth"|"hiZ"|"historyColor")`) aliases `VelocityRegistry` for velocity. Live GBuffer attachments also resolve by name.
+- **Binds** (`ClientPlugin.Shaders.ShaderBindRegistry.RequestSrv(stage, catalogName)`): Anomaly binds catalog textures at reserved slots (Lighting/post t5 = `"velocity"`; Atmosphere **t6** = `"velocity"`, t5 is Keen `DensityLut`). Packs do not Harmony-patch lighting or atmosphere. Unbind after each pass.
+- **Owned passes** (`ClientPlugin.Shaders.OwnedPassRegistry.Register`): named slots AfterLighting / AfterAtmosphere / AfterTransparent / BeforeTonemap / AfterTonemap / AfterUpscale. `TemporalPolicy` flags: `InColor`, `ContributeVelocity`, `Reactive`. Upscalers call `NotifyUpscaleComplete` after evaluate. Inject/overlay of Atmosphere does **not** write motion vectors; after `Scheduler.Done` the velocity buffer is frozen unless the pass contributes. C# `Register` runs **after** data-driven fullscreen programs.
+- **Fullscreen programs** (`Fullscreen/<Slot>/<name>.hlsl` + `passes[]`): Anomaly compiles and draws (`FullscreenPassRegistry`). Default compose is `IsolatedAdd`; id `{packId}.{name}`; output `pass.{id}`; temporal `InColor`. Json overrides folder defaults. Two `Replace` on one slot fail closed; one `Replace` disables other compose on that slot. Duplicate ids fail closed. Shared helpers belong in `Inject/`. Bus: t0 scene, t1 `linearDepth`, t2 `velocity`, t3 `reactiveMask`, b6 extras, b7 `SetUniforms(id, float[16])`. `#include <AnomalyFullscreen.hlsli>`. Packs do not call `Draw` or create RTs.
+- **Catalog** (`ClientPlugin.Buffers.BufferCatalog.Active("velocity"|"linearDepth"|"hiZ"|"historyColor"|"reactiveMask"|"fullscreenIsolated")`) aliases `VelocityRegistry` for velocity. Live GBuffer attachments also resolve by name. Isolated outputs publish `fullscreenIsolated` and `pass.<id>`. Packs publish extras with `Publish(packId, name, buffer)` (`PublishedBuffer`); reserved names fail closed. `RegisterLifetime` covers DRS / device-end so packs drop `OnDeviceReset` Harmony.
 - Missing Overlay file → Keen original (Iris-style fallback).
 
 Do not allow packs to replace Depth with a fourth MRT. After apply, Anomaly compiles a sentinel for each live named stage and rolls back the offending pack. Every compile error logs `pack=<id>`.
@@ -172,12 +188,13 @@ Each subdirectory or `.zip` is treated like `AnomalyPack`. **Not** for PluginHub
 | `Reference="true"` on a shader zip | That flag is for **managed DLLs** at compile time. |
 | Steam Workshop folders as packs | Different loader, no `DependencyIds`, no asset SHA-256. |
 | Pack Harmony-patches `MyShader` | Two compile hooks; Anomaly owns the intercept. |
+| Pack `MyPixelShaders.Create` or pack-owned fullscreen RTs | Anomaly owns `FullscreenPassRegistry` and the scratch pair. |
 
 ---
 
 ## Security
 
-PluginHub already requires hashed, reviewed assets. A pack plugin is still **full-trust C#** if it ships scripts — prefer **Hidden plugins whose only job is `LoadAssets` + Register**, with HLSL in the hashed zip and **no** extra Harmony.
+PluginHub already requires hashed, reviewed assets. A pack plugin is still **full-trust C#** if it ships scripts — prefer plugins whose job is `LoadAssets` + `Register`, with HLSL in the hashed zip and **no** extra Harmony.
 
 HLSL itself can still DoS the compile (infinite macros) or break Depth. Anomaly:
 
@@ -191,6 +208,9 @@ HLSL itself can still DoS the compile (infinite macros) or break Depth. Anomaly:
 - Rejects Overlay of Anomaly-owned GBuffer write stages unless `exclusive: ["GBuffer"]`
 - Rejects Overlay of GBuffer read wraps unless `exclusive: ["GBuffer"]` or `["Lighting"]`
 - Rejects Overlay of `Lighting/Light.hlsli` unless `exclusive: ["Lighting"]`
+- Rejects Overlay of `Transparent/Atmosphere/AtmosphereCommon.hlsli` unless `exclusive: ["Atmosphere"]`
+- Maps `Fullscreen/<Slot>/` to `OwnedPassSlot`; unknown slots fail closed; `.hlsli` in that tree is not a program
+- Two `Replace` programs on one slot fail closed; duplicate fullscreen ids fail closed
 
 ---
 

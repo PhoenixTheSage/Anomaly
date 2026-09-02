@@ -215,7 +215,8 @@ public static class ShaderCompileIntercept
             return false;
         var n = filepath.Replace('\\', '/');
         return n.IndexOf("/Lighting/", StringComparison.OrdinalIgnoreCase) >= 0 ||
-               n.IndexOf("/Transparent/OIT/Resolve", StringComparison.OrdinalIgnoreCase) >= 0;
+               n.IndexOf("/Transparent/OIT/Resolve", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               n.IndexOf("/Transparent/Atmosphere/", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     static void AppendMissing(ref ShaderMacro[] macros, ShaderMacro[] extra)
@@ -278,6 +279,9 @@ public static class ShaderCompileIntercept
             return false;
         if (fileName.IndexOf("..", StringComparison.Ordinal) >= 0)
             return false;
+
+        if (TryOpenKeenPrefixed(fileName, out stream))
+            return true;
 
         string relativeKey = null;
         if (includeType == IncludeType.System)
@@ -344,6 +348,35 @@ public static class ShaderCompileIntercept
 
         stream = new FileStream(overlayPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         return true;
+    }
+
+    /// <summary>
+    /// <c>#include &lt;Keen/relative.hlsli&gt;</c> opens the game file and
+    /// skips overlay remap so Anomaly wraps can include the original.
+    /// </summary>
+    static bool TryOpenKeenPrefixed(string fileName, out Stream stream)
+    {
+        stream = null;
+        var n = fileName.Replace('\\', '/');
+        const string prefix = "Keen/";
+        if (!n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+        try
+        {
+            var rest = n.Substring(prefix.Length);
+            if (rest.Length == 0 || rest.IndexOf("..", StringComparison.Ordinal) >= 0)
+                return false;
+            var shadersRoot = Path.GetFullPath(MyShaderCompiler.ShadersPath);
+            var keenPath = Path.GetFullPath(Path.Combine(shadersRoot, rest.Replace('/', Path.DirectorySeparatorChar)));
+            if (!File.Exists(keenPath) || !IsUnderRoot(shadersRoot, keenPath))
+                return false;
+            stream = new FileStream(keenPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     static bool TryOpenKeenLocal(IncludeType includeType, string relativeKey, out Stream stream)

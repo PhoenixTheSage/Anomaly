@@ -9,7 +9,8 @@ Velocity stays a typed convenience: bind `ClientPlugin.Velocity.VelocityRegistry
 | Type | Role |
 |------|------|
 | `ISharedBuffer` | `IsAvailable`, Keen `ISrvBindable` as `object Srv`, `NativeResource`, `Width`/`Height` |
-| `BufferCatalog` | `Active(name)` / `Set(name, buffer)` |
+| `BufferCatalog` | `Active(name)` / `Set` (Anomaly internals) / `Publish` / `Unpublish` / `RegisterLifetime` |
+| `PublishedBuffer` | Pack-owned `ISharedBuffer` wrapper for `Publish` |
 
 Well-known names:
 
@@ -19,13 +20,22 @@ Well-known names:
 | `linearDepth` | Live — positive view-space Z from resolved complementary depth (`Frame.hlsli` `compute_depth`) | `R32_Float`, full res |
 | `hiZ` | Live — 2×2 **min** downsample of `linearDepth` (not Keen `GenerateMips`) | `R32_Float`, half res |
 | `historyColor` | Live — previous-frame HDR `LBuffer` copy, published **after** post so this frame’s TAA still sees N−1 | `RGBA16F`, full res |
+| `reactiveMask` | Live when an owned pass sets `TemporalPolicy.Reactive` | `R8_UNorm`, full res; 0 = trust history, 1 = reject |
 | `objectId` | Live extra GBuffer attachments also resolve through `Active(name)` via `GBufferAttachments.TryGet` | pack-requested |
+| `fullscreenIsolated` | Last Anomaly-drawn pack `Fullscreen/` isolated output this frame | `RGBA16F`, slot resolution (`ResolutionI` or viewport) |
+| `pass.<id>` | Named isolated output for a fullscreen program | Same as isolated; not reserved — published by Anomaly for that pack id |
 
-Linear depth and Hi-Z are filled after GBuffer + lighting (`MyRenderScheduler.Done`). History is copied at `DrawGameScene` postfix (after Keen post). First frame / resize: `historyColor` stays unavailable until one copy exists. MSAA `LBuffer` is resolved before the blit. Do **not** use `MyCopyToRT.Run` for this copy (other plugins may intercept it).
+Reserved names (`velocity`, `linearDepth`, `hiZ`, `historyColor`, `reactiveMask`, `fullscreenIsolated`) cannot be `Publish`ed by a pack. Same name from two pack ids fails closed. `UnpublishAll(packId)` on dispose.
+
+Linear depth and Hi-Z are filled after GBuffer + lighting (`MyRenderScheduler.Done`) and stay **frozen** for the rest of the frame. Atmosphere, clouds, OIT, and owned AfterAtmosphere draws do **not** update them. History is copied at `DrawGameScene` postfix (after Keen post). First frame / resize: `historyColor` stays unavailable until one copy exists. MSAA `LBuffer` is resolved before the blit. Do **not** use `MyCopyToRT.Run` for this copy (other plugins may intercept it).
+
+`RegisterLifetime(packId, onResolutionChanged, onDeviceEnd)` is how a pack drops its own `OnDeviceReset` Harmony. Anomaly calls those on `CreateScreenResources` / `OnDeviceEnd`.
 
 ## Jitter contract
 
-SE-DLSS owns Halton jitter (`Projection.M31` / `M32`). Anomaly velocity uses an **unjittered** view-projection (those terms cleared). Linearize uses `Projection.M33` / `M43` only, so jitter does not change `linearDepth`. TAA / SSR plugins must not assume Anomaly owns jitter, and must not steal SE-DLSS’s jitter. If both need a shared temporal index later, that belongs in Anomaly’s extras CB — not a second Harmony patch on the projection.
+SE-DLSS owns Halton jitter (`Projection.M31` / `M32`). Anomaly reads it into `ClientPlugin.Shaders.FrameTemporal` and republishes an **unjittered** view-projection on the lighting/atmosphere/post extras CB (`AnomalyLightingJitter`, `AnomalyUnjitteredViewProj`, `AnomalyPrevViewProj`). Linearize uses `Projection.M33` / `M43` only, so jitter does not change `linearDepth`. TAA / SSR plugins must not assume Anomaly owns jitter, and must not steal SE-DLSS’s jitter. Call `FrameTemporal.InvalidateHistory()` on a camera cut you own; do not patch the projection.
+
+Velocity is written at `MyRenderScheduler.Done` (**before** transparent). Animated AfterAtmosphere emission is invisible to DLSS unless the pass calls `OwnedPassContext.ContributeVelocity` and/or writes `reactiveMask`. SE-DLSS evaluates **LDR after tonemap** and should call `OwnedPassRegistry.NotifyUpscaleComplete()` after evaluate. Binding `reactiveMask` is the consumer’s job.
 
 ## Discovery (C# sketch)
 

@@ -43,8 +43,8 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref debugVelocity, value);
     }
 
-    [Dropdown(visibleRows: 5, label: "Debug buffer",
-        description: "Fullscreen overlay of a catalog texture after the scene. Off keeps the game picture. Velocity uses the debug-velocity color map. Linear depth / Hi-Z are log grayscale. History color is the previous HDR LBuffer copy.")]
+    [Dropdown(visibleRows: 7, label: "Debug buffer",
+        description: "Fullscreen overlay of a catalog texture after the scene. Off keeps the game picture. Velocity uses the debug-velocity color map. Linear depth / Hi-Z are log grayscale. History color is the previous HDR LBuffer copy. Reactive mask is the temporal reject map (white = unstable). Fullscreen isolated is the last pack Fullscreen/ program output.")]
     public DebugBuffer DebugBuffer
     {
         get => debugBuffer;
@@ -61,7 +61,7 @@ public class Config : INotifyPropertyChanged
 
     [Separator("Status")]
 
-    [Button(label: "Show Status", description: "Compile intercept, velocity, owned buffers, debug overlay, and history")]
+    [Button(label: "Show Status", description: "Compile intercept, owned passes, fullscreen programs, frame temporal, velocity, owned buffers, debug overlay, and history")]
     // ReSharper disable once UnusedMember.Global
     public static void ShowStatus()
     {

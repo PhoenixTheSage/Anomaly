@@ -29,6 +29,9 @@ public static class ShaderBindRegistry
     public const int LightingCbSlot = 6;
     public const int PostVelocitySlot = 5;
     public const int PostCbSlot = 6;
+    public const int AtmosphereVelocitySlot = 6;
+    public const int AtmosphereCbSlot = 6;
+    public const int AtmosphereExtraBase = 7;
     public const int FirstExtraSrv = 5;
     public const int LastExtraSrv = 9;
 
@@ -52,7 +55,11 @@ public static class ShaderBindRegistry
         public uint HasVelocity;
         public uint HistoryValid;
         public uint AttachCount;
-        public uint Pad;
+        public uint FrameIndex;
+        public Vector2 JitterOffset;
+        public Vector2 Pad1;
+        public Matrix UnjitteredViewProj;
+        public Matrix PrevViewProj;
     }
 
     public static string StatusLine
@@ -66,8 +73,10 @@ public static class ShaderBindRegistry
 
     /// <summary>
     /// Bind catalog texture <paramref name="catalogName"/> on
-    /// <paramref name="stage"/> (<c>Lighting</c>, <c>Post.Tonemap</c>, …).
-    /// Slot <c>-1</c> assigns the next free reserved SRV (t6–t9; t5 is velocity).
+    /// <paramref name="stage"/> (<c>Lighting</c>, <c>Post.Tonemap</c>,
+    /// <c>Atmosphere</c>, …). Slot <c>-1</c> assigns the next free reserved
+    /// SRV. Lighting/post: t6–t9 (t5 is velocity). Atmosphere: t7–t9
+    /// (t5 is Keen <c>DensityLut</c>; t6 is velocity).
     /// </summary>
     public static void RequestSrv(string stage, string catalogName, int slot = -1)
     {
@@ -92,12 +101,18 @@ public static class ShaderBindRegistry
         QueueRequestUnlocked(ShaderStages.PostTonemap, VelocityName, PostVelocitySlot);
         QueueRequestUnlocked(ShaderStages.PostHbao, VelocityName, PostVelocitySlot);
         QueueRequestUnlocked(ShaderStages.Transparent, VelocityName, PostVelocitySlot);
+        QueueRequestUnlocked(ShaderStages.Atmosphere, VelocityName, AtmosphereVelocitySlot);
     }
 
     static void QueueRequestUnlocked(string stage, string catalogName, int slot)
     {
         if (string.Equals(catalogName, VelocityName, StringComparison.OrdinalIgnoreCase))
-            slot = IsLightingStage(stage) ? LightingVelocitySlot : PostVelocitySlot;
+        {
+            if (IsAtmosphereStage(stage))
+                slot = AtmosphereVelocitySlot;
+            else
+                slot = IsLightingStage(stage) ? LightingVelocitySlot : PostVelocitySlot;
+        }
 
         if (slot < 0)
             slot = NextFreeSlotUnlocked(stage);
@@ -135,14 +150,21 @@ public static class ShaderBindRegistry
     static int NextFreeSlotUnlocked(string stage)
     {
         var used = new bool[LastExtraSrv + 1];
-        used[IsLightingStage(stage) ? LightingVelocitySlot : PostVelocitySlot] = true;
+        if (IsAtmosphereStage(stage))
+        {
+            used[5] = true;
+            used[AtmosphereVelocitySlot] = true;
+        }
+        else
+            used[IsLightingStage(stage) ? LightingVelocitySlot : PostVelocitySlot] = true;
         for (var i = 0; i < Requests.Count; i++)
         {
             if (string.Equals(Requests[i].Stage, stage, StringComparison.OrdinalIgnoreCase))
                 used[Requests[i].Slot] = true;
         }
 
-        for (var slot = LightingAttachBase; slot <= LastExtraSrv; slot++)
+        var start = IsAtmosphereStage(stage) ? AtmosphereExtraBase : LightingAttachBase;
+        for (var slot = start; slot <= LastExtraSrv; slot++)
         {
             if (!used[slot])
                 return slot;
@@ -235,8 +257,7 @@ public static class ShaderBindRegistry
         }
 
         WriteExtrasUnlocked(rc, attachCount);
-        var cbSlot = IsLightingStage(stage) ? LightingCbSlot : PostCbSlot;
-        rc.AllShaderStages.SetConstantBuffer(cbSlot, extrasCb);
+        rc.AllShaderStages.SetConstantBuffer(CbSlot(stage), extrasCb);
 
         LastSlots[CanonicalStatusStage(stage)] = new List<int>(BindScratch);
         statusLine = FormatStatusUnlocked();
@@ -248,8 +269,7 @@ public static class ShaderBindRegistry
             return;
         for (var i = 0; i < slots.Count; i++)
             SetSrv(rc, slots[i], null);
-        var cbSlot = IsLightingStage(stage) ? LightingCbSlot : PostCbSlot;
-        rc.AllShaderStages.SetConstantBuffer(cbSlot, null);
+        rc.AllShaderStages.SetConstantBuffer(CbSlot(stage), null);
     }
 
     static void SetSrv(MyRenderContext rc, int slot, ISrvBindable srv)
@@ -261,7 +281,7 @@ public static class ShaderBindRegistry
     {
         if (extrasCb != null)
             return;
-        extrasCb = MyManagers.Buffers.CreateConstantBuffer("Anomaly.LightingExtrasCB",
+        extrasCb = MyManagers.Buffers.CreateConstantBuffer("Anomaly.PassExtrasCB",
             ConstantBufferBytes, usage: ResourceUsage.Dynamic);
     }
 
@@ -270,6 +290,7 @@ public static class ShaderBindRegistry
         if (extrasCb == null)
             return;
         var size = MyRender11.ResolutionI;
+        FrameTemporal.EnsureSnapshot();
         var vel = BufferCatalog.Active(VelocityName);
         var hist = VelocityRegistry.Active;
         var w = size.X > 0 ? size.X : 1;
@@ -281,7 +302,11 @@ public static class ShaderBindRegistry
             HasVelocity = vel != null && vel.IsAvailable ? 1u : 0u,
             HistoryValid = hist != null && hist.HistoryValid ? 1u : 0u,
             AttachCount = (uint)Math.Max(attachCount, 0),
-            Pad = 0
+            FrameIndex = FrameTemporal.FrameIndex,
+            JitterOffset = new Vector2(FrameTemporal.JitterX, FrameTemporal.JitterY),
+            Pad1 = Vector2.Zero,
+            UnjitteredViewProj = FrameTemporal.UnjitteredViewProj,
+            PrevViewProj = FrameTemporal.PrevViewProj
         };
         var mapping = MyMapping.MapDiscard(rc, extrasCb);
         mapping.WriteAndPosition(ref cb);
@@ -296,6 +321,18 @@ public static class ShaderBindRegistry
             string.Equals(requestStage, ShaderStages.Lighting, StringComparison.OrdinalIgnoreCase))
             return true;
         return false;
+    }
+
+    static int CbSlot(string stage)
+    {
+        if (IsAtmosphereStage(stage))
+            return AtmosphereCbSlot;
+        return IsLightingStage(stage) ? LightingCbSlot : PostCbSlot;
+    }
+
+    static bool IsAtmosphereStage(string stage)
+    {
+        return string.Equals(stage, ShaderStages.Atmosphere, StringComparison.OrdinalIgnoreCase);
     }
 
     static bool IsLightingStage(string stage)

@@ -2,15 +2,7 @@
 #define ANOMALY_LIGHTING_HLSLI
 
 #include <Anomaly/LightingSlots.hlsli>
-
-cbuffer AnomalyLightingExtras : register(MERGE(b, ANOMALY_LIGHTING_CB_SLOT))
-{
-    float2 AnomalyLightingRenderSize;
-    float2 AnomalyLightingInvRenderSize;
-    uint AnomalyLightingHasVelocity;
-    uint AnomalyLightingHistoryValid;
-    uint AnomalyLightingAttachCount;
-    uint AnomalyLightingPad;
-};
+#define ANOMALY_EXTRAS_CB_SLOT ANOMALY_LIGHTING_CB_SLOT
+#include <Anomaly/PassExtrasCb.hlsli>
 
 #endif

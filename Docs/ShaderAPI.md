@@ -117,6 +117,19 @@ Defer a second plugin’s wholesale Standard/Pixel fork until someone needs it; 
 
 Fullscreen camera MV, owned linear depth / Hi-Z / history color, debug vis: **Anomaly shaders**, not Keen overlays. Settings **Debug buffer** blits a catalog texture onto the backbuffer after `DrawGameScene` (`CatalogDebug.hlsl`). Consumers bind `IVelocityBuffer` or `BufferCatalog.Active(name)` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md), [ClientPlugin/Buffers/README.md](../ClientPlugin/Buffers/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
 
+Pack fullscreen effects ship `Fullscreen/<Slot>/*.hlsl`. Anomaly compiles and draws them (`FullscreenPassRegistry`). Packs do not call `Draw` or create RTs. C# `OwnedPassRegistry.Register` stays the escape hatch and runs **after** data-driven programs.
+
+| Compose | Who | Dest |
+|---------|-----|------|
+| `IsolatedAdd` (default) | Many, additive | Scratch then `src + dest` into `LBuffer` (HDR slots) or the AfterTonemap result |
+| `IsolatedMix` | Many, over | Scratch then `src + dest * (1 - src.a)` |
+| `Chain` | Many, ordered | Each samples the previous isolated; last copies to dest |
+| `PublishOnly` | Producer | Scratch only; catalog `pass.<id>` / `fullscreenIsolated` |
+| `Replace` | One owner | Fail closed if two claim the slot; other compose on that slot is disabled |
+| `DirectAdd` | Opt-in | Isolated then additive merge (same bus) |
+
+Fixed bus: t0 scene, t1 `linearDepth`, t2 `velocity`, t3 `reactiveMask`, b6 extras (same append-only layout as lighting), b7 uniforms (`SetUniforms`, 16 floats). `#include <AnomalyFullscreen.hlsli>`. AfterUpscale has no dest unless a consumer passes one — Isolated still publishes; merge is skipped if dest is null.
+
 Iris analog: `composite` / `final` — extra passes the framework owns.
 
 ---
@@ -162,14 +175,67 @@ Rules:
 1. **Anomaly owns extra GBuffer attachments.** Plugins request a slot (“RG16F velocity”) rather than splicing `SV_Target3` themselves.
 2. **Defines are merged by Anomaly**, not by each Harmony patch on `MyShader`.
 3. **Replace is exclusive per key**; inject is additive behind Anomaly-owned includes (`Anomaly/Extras/GBuffer.hlsli`, aliased as `Anomaly/GBufferExtras.hlsli`).
-4. **Consumers do not Harmony-patch `DrawGameScene` or instance updates.** They bind registry textures. Anomaly draws / binds RTs.
+4. **Consumers do not Harmony-patch `DrawGameScene`, `MyTransparentRendering.Render`, `MyAtmosphereRenderer`, `MyToneMapping.Run`, or instance updates.** They bind registry textures or register an [owned-pass](#owned-pass-scheduler) draw. Anomaly owns those Harmony prefixes and the unbind.
 5. **`ClearState` / DRS / device reset** stay Anomaly’s problem. Replacements must not leak RT/SRV ([Rich HUD](https://github.com/DarkHelmet/RichHudFramework)).
-6. **Anomaly-owned GBuffer write stages** (`Geometry/Passes/GBuffer/*Stage.hlsli`, `GBuffer/GBufferWrite.hlsli`) stay Anomaly’s unless a pack sets `exclusive: ["GBuffer"]`. **Read wraps** (`GBuffer/GBuffer.hlsli`, `Surface.hlsli`) need `exclusive: ["GBuffer"]` or `["Lighting"]`. **`Lighting/Light.hlsli`** needs `exclusive: ["Lighting"]`.
+6. **Anomaly-owned GBuffer write stages** (`Geometry/Passes/GBuffer/*Stage.hlsli`, `GBuffer/GBufferWrite.hlsli`) stay Anomaly’s unless a pack sets `exclusive: ["GBuffer"]`. **Read wraps** (`GBuffer/GBuffer.hlsli`, `Surface.hlsli`) need `exclusive: ["GBuffer"]` or `["Lighting"]`. **`Lighting/Light.hlsli`** needs `exclusive: ["Lighting"]`. **`Transparent/Atmosphere/AtmosphereCommon.hlsli`** needs `exclusive: ["Atmosphere"]`.
 7. **Compile failure rolls back that pack** (sentinel per live named stage after apply; in-game overlay errors log `pack=<id>` and disable the owner).
-
-Injection + exclusive replace can coexist: velocity inject still applies to a replaced Standard pixel **only if** that pixel still includes `Passes/PixelStage.hlsli`. A full-file replace that omits the include opts out of extras — document that.
+8. **Inject/overlay of Atmosphere does not fix DLSS.** Animated emission after `MyRenderScheduler.Done` is invisible to the frozen velocity buffer unless the pass sets `ContributeVelocity` / `Reactive`. SE-DLSS evaluates **LDR after tonemap** and owns Halton jitter.
 
 [SmoothFrames](https://github.com/WhiteFang34/SmoothFrames) also patches the render thread. Do not assume exclusive ownership of `DrawGameScene`.
+
+---
+
+## Frame graph (what actually runs)
+
+Order is Keen’s, not a pack’s. Velocity and derived depth extras freeze at scheduler Done — **before** atmosphere, clouds, OIT, and billboards.
+
+| Moment | Who | What is live |
+|--------|-----|----------------|
+| GBuffer (+ velocity MRT) | Keen + Anomaly inject | Object MVs on geometry pixels |
+| Lighting | Keen + Lighting wrap / extras | Catalog velocity at **t5**, extras CB b6 |
+| `MyRenderScheduler.Done` | Anomaly owned | Camera fill + composite → publish `velocity`; `linearDepth` / `hiZ` **frozen** |
+| AfterLighting | `OwnedPassRegistry` + `FullscreenPassRegistry` | Prefix `MyTransparentRendering.Render`. HDR `LBuffer`. Atmosphere not yet. Data-driven `Fullscreen/` first, then C# callbacks. |
+| Atmosphere | Keen + Atmosphere wrap | `DensityLut` at **t5** (do not steal). Anomaly velocity at **t6**, extras from t7, extras CB b6. Per-planet clouds inside `RenderGBuffer`. |
+| AfterAtmosphere | `OwnedPassRegistry` | Postfix `RenderGBuffer` **after unbind**. Aurora-class draws set their own t20–t25. |
+| Clouds / OIT / additive-top | Keen | Transparent emission. **No new MVs** unless a pass contributed. |
+| AfterTransparent | `OwnedPassRegistry` | Postfix `Transparent.Render`. |
+| BeforeTonemap | `OwnedPassRegistry` | Prefix `MyToneMapping.Run` (Priority.Last). HDR, internal res. |
+| Tonemap | Keen | HDR → LDR at internal / DRS size |
+| AfterTonemap | `OwnedPassRegistry` | Postfix `Run` (Priority.First) — **before** SE-DLSS evaluate. Internal LDR. |
+| SE-DLSS evaluate | Consumer | LDR + `VelocityRegistry.Active` (size must match internal DRS). Jitter owner. |
+| AfterUpscale | `NotifyUpscaleComplete` | Output res if a consumer notified; else `DrawGameScene` postfix fallback at native res. |
+| History + debug | Anomaly | `historyColor` copy and catalog debug at `DrawGameScene` postfix (debug is Priority.Last). |
+
+Jitter owner is **SE-DLSS** (`Projection.M31` / `M32`). Anomaly reads it into `FrameTemporal` and republishes an **unjittered** view-projection on the extras CB. Packs must not patch the projection.
+
+Transparent / aurora emission is **color-in, motion-out** unless the owned pass writes `reactiveMask` and/or `ContributeVelocity`. Overlaying Atmosphere HLSL alone cannot invent motion vectors for DLSS.
+
+---
+
+## Owned-pass scheduler
+
+Well-known types: `ClientPlugin.Shaders.OwnedPassRegistry` and `ClientPlugin.Shaders.FullscreenPassRegistry`. Reflection-friendly `Register(id, slot, priority, temporalPolicy, draw)`. `draw` receives `OwnedPassContext` boxed as `object`. Prefer `Fullscreen/<Slot>/*.hlsl` + `passes[]` so the pack does not own a draw. Anomaly owns the Harmony and `Draw(3)`; packs do not.
+
+| Slot | Hook | Typical use |
+|------|------|-------------|
+| `AfterLighting` | Prefix `Transparent.Render` | HDR after lights, before atmosphere |
+| `AfterAtmosphere` | Postfix `Atmosphere.RenderGBuffer` | Additive curtains / aerial extras |
+| `AfterTransparent` | Postfix `Transparent.Render` | After OIT + top billboards |
+| `BeforeTonemap` | Prefix `ToneMapping.Run` (Last) | HDR grade |
+| `AfterTonemap` | Postfix `Run` (First) | Internal LDR, before upscale evaluate |
+| `AfterUpscale` | `NotifyUpscaleComplete` or DrawGameScene fallback | Output-res composite |
+
+`TemporalPolicy` flags (OR together): `InColor`, `ContributeVelocity`, `Reactive`.
+
+- **InColor** — writes `LBuffer` (HDR) or LDR after tonemap. Temporal consumers see the color.
+- **ContributeVelocity** — after draw, call `OwnedPassContext.ContributeVelocity(overlaySrv, maskSrv)` to composite extra MVs where mask &gt; 0.5. Republishes `velocity` so SE-DLSS sees them.
+- **Reactive** — may write catalog `reactiveMask` (R8, cleared to 0 at first use each frame). High = do not trust history. SE-DLSS must bind this itself; Anomaly only publishes it.
+
+SE-DLSS (or any upscaler) calls `OwnedPassRegistry.NotifyUpscaleComplete()` after evaluate. If nobody notifies, Anomaly runs AfterUpscale once at `DrawGameScene` postfix.
+
+`FrameTemporal` (well-known): `JitterX` / `JitterY`, `UnjitteredViewProj`, `PrevViewProj`, `InvalidateHistory()`. Same extras CB fields for lighting, atmosphere, and post (`AnomalyLightingJitter`, `AnomalyUnjitteredViewProj`, `AnomalyPrevViewProj`, `AnomalyLightingFrameIndex`). Append-only.
+
+Injection + exclusive replace can coexist: velocity inject still applies to a replaced Standard pixel **only if** that pixel still includes `Passes/PixelStage.hlsli`. A full-file replace that omits the include opts out of extras — document that.
 
 ---
 
@@ -181,6 +247,6 @@ Keep the [PLAN.md](PLAN.md) cut:
 2. Ship velocity as **injection**, not as a Standard/Pixel fork.
 3. Public shader API shape: Pulsar named assets + pack `Register` + named-stage replace table + buffer registry. Packs are Pulsar plugins that depend on Anomaly; see [ShaderPacks.md](ShaderPacks.md). Overlay replace is live (fail closed on conflict). A sentinel compile per live named stage rolls back a pack that breaks that stage.
 
-After that cut: generalize the same hook for more tenants — stage-scoped inject, pack defines, attachment slots, lighting wraps, bind registry, buffer catalog. Order: [Extensibility.md](Extensibility.md).
+After that cut: generalize the same hook for more tenants — stage-scoped inject, pack defines, attachment slots, lighting/atmosphere wraps, bind registry, owned-pass scheduler, buffer catalog, data-driven `Fullscreen/` programs. Order: [Extensibility.md](Extensibility.md).
 
 Iris’s lesson is semantic stages + compile-time rewrite + fallback, sitting on a renderer the framework controls. Anomaly’s rewrite sits on **Keen’s** renderer, because that renderer is the thing we cannot afford to clone.

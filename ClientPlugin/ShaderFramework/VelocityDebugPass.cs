@@ -18,7 +18,8 @@ namespace ClientPlugin.ShaderFramework;
 
 /// <summary>
 /// Fullscreen false-color of a catalog texture onto the backbuffer after
-/// <c>DrawGameScene</c>. Off by default. Unbinds RT/SRV before return.
+/// <c>DrawGameScene</c> (after the scene copy, so it covers the presented
+/// image). Off by default. Unbinds RT/SRV before return.
 /// </summary>
 public static class VelocityDebugPass
 {
@@ -164,7 +165,7 @@ public static class VelocityDebugPass
         mapping.WriteAndPosition(ref cb);
         mapping.Unmap();
 
-        rc.SetViewport(0f, 0f, dest.Size.X, dest.Size.Y, 0f, 1f);
+        SetOverlayViewport(rc, dest);
         rc.SetRasterizerState(MyRasterizerStateManager.NocullRasterizerState);
         rc.SetDepthStencilState(MyDepthStencilStateManager.IgnoreDepthStencil);
         rc.SetBlendState(MyBlendStateManager.BlendReplace);
@@ -182,6 +183,33 @@ public static class VelocityDebugPass
         rc.ClearState();
         lastError = null;
         loggedError = false;
+    }
+
+    /// <summary>
+    /// Presented size. After SE-DLSS <c>SetDRS</c>, backbuffer
+    /// <see cref="IResource.Size"/> follows internal
+    /// <see cref="MyRender11.ResolutionI"/> while the DXGI swapchain and
+    /// <see cref="MyRender11.ViewportResolution"/> are output. Using
+    /// <c>dest.Size</c> left the overlay as an internal-res rectangle.
+    /// </summary>
+    static void SetOverlayViewport(MyRenderContext rc, IRtvBindable dest)
+    {
+        var output = MyRender11.ViewportResolution;
+        float w;
+        float h;
+        if (ReferenceEquals(dest, MyRender11.Backbuffer) && output.X > 0 && output.Y > 0)
+        {
+            w = output.X;
+            h = output.Y;
+        }
+        else
+        {
+            var size = dest.Size;
+            w = size.X;
+            h = size.Y;
+        }
+
+        rc.SetViewport(0f, 0f, w, h, 0f, 1f);
     }
 
     static void EnsureShaders()

@@ -10,6 +10,8 @@ In-game: Anomaly settings → Show Status. Also `SpaceEngineers.log` and Anomaly
 | Depth / shadows broken | Pack overlay added a target or failed a sentinel | Status `rolled-back=N`. Remove exclusive GBuffer overlay or fix HLSL. |
 | Pack missing from Status | Register used `Plugin.Instance` or ran before Anomaly loaded | Register on static `ShaderPackRegistry` from `LoadAssets`. |
 | Magenta debug overlay | `HistoryValid` false | Look around one frame; avoid huge camera cuts; wait after resize. |
+| Debug overlay is a small rectangle with DLSS | Backbuffer `Size` follows internal `ResolutionI` after `SetDRS` | Rebuild this slice. Overlay viewport is `ViewportResolution` (output). |
+| Geometry mid-gray, sky has MVs | Composite kept GBuffer clear-zero on depth pixels | Rebuild. Composite camera-fills pixels that never wrote Target3. |
 | `historyColor` unavailable | First frame or copy failed | Expected until one `DrawGameScene` postfix copy. |
 | Lighting inject compiles but samples black | SRV not bound / wrong stage name | Use `Inject/Lighting.hlsli`; `RequestSrv` if you need a non-velocity catalog texture. |
 | Aurora-class ghosting with DLSS | Color after `Scheduler.Done`, no MVs | Owned pass + `ContributeVelocity` / `Reactive`. Overlay Atmosphere alone cannot fix it. |

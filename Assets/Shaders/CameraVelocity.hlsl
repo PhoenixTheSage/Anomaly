@@ -54,11 +54,13 @@ float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Targ
     }
 
 #ifdef ANOMALY_COMPOSITE
-    // GBuffer accepted this pixel: keep object/camera term. Sky / particles / foliage
-    // that never wrote GBuffer get camera-from-depth so the buffer is never left at
-    // the clear-zero.
-    if (closest > 0)
-        return float4(GBufferVelocityTex.SampleLevel(PointSamp, bestUv, 0).rg, 0, 1);
+    // Keep a GBuffer MV when the pixel actually wrote one. Depth-only pixels
+    // (sky at complementary 0, particles / foliage that never bound Target3)
+    // stay at the clear-zero — fill those from depth. Testing closest > 0
+    // kept the zeros and left geometry mid-gray in the debug overlay.
+    float2 gb = GBufferVelocityTex.SampleLevel(PointSamp, bestUv, 0).rg;
+    if (dot(gb, gb) > 0)
+        return float4(gb, 0, 1);
 #endif
     return float4(CameraVelocity(bestUv, closest), 0, 1);
 }

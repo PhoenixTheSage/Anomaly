@@ -7,7 +7,9 @@ using VRageRender;
 namespace ClientPlugin.Patches;
 
 /// <summary>
-/// After LDR is copied to the scene target, before Keen debug/HUD. Stretch-covers DRS.
+/// After LDR is copied to the backbuffer (and after SE-DLSS stretch-copy).
+/// Viewport is the presented size so the overlay covers DLSS/DRS output, not
+/// the internal <c>Backbuffer.Size</c>.
 /// </summary>
 [HarmonyPatch]
 static class VelocityDebugDrawPatch

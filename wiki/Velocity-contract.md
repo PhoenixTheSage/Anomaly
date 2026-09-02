@@ -15,7 +15,7 @@ RG16F pixel delta at internal resolution. Y-down D3D (top of the RT is v = 0). M
 
 ## Settings (in-game proof)
 
-Velocity source: GBuffer (object motion on Keen pixels, camera fill on sky/particles) or CameraOnly (fullscreen depth reprojection). Debug buffer overlays the catalog. Debug scale (px) maps motion to color.
+Velocity source: GBuffer (object motion on Keen pixels, camera fill on sky / particles / foliage that never wrote Target3) or CameraOnly (fullscreen depth reprojection). Debug buffer overlays the catalog at the presented size. Debug scale (px) maps motion to color.
 
 > **Note — NVIDIA consumer flags.** For DLSS-class APIs: MVJittered off, MVLowRes on. Those are consumer flags, not Anomaly create flags.
 

@@ -6,10 +6,10 @@ Two layers: Anomaly-drawn fullscreen products, and a scheduler packs register in
 
 | Pass | Hook | Publishes |
 |------|------|-----------|
-| Camera velocity | `MyRenderScheduler.Done` | `velocity` (RG16F). Composite keeps GBuffer MVs and fills gaps from depth. |
+| Camera velocity | `MyRenderScheduler.Done` | `velocity` (RG16F). Composite keeps GBuffer MVs and camera-fills clear-zero pixels (sky / particles / foliage). |
 | Linear depth + Hi-Z | Same Done, after velocity | `linearDepth`, `hiZ` — frozen for the rest of the frame |
 | History color | `DrawGameScene` postfix, after debug overlay | `historyColor` (previous during this frame’s post) |
-| Catalog debug | `DrawGameScene` postfix, `Priority.Last` | Nothing — overlay then `ClearState` |
+| Catalog debug | `DrawGameScene` postfix, `Priority.Last` | Nothing — overlay at `ViewportResolution` on the backbuffer, then `ClearState` |
 
 ## Pack slots
 

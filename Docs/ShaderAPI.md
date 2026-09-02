@@ -115,7 +115,7 @@ Defer a second plugin’s wholesale Standard/Pixel fork until someone needs it; 
 
 ### 3 — Owned programs + published buffers
 
-Fullscreen camera MV, owned linear depth / Hi-Z / history color, debug vis: **Anomaly shaders**, not Keen overlays. Settings **Debug buffer** blits a catalog texture onto the backbuffer after `DrawGameScene` (`CatalogDebug.hlsl`). Consumers bind `IVelocityBuffer` or `BufferCatalog.Active(name)` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md), [ClientPlugin/Buffers/README.md](../ClientPlugin/Buffers/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
+Fullscreen camera MV, owned linear depth / Hi-Z / history color, debug vis: **Anomaly shaders**, not Keen overlays. Settings **Debug buffer** blits a catalog texture onto the backbuffer after `DrawGameScene` (`CatalogDebug.hlsl`) at `ViewportResolution` so it covers DLSS/DRS output. Consumers bind `IVelocityBuffer` or `BufferCatalog.Active(name)` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md), [ClientPlugin/Buffers/README.md](../ClientPlugin/Buffers/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
 
 Pack fullscreen effects ship `Fullscreen/<Slot>/*.hlsl`. Anomaly compiles and draws them (`FullscreenPassRegistry`). Packs do not call `Draw` or create RTs. C# `OwnedPassRegistry.Register` stays the escape hatch and runs **after** data-driven programs.
 
@@ -204,7 +204,7 @@ Order is Keen’s, not a pack’s. Velocity and derived depth extras freeze at s
 | AfterTonemap | `OwnedPassRegistry` | Postfix `Run` (Priority.First) — **before** SE-DLSS evaluate. Internal LDR. |
 | SE-DLSS evaluate | Consumer | LDR + `VelocityRegistry.Active` (size must match internal DRS). Jitter owner. |
 | AfterUpscale | `NotifyUpscaleComplete` | Output res if a consumer notified; else `DrawGameScene` postfix fallback at native res. |
-| History + debug | Anomaly | `historyColor` copy and catalog debug at `DrawGameScene` postfix (debug is Priority.Last). |
+| History + debug | Anomaly | `historyColor` copy and catalog debug at `DrawGameScene` postfix (debug is Priority.Last, `ViewportResolution` on the backbuffer). |
 
 Jitter owner is **SE-DLSS** (`Projection.M31` / `M32`). Anomaly reads it into `FrameTemporal` and republishes an **unjittered** view-projection on the extras CB. Packs must not patch the projection.
 

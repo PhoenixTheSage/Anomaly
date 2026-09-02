@@ -18,7 +18,7 @@ NVIDIA RTX is **not** required for Anomaly. Consumers such as SE-DLSS have their
 
 - **Velocity source** — `GBuffer` (object motion on Keen geometry pixels) or `CameraOnly` (fullscreen depth reprojection)
 - **Debug velocity** — legacy toggle for the velocity overlay (same as Debug buffer = Velocity)
-- **Debug buffer** — fullscreen overlay of a catalog texture (`Off`, `Velocity`, `LinearDepth`, `HistoryColor`, `HiZ`, `ReactiveMask`, `FullscreenIsolated`). Velocity: mid-gray is no motion; red/green are signed X/Y pixel delta; blue is speed; magenta is `HistoryValid` false. Linear depth / Hi-Z: log grayscale. History color: previous HDR lighting buffer. Reactive mask: white = do not trust history. Fullscreen isolated: last pack `Fullscreen/` program output. HUD still draws on top.
+- **Debug buffer** — fullscreen overlay of a catalog texture (`Off`, `Velocity`, `LinearDepth`, `HistoryColor`, `HiZ`, `ReactiveMask`, `FullscreenIsolated`). Drawn after the scene copy at the presented size (covers DLSS/DRS output). Velocity: mid-gray is no motion; red/green are signed X/Y pixel delta; blue is speed; magenta is `HistoryValid` false. Linear depth / Hi-Z: log grayscale. History color: previous HDR lighting buffer. Reactive mask: white = do not trust history. Fullscreen isolated: last pack `Fullscreen/` program output. HUD still draws on top.
 - **Debug scale (px)** — pixel motion that maps to full color for the velocity overlay (8–128, default 32). Lower is more sensitive.
 - **Show Status** — compile intercept, camera pass, owned-pass slots, fullscreen programs, frame temporal (jitter / history), owned buffers, velocity source, debug overlay, buffer size, `HistoryValid`
 

@@ -44,7 +44,7 @@ public class Config : INotifyPropertyChanged
     }
 
     [Dropdown(visibleRows: 7, label: "Debug buffer",
-        description: "Fullscreen overlay of a catalog texture after the scene. Off keeps the game picture. Velocity uses the debug-velocity color map. Linear depth / Hi-Z are log grayscale. History color is the previous HDR LBuffer copy. Reactive mask is the temporal reject map (white = unstable). Fullscreen isolated is the last pack Fullscreen/ program output.")]
+        description: "Fullscreen overlay of a catalog texture after the scene copy, at the presented size (covers DLSS/DRS output). Off keeps the game picture. Velocity uses the debug-velocity color map. Linear depth / Hi-Z are log grayscale. History color is the previous HDR LBuffer copy. Reactive mask is the temporal reject map (white = unstable). Fullscreen isolated is the last pack Fullscreen/ program output.")]
     public DebugBuffer DebugBuffer
     {
         get => debugBuffer;

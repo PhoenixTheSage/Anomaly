@@ -20,8 +20,9 @@ namespace ClientPlugin.ShaderFramework;
 /// <summary>
 /// Fullscreen camera-from-depth into an <c>RG16F</c> RT at <see cref="MyRender11.ResolutionI"/>.
 /// Runs after <c>MyRenderScheduler.Done</c> (GBuffer + resolve finished, before post).
-/// When GBuffer velocity is live, a second PS (<c>ANOMALY_COMPOSITE</c>) keeps GBuffer MVs
-/// on geometry and fills sky / particles / foliage from depth so the buffer is never zero.
+/// When GBuffer velocity is live, a second PS (<c>ANOMALY_COMPOSITE</c>) keeps
+/// GBuffer MVs that were actually written and camera-fills clear-zero pixels
+/// (sky / particles / foliage) from depth.
 /// </summary>
 public static class CameraVelocityPass
 {

@@ -17,7 +17,7 @@ Keen’s order, not a pack’s. The important freeze: **velocity** is published 
 | AfterTonemap | `OwnedPassRegistry` (First) | Internal LDR, before SE-DLSS evaluate |
 | SE-DLSS evaluate | Consumer | LDR + `VelocityRegistry.Active`. Jitter owner. |
 | AfterUpscale | `NotifyUpscaleComplete` | Output res; fallback at `DrawGameScene` if nobody notifies |
-| History + debug | Anomaly | `historyColor` copy only if a pack or debug wants it; catalog debug is `Priority.Last` |
+| History + debug | Anomaly | `historyColor` copy only if a pack or debug wants it; catalog debug is `Priority.Last` at `ViewportResolution` (covers DLSS output) |
 
 ## Jitter
 

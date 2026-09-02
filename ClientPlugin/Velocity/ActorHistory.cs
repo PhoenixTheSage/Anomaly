@@ -4,6 +4,7 @@ using VRage.Render.Scene;
 using VRage.Render11.Culling;
 using VRage.Render11.GeometryStage2.Instancing;
 using VRageMath;
+using VRageRender;
 
 namespace ClientPlugin.Velocity;
 
@@ -133,6 +134,9 @@ public sealed class ActorHistory : IVelocityHistory
     void Record(MyCullProxy proxy, int now)
     {
         if (proxy?.Parent == null)
+            return;
+        var rps = proxy.RenderableProxies;
+        if (rps != null && rps.Length > 0 && rps[0].VoxelCommonObjectData.IsValid)
             return;
         RecordActor(proxy.Parent.Owner, proxy.OwnerID, now);
     }

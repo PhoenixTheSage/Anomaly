@@ -1,4 +1,5 @@
 using System.Reflection;
+using ClientPlugin.ShaderFramework;
 using ClientPlugin.Velocity;
 using HarmonyLib;
 using VRage.Render11.Culling;
@@ -47,6 +48,7 @@ static class ActorHistoryDrawGameScenePatch
     {
         ActorHistory.Instance.BeginFrame();
         BoneHistory.Instance.BeginFrame();
+        GBufferVelocity.BeginFrame();
     }
 
     static void Postfix()

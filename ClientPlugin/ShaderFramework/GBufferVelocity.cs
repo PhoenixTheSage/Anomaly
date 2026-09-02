@@ -1,20 +1,20 @@
 using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 using ClientPlugin.Shaders;
 using ClientPlugin.Velocity;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
 using SharpDX.Mathematics.Interop;
 using VRage.Library.Collections;
-using VRage.Render.Scene;
-using System.Collections.Generic;
 using VRage.Render11.Common;
 using VRage.Render11.GeometryStage2.Instancing;
 using VRage.Render11.GeometryStage2.PreparePass;
 using VRage.Render11.GeometryStage2.Rendering;
 using VRage.Render11.RenderContext;
 using VRage.Render11.Resources;
-using VRage.Render11.Scene.Components;
 using VRage.Utils;
 using VRageMath;
 using VRageRender;
@@ -37,7 +37,7 @@ public static class GBufferVelocity
     const int BoneStride = 64;
 
     static readonly object Gate = new();
-    static RenderTargetView[] rtvScratch = new RenderTargetView[4];
+    [ThreadStatic] static RenderTargetView[] rtvScratch;
 
     public static bool Enabled { get; set; } = true;
     public static bool IsLive { get; private set; }
@@ -63,6 +63,9 @@ public static class GBufferVelocity
     static Matrix lastUnjittered;
     static Matrix lastPrevViewProj;
     static Vector2I lastSize;
+    static int frameId;
+    static int cbFrameId;
+    static int resourcesReady;
 
     [StructLayout(LayoutKind.Sequential, Size = PrevStride)]
     struct PrevInstance
@@ -95,6 +98,11 @@ public static class GBufferVelocity
     public static bool ShouldPublish =>
         InjectionWanted && target != null && IsLive;
 
+    internal static void BeginFrame()
+    {
+        Interlocked.Increment(ref frameId);
+    }
+
     /// <summary>
     /// One call after GBuffer <c>PrepareInstanceableGroups</c> — not a Harmony
     /// postfix on <c>AddInstanceIntoInstanceElements</c> (that method also fills
@@ -111,7 +119,7 @@ public static class GBufferVelocity
         if (cpuPrev.Length < need)
             cpuPrev = new PrevInstance[need];
         else
-            Array.Clear(cpuPrev, 0, cpuPrev.Length);
+            Array.Clear(cpuPrev, 0, need);
 
         var prepared = pass.m_preparedLodData;
         var groups = pass.m_outputRenderData?.InstanceLodGroups;
@@ -174,7 +182,6 @@ public static class GBufferVelocity
             return;
         var actorId = instance.ActorID;
         if (!hasCam ||
-            IsClipmapActor(instance.Owner?.Owner) ||
             ActorHistory.Instance.WasTeleported(actorId) ||
             !ActorHistory.Instance.TryGetPrevious(actorId, out var prevWorldAbs))
         {
@@ -192,18 +199,32 @@ public static class GBufferVelocity
         if (!InjectionWanted && !GBufferAttachments.HasColorTargets)
             return;
 
-        lock (Gate)
+        if (Volatile.Read(ref resourcesReady) == 0)
         {
-            if (!InjectionWanted && !GBufferAttachments.HasColorTargets)
-                return;
-            try
+            lock (Gate)
             {
-                BindUnlocked(rc, gbuffer);
+                if (resourcesReady == 0)
+                {
+                    try
+                    {
+                        EnsureResourcesUnlocked();
+                    }
+                    catch (Exception e)
+                    {
+                        Fail("bind: " + e.Message, e);
+                        return;
+                    }
+                }
             }
-            catch (Exception e)
-            {
-                Fail("bind: " + e.Message, e);
-            }
+        }
+
+        try
+        {
+            BindToPass(rc, gbuffer);
+        }
+        catch (Exception e)
+        {
+            Fail("bind: " + e.Message, e);
         }
     }
 
@@ -250,22 +271,36 @@ public static class GBufferVelocity
         }
     }
 
+    /// <summary>
+    /// Old-pipeline GBuffer draw. Called from a transpiler on
+    /// <c>MyGBufferPass.RecordCommandsInternal</c> (not a Harmony Prefix —
+    /// Prefix on every voxel proxy was Thread CPU Load).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void OnGBufferProxy(MyGBufferPass pass, MyRenderableProxy proxy)
+    {
+        if (proxy == null || proxy.VoxelCommonObjectData.IsValid)
+            return;
+        var rc = pass?.RC;
+        if (rc == null)
+            return;
+        OnProxyDraw(rc, proxy);
+    }
+
     public static void OnProxyDraw(MyRenderContext rc, MyRenderableProxy proxy)
     {
-        if (!InjectionWanted || rc == null || proxy == null || !rc.IsInitialized)
-            return;
-        if (frameConstants == null || drawConstants == null)
-            return;
-
-        if (proxy.VoxelCommonObjectData.IsValid)
+        if (!InjectionWanted || rc == null || !rc.IsInitialized || drawConstants == null)
             return;
 
         var actor = proxy.Parent?.Owner;
         var actorId = actor != null ? actor.ID : 0;
+        if (actorId == 0)
+            return;
+
+        var wantsBones = proxy.SkinningMatrices != null;
         var packed = default(PrevInstance);
         var hasPrevWorld = false;
-        if (actorId != 0 &&
-            CameraVelocityPass.TryGetPrevCamera(out var prevCam) &&
+        if (CameraVelocityPass.TryGetPrevCamera(out var prevCam) &&
             !ActorHistory.Instance.WasTeleported(actorId) &&
             ActorHistory.Instance.TryGetPrevious(actorId, out var prevWorldAbs))
         {
@@ -273,7 +308,6 @@ public static class GBufferVelocity
             hasPrevWorld = true;
         }
 
-        var wantsBones = actorId != 0 && proxy.SkinningMatrices != null;
         if (!hasPrevWorld && !wantsBones)
             return;
 
@@ -316,6 +350,7 @@ public static class GBufferVelocity
         lock (Gate)
         {
             GBufferAttachments.OnResolutionChanged();
+            Volatile.Write(ref resourcesReady, 0);
             if (!InjectionWanted && !GBufferAttachments.HasColorTargets)
                 return;
             try
@@ -334,6 +369,8 @@ public static class GBufferVelocity
         lock (Gate)
         {
             IsLive = false;
+            Volatile.Write(ref resourcesReady, 0);
+            Volatile.Write(ref cbFrameId, 0);
             CameraVelocityBuffer.Instance.Clear();
             DisposeTarget();
             DisposePrevAndCb();
@@ -341,44 +378,68 @@ public static class GBufferVelocity
         }
     }
 
-    static void BindUnlocked(MyRenderContext rc, MyGBuffer gbuffer)
+    static void EnsureResourcesUnlocked()
     {
         EnsureTargetUnlocked();
         EnsureConstantsUnlocked();
         EnsurePrevBufferUnlocked(Math.Max(prevCount, 1));
         EnsureBoneBufferUnlocked();
+        if (target != null && frameConstants != null && prevWorld != null)
+            Volatile.Write(ref resourcesReady, 1);
+    }
+
+    static void BindToPass(MyRenderContext rc, MyGBuffer gbuffer)
+    {
         if (target == null || frameConstants == null || prevWorld == null)
             return;
         if (gbuffer.GbufferRtvs == null || gbuffer.GbufferRtvs.Length < 3 || gbuffer.DepthStencil?.Dsv == null)
             return;
 
         var extraMax = GBufferAttachments.HasColorTargets ? GBufferAttachments.MaxBoundTarget : 3;
-        var gbufferSize = MyRender11.ResolutionI;
-        var samples = Math.Max(gbuffer.SamplesCount, 1);
-        var quality = gbuffer.SamplesQuality;
         if (GBufferAttachments.HasColorTargets)
+        {
+            var gbufferSize = MyRender11.ResolutionI;
+            var samples = Math.Max(gbuffer.SamplesCount, 1);
+            var quality = gbuffer.SamplesQuality;
             GBufferAttachments.EnsureTargets(gbufferSize.X, gbufferSize.Y, samples, quality);
+        }
 
-        if (!CameraVelocityPass.TryGetMotionFrame(out var unjittered, out var prevVp, out _, out var historyValid, out var size))
-            return;
-
-        historyValidThisFrame = historyValid;
-        lastUnjittered = unjittered;
-        lastPrevViewProj = prevVp;
-        lastSize = size;
-        WriteConstants(rc, frameConstants, unjittered, prevVp, size, historyValid, (uint)Math.Max(prevCount, 1),
-            hasPrevWorld: false, default, default, default, boneCount: 0);
+        var fid = Volatile.Read(ref frameId);
+        if (Volatile.Read(ref cbFrameId) != fid)
+        {
+            lock (Gate)
+            {
+                if (cbFrameId != fid)
+                {
+                    if (!CameraVelocityPass.TryGetMotionFrame(out var unjittered, out var prevVp, out _,
+                            out var historyValid, out var size))
+                        return;
+                    historyValidThisFrame = historyValid;
+                    lastUnjittered = unjittered;
+                    lastPrevViewProj = prevVp;
+                    lastSize = size;
+                    WriteConstants(rc, frameConstants, unjittered, prevVp, size, historyValid,
+                        (uint)Math.Max(prevCount, 1), hasPrevWorld: false, default, default, default, boneCount: 0);
+                    cbFrameId = fid;
+                }
+            }
+        }
 
         var n = Math.Max(4, extraMax + 1);
-        if (rtvScratch == null || rtvScratch.Length != n)
-            rtvScratch = new RenderTargetView[n];
-        rtvScratch[0] = gbuffer.GbufferRtvs[0];
-        rtvScratch[1] = gbuffer.GbufferRtvs[1];
-        rtvScratch[2] = gbuffer.GbufferRtvs[2];
-        rtvScratch[3] = target.Rtv;
+        var rtvs = rtvScratch;
+        if (rtvs == null || rtvs.Length != n)
+        {
+            rtvs = new RenderTargetView[n];
+            rtvScratch = rtvs;
+        }
+
+        rtvs[0] = gbuffer.GbufferRtvs[0];
+        rtvs[1] = gbuffer.GbufferRtvs[1];
+        rtvs[2] = gbuffer.GbufferRtvs[2];
+        rtvs[3] = target.Rtv;
         if (GBufferAttachments.HasColorTargets)
-            GBufferAttachments.CopyRtvs(rtvScratch);
-        rc.SetRtvs(gbuffer.DepthStencil.Dsv, rtvScratch);
+            GBufferAttachments.CopyRtvs(rtvs);
+        rc.SetRtvs(gbuffer.DepthStencil.Dsv, rtvs);
         rc.VertexShader.SetConstantBuffer(ConstantSlot, frameConstants);
         rc.VertexShader.SetSrv(PrevWorldSlot, prevWorld);
         if (prevBones != null)
@@ -588,11 +649,6 @@ public static class GBufferVelocity
         var mapping = MyMapping.MapDiscard(rc, dest);
         mapping.WriteAndPosition(ref cb);
         mapping.Unmap();
-    }
-
-    static bool IsClipmapActor(IMyActor actor)
-    {
-        return actor != null && actor.GetComponent<MyVoxelCellComponent>() != null;
     }
 
     static PrevInstance Pack(MatrixD world, Vector3D camera)

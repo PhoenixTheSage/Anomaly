@@ -14,7 +14,7 @@ In-game: Anomaly settings → Show Status. Also `SpaceEngineers.log` and Anomaly
 | Lighting inject compiles but samples black | SRV not bound / wrong stage name | Use `Inject/Lighting.hlsli`; `RequestSrv` if you need a non-velocity catalog texture. |
 | Aurora-class ghosting with DLSS | Color after `Scheduler.Done`, no MVs | Owned pass + `ContributeVelocity` / `Reactive`. Overlay Atmosphere alone cannot fix it. |
 | Atmosphere extras sample black | Bound at t5 or after `RenderEnd` | Use t6. Anomaly rebinds per planet. |
-| Thread CPU Load >> Render GPU (idle Anomaly) | `Thread CPU Load` is `Parallel.Scheduler` time (all workers), not the GPU. ColorPrepare Harmony ran on GBuffer **and** env-probe faces, including extra material rows; `UpdateMatrices` snapshot ran per view. | Rebuild this slice. A/B **CameraOnly** to isolate the 4th GBuffer MRT. |
+| Thread CPU Load ~5–11 ms above vanilla | `Thread CPU Load` is `Parallel.Scheduler` (all workers), not the GPU. A Harmony **Prefix** on `MyGBufferPass.RecordCommandsInternal` ran for every voxel proxy; forked `Begin` MapDiscarded the velocity CB under a lock. | Rebuild this slice (transpiler + once-per-frame CB). A/B **CameraOnly** if leftover is the 4th GBuffer MRT. |
 | Overlay ignored | Unknown file under a stage name | Match a mapped basename or use Keen-relative escape hatch. |
 | Two packs, neither applies | Same overlay key | Fail closed. Split files or pick one owner. |
 | Fullscreen: none | No `Fullscreen/<Slot>/*.hlsl` or unknown slot | One level: `Fullscreen/AfterAtmosphere/Name.hlsl`. Check Status `Fullscreen:`. |

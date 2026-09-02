@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Reflection.Emit;
 using System;
 using ClientPlugin.ShaderFramework;
 using ClientPlugin.Velocity;
@@ -176,9 +177,20 @@ static class GBufferProxyConstantsPatch
     static MethodBase TargetMethod() =>
         AccessTools.Method(typeof(MyGBufferPass), "RecordCommandsInternal", new[] { typeof(MyRenderableProxy) });
 
-    static void Prefix(MyGBufferPass __instance, MyRenderableProxy proxy)
+    /// <summary>
+    /// Harmony Prefix on this method showed up as Thread CPU Load: old-pipeline
+    /// GBuffer records every voxel proxy on Parallel.Scheduler. A transpiler call
+    /// is cheaper than a Prefix wrapper; <see cref="GBufferVelocity.OnGBufferProxy"/>
+    /// returns immediately for voxels.
+    /// </summary>
+    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
     {
-        GBufferVelocity.OnProxyDraw(__instance.RC, proxy);
+        var hook = AccessTools.Method(typeof(GBufferVelocity), nameof(GBufferVelocity.OnGBufferProxy));
+        yield return new CodeInstruction(OpCodes.Ldarg_0);
+        yield return new CodeInstruction(OpCodes.Ldarg_1);
+        yield return new CodeInstruction(OpCodes.Call, hook);
+        foreach (var ins in instructions)
+            yield return ins;
     }
 }
 

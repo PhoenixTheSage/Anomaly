@@ -4,7 +4,7 @@ Compile intercept is not enough. Extra SRVs and CBs must be bound when Keen draw
 
 | Where | Slot | What |
 |-------|------|------|
-| Geometry GBuffer | b6 | Anomaly velocity CB (unjittered VP, prev count, …) — **VS only** |
+| Geometry GBuffer | b6 | Anomaly velocity CB (unjittered VP, prev count, …) — **VS only**, written once per frame; old-pipeline movers get a draw CB |
 | Geometry GBuffer | t15 / t16 | Previous worlds / previous bones — **VS only** |
 | Lighting / post | t5 | Catalog velocity (`AnomalyVelocityBuffer`) |
 | Lighting | t6–t9 | Extra GBuffer color attachments, then `RequestSrv` leftovers |

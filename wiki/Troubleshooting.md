@@ -39,6 +39,8 @@ In-game: Anomaly settings → Show Status. Also `SpaceEngineers.log` and Anomaly
 
 ## Status fields that matter
 
+Known renderer-plugin conflicts and migration requirements are tracked in [[Compatibility]]. Test Anomaly's renderer work with unrelated render plugins disabled.
+
 Use **Show Status** for routine operation and **Debug Status** for the motion-vector audit. Debug Status is grouped into screenshot-sized `[PASS]` / `[WARN]` checks instead of exposing every raw counter.
 
 - `Compile` and `Include`: interception/refresh succeeded and Anomaly won the GBuffer include resolution.

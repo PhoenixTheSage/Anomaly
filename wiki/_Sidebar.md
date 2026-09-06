@@ -22,6 +22,7 @@
 * [[Composition-rules|Composition rules]]
 
 **Reference**
+* [[Compatibility]]
 * [[Troubleshooting]]
 * [[Glossary]]
 * [[Source-map|Source map]]

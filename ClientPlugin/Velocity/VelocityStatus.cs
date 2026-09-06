@@ -82,6 +82,8 @@ public static class VelocityStatus
                 ShaderCompileIntercept.ExactObjectProofStatus);
             AppendProof(sb, "Object repair", ShaderCompileIntercept.ObjectRepairHealthy,
                 ShaderCompileIntercept.ObjectRepairStatus);
+            if (GBufferVelocity.NativeDrawStateQueriesLastFrame == 0)
+                sb.AppendLine("[INFO] Native draw proof not sampled this frame; zero counts are not bind failures.");
             AppendProof(sb, "DXBC VS", flowProof,
                 ShaderCompileIntercept.VertexBytecodeProofStatus);
             AppendProof(sb, "DXBC PS", flowProof,

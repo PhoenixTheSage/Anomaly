@@ -19,7 +19,9 @@ namespace ClientPlugin.ShaderFramework;
 /// <summary>
 /// Fullscreen false-color of a catalog texture onto the backbuffer after
 /// <c>DrawGameScene</c> (after the scene copy, so it covers the presented
-/// image). Off by default. Unbinds RT/SRV before return.
+/// image). Velocity mode binds GBuffer depth so complementary-zero sky
+/// is dark grey (silhouettes) instead of rest-gray or saturated camera MVs.
+/// Off by default. Unbinds RT/SRV before return.
 /// </summary>
 public static class VelocityDebugPass
 {
@@ -44,7 +46,7 @@ public static class VelocityDebugPass
         public float Mode;
         public float Scale;
         public float HistoryValid;
-        public float Pad;
+        public float HasDepth;
     }
 
     public static void Draw(IRtvBindable dest)
@@ -111,11 +113,29 @@ public static class VelocityDebugPass
         if (mode == DebugBuffer.Off || dest == null)
             return;
 
-        ISharedBuffer buf;
+        ISharedBuffer buf = null;
+        ISrvBindable srv = null;
         float shaderMode;
         float historyValid = 1f;
+        ISrvBindable depthSrv = null;
+        ISrvBindable auditSrv = null;
+        ISrvBindable gbuffer0Srv = null;
         switch (mode)
         {
+            case DebugBuffer.GBufferVelocityRaw:
+                srv = GBufferVelocity.PrepareDebugSource();
+                shaderMode = 0f;
+                var rawVel = VelocityRegistry.Active;
+                historyValid = rawVel != null && rawVel.HistoryValid ? 1f : 0f;
+                depthSrv = MyGBuffer.Main?.ResolvedDepthStencil?.SrvDepth;
+                break;
+            case DebugBuffer.VelocityPipelineAudit:
+                srv = GBufferVelocity.PrepareDebugSource();
+                auditSrv = GBufferVelocity.PrepareAuditProofSource();
+                shaderMode = 4f;
+                depthSrv = MyGBuffer.Main?.ResolvedDepthStencil?.SrvDepth;
+                gbuffer0Srv = MyGBuffer.Main?.GBuffer0;
+                break;
             case DebugBuffer.LinearDepth:
                 buf = BufferCatalog.Active(BufferCatalog.LinearDepth);
                 shaderMode = 1f;
@@ -141,12 +161,16 @@ public static class VelocityDebugPass
                 shaderMode = 0f;
                 var vel = VelocityRegistry.Active;
                 historyValid = vel != null && vel.HistoryValid ? 1f : 0f;
+                depthSrv = MyGBuffer.Main?.ResolvedDepthStencil?.SrvDepth;
                 break;
         }
 
-        var srv = buf?.Srv as ISrvBindable;
+        srv ??= buf?.Srv as ISrvBindable;
         var rc = MyRender11.RC;
-        if (buf == null || !buf.IsAvailable || srv == null || dest == null || rc == null || !rc.IsInitialized)
+        if ((buf != null && !buf.IsAvailable) || srv == null ||
+            (mode == DebugBuffer.VelocityPipelineAudit && auditSrv == null) ||
+            (mode == DebugBuffer.VelocityPipelineAudit && gbuffer0Srv == null) ||
+            dest == null || rc == null || !rc.IsInitialized)
             return;
 
         EnsureShaders();
@@ -159,7 +183,8 @@ public static class VelocityDebugPass
         {
             Mode = shaderMode,
             Scale = 1f / scalePx,
-            HistoryValid = historyValid
+            HistoryValid = historyValid,
+            HasDepth = depthSrv != null ? 1f : 0f
         };
         var mapping = MyMapping.MapDiscard(rc, constants);
         mapping.WriteAndPosition(ref cb);
@@ -179,6 +204,9 @@ public static class VelocityDebugPass
         rc.PixelShader.SetConstantBuffer(0, constants);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
         rc.PixelShader.SetSrv(0, srv);
+        rc.PixelShader.SetSrv(1, depthSrv);
+        rc.PixelShader.SetSrv(2, auditSrv);
+        rc.PixelShader.SetSrv(3, gbuffer0Srv);
         rc.Draw(3, 0);
         rc.ClearState();
         lastError = null;
@@ -229,7 +257,7 @@ public static class VelocityDebugPass
         var vsBc = MyShaderCompiler.Compile(vsPath, Array.Empty<ShaderMacro>(), MyShaderProfile.vs_5_0,
             "Anomaly.Fullscreen", invalidateCache: false);
         var psBc = MyShaderCompiler.Compile(psPath, Array.Empty<ShaderMacro>(), MyShaderProfile.ps_5_0,
-            "Anomaly.CatalogDebug", invalidateCache: false);
+            "Anomaly.CatalogDebug", invalidateCache: true);
         if (vsBc == null || vsBc.Length == 0 || psBc == null || psBc.Length == 0)
         {
             Fail("shader compile returned empty bytecode", null);

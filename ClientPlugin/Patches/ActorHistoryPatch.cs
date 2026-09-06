@@ -14,11 +14,39 @@ static class ActorHistoryStage2Patch
     static bool Prepare() => TargetMethod() != null;
 
     static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyGeometryRenderer), nameof(MyGeometryRenderer.UpdateMatrices));
+        AccessTools.Method(typeof(MyGeometryRenderer), "UpdateMatrices");
 
     static void Postfix(MyCullQuery cullQuery)
     {
         ActorHistory.Instance.SnapshotStage2(cullQuery);
+    }
+}
+
+[HarmonyPatch]
+static class GBufferRendererPreparePackPatch
+{
+    static bool Prepare() => TargetMethod() != null;
+
+    static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(MyGeometryRenderer), "Prepare");
+
+    static void Postfix(MyGeometryRenderer __instance, MyCullQuery query)
+    {
+        GBufferVelocity.PackAfterRendererPrepare(__instance, query);
+    }
+}
+
+[HarmonyPatch]
+static class GBufferRendererRenderNotePatch
+{
+    static bool Prepare() => TargetMethod() != null;
+
+    static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(MyGeometryRenderer), "Render");
+
+    static void Postfix(MyGeometryRenderer __instance, MyCullQuery query)
+    {
+        GBufferVelocity.NoteStage2Render(__instance, query);
     }
 }
 
@@ -55,6 +83,7 @@ static class ActorHistoryDrawGameScenePatch
     {
         ActorHistory.Instance.EndFrame();
         BoneHistory.Instance.EndFrame();
+        GBufferVelocity.EndFrame();
     }
 }
 
@@ -70,5 +99,6 @@ static class ActorHistorySessionEndPatch
     {
         ActorHistory.Instance.Clear();
         BoneHistory.Instance.Clear();
+        GBufferVelocity.ResetWorldActivity();
     }
 }

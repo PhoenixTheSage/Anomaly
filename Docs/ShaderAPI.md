@@ -86,12 +86,22 @@ Hook the single compile entry in `VRage.Render11` (include root / permutation). 
 - **Overlay resolve**: if a pack registered `Geometry/Passes/GBuffer/PixelStage.hlsli`, compile that instead of Keen’s file.
 - Cache identity must include overlay + define set + pack fingerprints, or Keen will serve stale DXBC.
 
+After assets and pack overlays are active, Anomaly requests one frame-boundary
+refresh through both `MyShaders.Recompile()` and `MyMaterialShaders.Recompile()`.
+Keen has two resident geometry-shader owners: Stage 2 bundles hold shader IDs
+updated by the former, while old-pipeline material bundles own native shader
+objects rebuilt by the latter. Shaders created before Pulsar initialized Anomaly
+are therefore rebuilt through the same compile intercept. This neither clears
+Keen's source-keyed cache nor introduces a second compiler or renderer.
+
 This is Iris’s “patch at load,” keyed by **path + permutation**, not DXBC hash.
 
 ### 1 — Injection (default; velocity lives here)
 
 Do not expose “replace Standard pixel” for velocity. Inject only:
 
+- `Geometry/Passes/VertexStage.hlsli` and `PixelStage.hlsli` as thin
+  dispatchers: GBuffer resolves through Anomaly; every other pass resolves to Keen.
 - `Geometry/Passes/GBuffer/VertexStage.hlsli`
 - `Geometry/Passes/GBuffer/PixelStage.hlsli`
 - `GBuffer/GBufferWrite.hlsli`
@@ -115,7 +125,7 @@ Defer a second plugin’s wholesale Standard/Pixel fork until someone needs it; 
 
 ### 3 — Owned programs + published buffers
 
-Fullscreen camera MV, owned linear depth / Hi-Z / history color, debug vis: **Anomaly shaders**, not Keen overlays. Settings **Debug buffer** blits a catalog texture onto the backbuffer after `DrawGameScene` (`CatalogDebug.hlsl`) at `ViewportResolution` so it covers DLSS/DRS output. Consumers bind `IVelocityBuffer` or `BufferCatalog.Active(name)` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md), [ClientPlugin/Buffers/README.md](../ClientPlugin/Buffers/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
+Fullscreen camera MV, owned linear depth / Hi-Z / history color, debug vis: **Anomaly shaders**, not Keen overlays. Settings **Debug buffer** blits a catalog texture onto the backbuffer after `DrawGameScene` (`CatalogDebug.hlsl`) at `ViewportResolution` so it covers DLSS/DRS output. Velocity mode binds resolved GBuffer depth so sky (complementary 0) is dark grey instead of rest-gray or saturated camera MVs. `GBufferVelocityRaw` bypasses the camera-fill composite; the developer Velocity probe can distinguish the frame clear, force a known value through the active velocity VS/GBuffer PS/Target3 path, clear the final target once on Keen's immediate context after all deferred geometry command lists execute, or visualize previous-world lookup coverage. `MrtWrite` clears to -X, selects +X in the VS and again at the final pixel output through PS b7, repeats the native MRT/constant-buffer binds, and substitutes replace blending for the velocity and audit outputs while preserving Keen's Target0–2 blend behavior; pink/cyan/gray therefore distinguish a successful Target3 write, no geometry write, and an explicit zero. `VelocityPipelineAudit` binds a reserved RGBA16F `SV_Target7` only during the audit and displays six full-scene panels from that same Keen GBuffer pixel invocation: selected Target3 checkpoint, pixel-executed flag (green=true, dark red=false), PS b7 enable, untouched VS→PS velocity, a PS-b7 marker written through known-good GBuffer0, and raw GBuffer0. Pack attachments consequently use `SV_Target4–6`. Velocity constants use an Anomaly-owned ring per render context, with one dynamic-map per entry per frame; this isolates b6 bytes from Keen's size-keyed object-CB cache and deferred discard aliasing. The final pixel probe uses a dedicated immutable 16-byte b7 payload (`float4(value.xy, enabled, 0)`), independent from the 224-byte VS b6 layout and without a probe-specific shader permutation or cache. Status reflects both layouts and disassembles resident DXBC, reporting executable cb6/cb7 reads and Target0/3/7 writes separately from reflection signatures. While `MrtWrite` is active, the developer-only `Native draw state` line queries every intercepted draw's native VS, PS, b6, b7, Target3, and (during audit) Target7 bindings and reports match/null/mismatch counts. It also reads the actual native blend object and reports independent blending plus Target3/Target7 write-mask coverage, releasing all queried interfaces immediately. Every probe is selected at runtime and never rebuilds shaders. Anomaly performs the one required startup refresh by queuing Keen's native `ReloadEffects` render message; Keen recompiles both shader owners before scene drawing and marks renderables dirty. Status reports that lifecycle as `resident=queued on Keen render thread`, `running`, or `done#N`, plus the measured GBuffer PS compile count as `overlay-GBuffer-PS=N` and scheduler-end execution as `pass-end-clear=1`. Stage 2 packs t15 on the CPU during prepare, then records its GPU upload on the Stage 2 GBuffer deferred context immediately before draws; parallel prepare workers never map Keen's global immediate context. Consumers bind `IVelocityBuffer` or `BufferCatalog.Active(name)` by well-known type name ([ClientPlugin/Velocity/README.md](../ClientPlugin/Velocity/README.md), [ClientPlugin/Buffers/README.md](../ClientPlugin/Buffers/README.md)). Other plugins should rarely compile Keen permutations; they should consume textures Anomaly already bound.
 
 Pack fullscreen effects ship `Fullscreen/<Slot>/*.hlsl`. Anomaly compiles and draws them (`FullscreenPassRegistry`). Packs do not call `Draw` or create RTs. C# `OwnedPassRegistry.Register` stays the escape hatch and runs **after** data-driven programs.
 
@@ -176,10 +186,11 @@ Rules:
 2. **Defines are merged by Anomaly**, not by each Harmony patch on `MyShader`.
 3. **Replace is exclusive per key**; inject is additive behind Anomaly-owned includes (`Anomaly/Extras/GBuffer.hlsli`, aliased as `Anomaly/GBufferExtras.hlsli`).
 4. **Consumers do not Harmony-patch `DrawGameScene`, `MyTransparentRendering.Render`, `MyAtmosphereRenderer`, `MyToneMapping.Run`, or instance updates.** They bind registry textures or register an [owned-pass](#owned-pass-scheduler) draw. Anomaly owns those Harmony prefixes and the unbind.
-5. **`ClearState` / DRS / device reset** stay Anomaly’s problem. Replacements must not leak RT/SRV ([Rich HUD](https://github.com/DarkHelmet/RichHudFramework)).
+5. **`ClearState` / DRS / device reset** stay Anomaly’s problem. Replacements must not leak RT/SRV ([Rich HUD](https://github.com/ZachHembree/RichHudFramework.Client)).
 6. **Anomaly-owned GBuffer write stages** (`Geometry/Passes/GBuffer/*Stage.hlsli`, `GBuffer/GBufferWrite.hlsli`) stay Anomaly’s unless a pack sets `exclusive: ["GBuffer"]`. **Read wraps** (`GBuffer/GBuffer.hlsli`, `Surface.hlsli`) need `exclusive: ["GBuffer"]` or `["Lighting"]`. **`Lighting/Light.hlsli`** needs `exclusive: ["Lighting"]`. **`Transparent/Atmosphere/AtmosphereCommon.hlsli`** needs `exclusive: ["Atmosphere"]`.
 7. **Compile failure rolls back that pack** (sentinel per live named stage after apply; in-game overlay errors log `pack=<id>` and disable the owner).
 8. **Inject/overlay of Atmosphere does not fix DLSS.** Animated emission after `MyRenderScheduler.Done` is invisible to the frozen velocity buffer unless the pass sets `ContributeVelocity` / `Reactive`. SE-DLSS evaluates **LDR after tonemap** and owns Halton jitter.
+9. **Geometry GBuffer reserves VS b6.** Developer `MrtWrite` additionally reserves PS b7 for a dedicated 16-byte final-output sentinel during the geometry pass. Fullscreen b7 remains the unrelated `SetUniforms` bus in fullscreen-pass scope.
 
 [SmoothFrames](https://github.com/WhiteFang34/SmoothFrames) also patches the render thread. Do not assume exclusive ownership of `DrawGameScene`.
 

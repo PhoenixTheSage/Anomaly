@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
+using ClientPlugin.RichHud;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Layouts;
 using ClientPlugin.ShaderFramework;
@@ -48,6 +49,8 @@ public sealed class Plugin : IPlugin
         ShaderPackRegistry.Apply();
         ShaderCompileIntercept.Activate();
         ShaderPackRegistry.ValidateStages();
+        ShaderCompileIntercept.ArmResidentShaderRefresh();
+        ShaderCompileIntercept.RequestResidentShaderRefresh();
         CameraVelocityPass.Enabled = true;
         OwnedBuffersPass.Enabled = true;
         GBufferVelocity.Enabled = true;
@@ -62,6 +65,7 @@ public sealed class Plugin : IPlugin
 
         disposed = true;
         DebugLog.Write("Dispose");
+        RichHudSupport.Shutdown();
         CameraVelocityPass.Enabled = false;
         OwnedBuffersPass.Enabled = false;
         GBufferVelocity.Enabled = false;
@@ -78,6 +82,11 @@ public sealed class Plugin : IPlugin
 
     public void Update()
     {
+        if (disposed)
+            return;
+
+        RichHudSupport.TryInitialize();
+        ShaderCompileIntercept.RequestResidentShaderRefresh();
     }
 
     // ReSharper disable once UnusedMember.Global
@@ -105,6 +114,8 @@ public sealed class Plugin : IPlugin
         {
             ShaderCompileIntercept.Activate();
             ShaderPackRegistry.ValidateStages();
+            ShaderCompileIntercept.ArmResidentShaderRefresh();
+            ShaderCompileIntercept.RequestResidentShaderRefresh();
         }
         MyLog.Default.WriteLine("Anomaly asset folder: " + folder);
         DebugLog.Write("LoadAssets " + folder);
@@ -128,6 +139,8 @@ public sealed class Plugin : IPlugin
         {
             ShaderCompileIntercept.Activate();
             ShaderPackRegistry.ValidateStages();
+            ShaderCompileIntercept.ArmResidentShaderRefresh();
+            ShaderCompileIntercept.RequestResidentShaderRefresh();
         }
         MyLog.Default.WriteLine("Anomaly named assets: " + assets.Count
             + (shaders != null ? " Shaders=" + shaders : ""));

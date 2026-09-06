@@ -13,10 +13,15 @@ static class CameraVelocitySchedulerDonePatch
     static bool Prepare() => TargetMethod() != null;
 
     static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyRenderScheduler), nameof(MyRenderScheduler.Done));
+        AccessTools.Method(typeof(MyRenderScheduler), "Done");
 
     static void Postfix()
     {
+        // MyRenderScheduler.Done has executed every deferred geometry command
+        // list and cleared the immediate context. A probe clear here is the
+        // first unambiguous test of the final Target3 resource.
+        GBufferVelocity.CaptureTarget3Checkpoint(Target3Checkpoint.SchedulerEnd);
+        GBufferVelocity.ApplySchedulerEndProbe();
         CameraVelocityPass.Execute();
         OwnedBuffersPass.Execute();
     }

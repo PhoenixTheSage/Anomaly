@@ -55,6 +55,7 @@ Windows Space Engineers with [Pulsar](https://github.com/SpaceGT/Pulsar). Enable
 
 - [[Your-first-pack|Your first pack]]
 - [[Overlay-vs-inject|Overlay vs inject]]
+- [[Fullscreen-programs|Fullscreen programs]]
 - [[Named-stages|Named stages]]
 - [[HLSL-cookbook|HLSL cookbook]]
 
@@ -63,7 +64,6 @@ Windows Space Engineers with [Pulsar](https://github.com/SpaceGT/Pulsar). Enable
 - [[Buffer-catalog|Buffer catalog]]
 - [[Velocity-contract|Velocity contract]]
 - [[Owned-passes|Owned passes]]
-- [[Fullscreen-programs|Fullscreen programs]]
 - [[Frame-graph|Frame graph]]
 
 **Advanced**

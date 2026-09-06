@@ -125,8 +125,9 @@ public static class CameraVelocityPass
         GBufferVelocity.OnResolutionChanged();
         lock (Gate)
         {
-            justResized = true;
-            hasPrev = false;
+            // Keen recreates screen resources at the same size (DLSS SetDRS
+            // / CreateScreenResources). Wiping history here painted the
+            // overlay magenta. EnsureTarget invalidates only on a real resize.
             try
             {
                 EnsureTarget();

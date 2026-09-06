@@ -1,7 +1,8 @@
-﻿using Sandbox.Graphics.GUI;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using ClientPlugin.Settings.Tools;
+using Sandbox.Graphics.GUI;
 using VRage.Utils;
 
 namespace ClientPlugin.Settings.Elements;
@@ -20,7 +21,8 @@ internal class ButtonAttribute : Attribute, IElement
     public List<Control> GetControls(string name, Func<object> propertyGetter, Action<object> propertySetter)
     {
         var label = Tools.Tools.GetLabelOrDefault(name, Label);
-        var button = new MyGuiControlButton(text: new StringBuilder(label), toolTip: Description);
+        var button = new MyGuiControlButton(text: new StringBuilder(label));
+        DescriptionToolTip.Apply(button, Description);
         button.ButtonClicked += (_)=>((Action)propertyGetter())();
 
         return new List<Control>()

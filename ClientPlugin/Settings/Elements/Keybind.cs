@@ -72,12 +72,12 @@ internal class KeybindAttribute : Attribute, IElement
         var button = new MyGuiControlButton(
             text: output,
             onButtonClick: OnRebindClick,
-            onSecondaryButtonClick: OnUnbindClick,
-            toolTip: Description)
+            onSecondaryButtonClick: OnUnbindClick)
         {
             VisualStyle = MyGuiControlButtonStyleEnum.ControlSetting,
             UserData = new ControlButtonData(control, MyGuiInputDeviceEnum.Keyboard),
         };
+        DescriptionToolTip.Apply(button, Description);
 
         return new List<Control>()
         {

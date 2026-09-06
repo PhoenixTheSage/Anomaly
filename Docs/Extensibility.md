@@ -126,7 +126,8 @@ D3D11 room vs bandwidth:
 | `SV_Target0–2` | Keen | Do not repack unless `exclusive: ["GBuffer"]` |
 | `GBuffer1.a` | Unused | Cheap packed extra (id / flags) — no new RT |
 | `SV_Target3` | Velocity | Keep; packs cannot claim it |
-| `SV_Target4+` | Unused | Next full attachment (object id, linear depth) |
+| `SV_Target4–6` | Unused | Next full attachment (object id, linear depth) |
+| `SV_Target7` | Internal diagnostics | Reserved for the same-draw velocity pipeline audit sideband |
 
 - [x] Well-known request API (static type, no compile-time reference), e.g. `RequestAttachment("objectid", format, stage: GBuffer)`
 - [x] Anomaly assigns `SV_TargetN` or a packed channel; generated extras declare the struct field
@@ -169,7 +170,7 @@ Goal: compile intercept is not enough. Overlays that need extra SRVs/CBs outside
 
 | Keen moment | Today | Bind registry |
 |-------------|-------|----------------|
-| GBuffer begin | Live (velocity) | Extra MRT / t15–t16 / b6; unbind after |
+| GBuffer begin | Live (velocity) | Extra MRT / VS t15–t16 / b6; developer `MrtWrite` also binds a dedicated immutable 16-byte probe at PS b7 and repeats the MRT/CB binds at draw boundaries; unbind after |
 | Lighting draw | None | Bind extra GBuffer SRVs so Lighting extras actually sample |
 | Post dispatch | None | Bind velocity / history / Hi-Z into Keen post, or skip Keen and run owned |
 | OIT resolve | None | Bind extras for transparent resolve |
@@ -179,6 +180,7 @@ Goal: compile intercept is not enough. Overlays that need extra SRVs/CBs outside
 - [x] Packs/plugins declare bind needs by named stage (`ShaderBindRegistry.RequestSrv`). Built-in: Lighting/post t5 ← catalog `"velocity"`; lighting t6+ ← live GBuffer color attachments
 - [x] Anomaly owns the Harmony prefixes (lighting subpasses, tonemap, HBAO, OIT resolve) and the unbind
 - [x] Geometry CB **b6** stays Anomaly’s uniform bus (jitter, frame index, temporal sample, pack scalars) — not a second per-plugin geometry CB
+- [x] Geometry `MrtWrite` is runtime: VS b6 tests the velocity path and a dedicated 16-byte PS b7 payload tests the final Target3 output; fullscreen-program b7 is a separate pass scope
 - [x] Lighting / post use **different** slot maps; they get a separate extras CB (`Anomaly.LightingExtrasCB` at b6), not the geometry velocity CB
 - [x] Show Status: which stages have extra binds this frame (`Pass binds:`)
 

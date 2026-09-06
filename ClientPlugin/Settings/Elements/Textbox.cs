@@ -1,6 +1,7 @@
-﻿using Sandbox.Graphics.GUI;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using ClientPlugin.Settings.Tools;
+using Sandbox.Graphics.GUI;
 
 namespace ClientPlugin.Settings.Elements;
 
@@ -19,7 +20,7 @@ internal class TextboxAttribute : Attribute, IElement
     {
         var textBox = new MyGuiControlTextbox(defaultText: (string)propertyGetter());
         textBox.TextChanged += box => propertySetter(box.Text);
-        textBox.SetToolTip(Description);
+        DescriptionToolTip.Apply(textBox, Description);
 
         var label = Tools.Tools.GetLabelOrDefault(name, Label);
         return new List<Control>()

@@ -13,9 +13,21 @@ Keen already compiles hundreds of HLSL permutations. Anomaly hooks that compile 
 | 2 Named overlay | A replacement file under `Overlay/<Stage>/` | Keen, using Anomaly-compiled bytecode |
 | 3 Owned pass | `Fullscreen/<Slot>/*.hlsl` or a C# `Register` | Anomaly fullscreen (data-driven first), then you bind |
 
+After Anomaly activates its include paths, defines, and pack overlays, it queues
+frame-boundary calls to Keen's native `MyShaders.Recompile()` and
+`MyMaterialShaders.Recompile()`. Together they rebuild Stage 2 shader IDs and
+old-pipeline native material bundles that became resident before Pulsar loaded
+Anomaly. They do not clear Keen's
+shader cache, create another compiler, or run another renderer.
+
+Anomaly also supplies the two small `Geometry/Passes/*Stage.hlsli` dispatchers.
+Their GBuffer branch resolves through Anomaly's include root; every other branch
+resolves to Keen's corresponding stage. This avoids depending on redirection of a
+nested local include while still leaving every draw and pass implementation to Keen.
+
 ## One frame, in order
 
-Velocity and linear depth freeze at `MyRenderScheduler.Done` — before atmosphere, clouds, and OIT. SE-DLSS evaluates LDR after tonemap and owns Halton jitter. Atmosphere inject does not invent motion vectors.
+Velocity freezes at `MyRenderScheduler.Done` — before atmosphere, clouds, and OIT. Linear depth / Hi-Z / history color are produced only when a pack is live or the matching Debug buffer is on. SE-DLSS evaluates LDR after tonemap and owns Halton jitter. Atmosphere inject does not invent motion vectors.
 
 → [[Frame-graph|Full frame graph]]
 

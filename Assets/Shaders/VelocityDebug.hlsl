@@ -22,6 +22,6 @@ float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Targ
     float3 rgb;
     rgb.r = saturate(v.x * Scale + 0.5);
     rgb.g = saturate(v.y * Scale + 0.5);
-    rgb.b = saturate(mag * Scale);
+    rgb.b = saturate(mag * Scale + 0.5);
     return float4(rgb, 1);
 }

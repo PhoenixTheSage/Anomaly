@@ -14,6 +14,6 @@ SamplerState PointSamp : register(s0);
 float __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
 {
     float hw = DepthTex.SampleLevel(PointSamp, uv, 0).r;
-    float linear = -Proj43 / (max(hw, 1e-36) + Proj33);
-    return -linear;
+    float linearDepth = -Proj43 / (max(hw, 1e-36) + Proj33);
+    return -linearDepth;
 }

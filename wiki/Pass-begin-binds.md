@@ -4,8 +4,8 @@ Compile intercept is not enough. Extra SRVs and CBs must be bound when Keen draw
 
 | Where | Slot | What |
 |-------|------|------|
-| Geometry GBuffer | b6 | Anomaly velocity CB (unjittered VP, prev count, …) — **VS only**, written once per frame; old-pipeline movers get a draw CB |
-| Geometry GBuffer | t15 / t16 | Previous worlds / previous bones — **VS only** |
+| Geometry GBuffer | b6 | Anomaly velocity CB — **VS only**. Pass begin writes a default; Stage 2 rebinds immediately before each group draw; old-pipeline cube/deformed draws bind after `BindShaderBundle`. Each render context owns a ring of exact-layout 224-byte CBs, and every entry is mapped at most once per frame; this avoids Keen's size-keyed object-CB cache and deferred `MapDiscard` alias reuse. |
+| Geometry GBuffer | t15 / t16 | Previous worlds / previous bones — **VS only**. t15 is instance-buffer order; Stage 2 b6 sets `InstanceBase` to the group's `OffsetInInstanceBuffer`, so `t15[SV_InstanceID + InstanceBase]` selects the group's base matrix copy. |
 | Lighting / post | t5 | Catalog velocity (`AnomalyVelocityBuffer`) |
 | Lighting | t6–t9 | Extra GBuffer color attachments, then `RequestSrv` leftovers |
 | Atmosphere | t5 | Keen `DensityLut` — never steal this slot |

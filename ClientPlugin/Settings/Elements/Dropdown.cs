@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using ClientPlugin.Settings.Tools;
 using Sandbox.Graphics.GUI;
 
 namespace ClientPlugin.Settings.Elements;
@@ -33,7 +34,8 @@ internal class DropdownAttribute(
         var selectedEnum = propertyGetter();
         var choiceEnum = selectedEnum.GetType();
 
-        var dropdown = new MyGuiControlCombobox(openAreaItemsCount: VisibleRows, toolTip: Description);
+        var dropdown = new MyGuiControlCombobox(openAreaItemsCount: VisibleRows);
+        DescriptionToolTip.Apply(dropdown, Description);
         var elements = Enum.GetNames(choiceEnum);
 
         for (var i = 0; i < elements.Length; i++)

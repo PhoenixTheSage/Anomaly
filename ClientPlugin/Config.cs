@@ -1,12 +1,10 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Elements;
 using ClientPlugin.Velocity;
 using Sandbox.Graphics.GUI;
-using VRageMath;
 
 namespace ClientPlugin;
 
@@ -18,6 +16,8 @@ public class Config : INotifyPropertyChanged
     private bool debugVelocity;
     private DebugBuffer debugBuffer = DebugBuffer.Off;
     private int debugVelocityScale = 32;
+    private VelocityProbe velocityProbe = VelocityProbe.Off;
+    private Target3Checkpoint target3Checkpoint = Target3Checkpoint.Live;
 
     #endregion
 
@@ -43,35 +43,52 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref debugVelocity, value);
     }
 
-    [Dropdown(visibleRows: 7, label: "Debug buffer",
-        description: "Fullscreen overlay of a catalog texture after the scene copy, at the presented size (covers DLSS/DRS output). Off keeps the game picture. Velocity uses the debug-velocity color map. Linear depth / Hi-Z are log grayscale. History color is the previous HDR LBuffer copy. Reactive mask is the temporal reject map (white = unstable). Fullscreen isolated is the last pack Fullscreen/ program output.")]
+    [Dropdown(visibleRows: 9, label: "Debug buffer",
+        description: "Velocity is the final composite. GBufferVelocityRaw is SV_Target3 before camera/depth gap fill. VelocityPipelineAudit shows Target3, pixel execution, PS b7, VS velocity, a GBuffer0 b7 marker, and raw GBuffer0 together. Other entries inspect owned catalog buffers.")]
     public DebugBuffer DebugBuffer
     {
         get => debugBuffer;
         set => SetField(ref debugBuffer, value);
     }
 
-    [Slider(min: 8, max: 128, step: 1, type: SliderAttribute.SliderType.Integer, label: "Debug scale (px)",
-        description: "Pixel motion that maps to full color. Lower is more sensitive.")]
+    [Slider(min: 1, max: 128, step: 1, type: SliderAttribute.SliderType.Integer, label: "Debug scale (px)",
+        description: "Pixel motion that maps to full color. Lower is more sensitive. 1 shows sub-pixel motion.")]
     public int DebugVelocityScale
     {
-        get => debugVelocityScale < 8 ? 32 : debugVelocityScale;
-        set => SetField(ref debugVelocityScale, value < 8 ? 32 : (value > 128 ? 128 : value));
+        get => debugVelocityScale < 1 ? 32 : debugVelocityScale;
+        set => SetField(ref debugVelocityScale, value < 1 ? 32 : (value > 128 ? 128 : value));
+    }
+
+    [Dropdown(visibleRows: 5, label: "Velocity probe",
+        description: "Developer diagnostic. TargetClear tests the frame clear; MrtWrite: pink = live pixel-output-to-Target3 write, cyan = no geometry write, gray = explicit zero; PassEndClear clears the final target after all deferred geometry lists execute; HistoryCoverage: pink = previous-world hit, cyan = miss. Probe changes apply immediately. Return to Off after testing.")]
+    public VelocityProbe VelocityProbe
+    {
+        get => velocityProbe;
+        set => SetField(ref velocityProbe, value);
+    }
+
+    [Dropdown(visibleRows: 9, label: "Target3 checkpoint",
+        description: "Developer diagnostic for GBufferVelocityRaw. Live samples the final target. Other choices copy only that scheduler boundary, letting one build isolate where Target3 changes without affecting the published velocity buffer.")]
+    public Target3Checkpoint Target3Checkpoint
+    {
+        get => target3Checkpoint;
+        set => SetField(ref target3Checkpoint, value);
     }
 
     [Separator("Status")]
 
-    [Button(label: "Show Status", description: "Compile intercept, owned passes, fullscreen programs, frame temporal, velocity, owned buffers, debug overlay, and history")]
+    [Button(label: "Show Status", description: "Operational health for shader integration, passes, buffers, velocity, and active debug modes")]
     // ReSharper disable once UnusedMember.Global
     public static void ShowStatus()
     {
-        MyGuiSandbox.AddScreen(MyGuiSandbox.CreateMessageBox(
-            MyMessageBoxStyleEnum.Info,
-            buttonType: MyMessageBoxButtonsType.OK,
-            messageText: new StringBuilder(VelocityStatus.CurrentText),
-            messageCaption: new StringBuilder("Anomaly Status"),
-            size: new Vector2(0.65f, 0.58f)
-        ));
+        MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Status", "AnomalyStatus", VelocityStatus.CurrentText));
+    }
+
+    [Button(label: "Debug Status", description: "Detailed shader, GBuffer, Stage 2, MRT, history, and draw-boundary diagnostics")]
+    // ReSharper disable once UnusedMember.Global
+    public static void ShowDebugStatus()
+    {
+        MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Debug Status", "AnomalyDebugStatus", VelocityStatus.DebugText));
     }
 
     #endregion

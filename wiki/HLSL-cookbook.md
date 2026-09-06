@@ -12,7 +12,7 @@ Packs should almost never compile Keen permutations themselves. Inject into extr
 #endif
 ```
 
-Velocity reconstruct (`AnomalyComputeVelocity`) is VS-only. PixelStage defines `ANOMALY_PIXEL_STAGE` so GBuffer PS can include `Anomaly.hlsli` for extras without Keen’s `construct_matrix_43`. Packed t15 / CB rows are previous world (camera-relative 4x3). The VS inverts current `local_matrix` — packing `currToPrev` on the CPU showed up as Thread CPU Load (`Parallel.Scheduler`).
+Velocity reconstruct (`AnomalyComputeVelocity`) is VS-only. PixelStage defines `ANOMALY_PIXEL_STAGE` so GBuffer PS can include `Anomaly.hlsli` for extras without Keen’s `construct_matrix_43`. Stage 2 t15 is previous world (camera-relative 4x3) at instance-buffer slots; the VS inverts current `local_matrix` and indexes `t15[SV_InstanceID + AnomalyInstanceBase]`. Old-pipeline cube `PrevRow` is CPU `currToPrev` — the VS must not invert `local_matrix` again.
 
 `GbufferWrite` / `GbufferWriteBlend` match Keen’s argument list unless `ANOMALY_VELOCITY` is set. Do not pass a velocity argument from Decals or foliage overlays.
 

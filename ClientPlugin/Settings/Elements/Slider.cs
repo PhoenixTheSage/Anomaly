@@ -3,6 +3,7 @@ using Sandbox.Graphics.GUI;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using ClientPlugin.Settings.Tools;
 using VRage.Utils;
 
 namespace ClientPlugin.Settings.Elements;
@@ -79,7 +80,6 @@ internal class SliderAttribute : Attribute, IElement
         }
 
         var slider = new MyGuiControlSlider(
-            toolTip: Description,
             defaultValue: Convert.ToSingle(propertyGetter()),
             minValue: Min,
             maxValue: Max,
@@ -87,6 +87,7 @@ internal class SliderAttribute : Attribute, IElement
         {
             MinimumStepOverride = Step,
         };
+        DescriptionToolTip.Apply(slider, Description);
 
         if (Type == SliderType.Float)
         {

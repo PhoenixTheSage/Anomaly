@@ -36,6 +36,6 @@ foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
 
 If `Active` is null or `IsAvailable` is false, keep a camera-only fallback. Do not Harmony-patch instance updates from the consumer.
 
-Anomaly can overlay this texture in-game (**Debug velocity** in settings) so you can compare `GBuffer` vs `CameraOnly` without a frame debugger.
+Anomaly can overlay this texture in-game (**Debug velocity** in settings) so you can compare `GBuffer` vs `CameraOnly` without a frame debugger. Complementary-depth ≈ 0 (sky) is dark grey in that overlay so still meshes silhouette; the published RG16F still camera-fills those pixels.
 
 Named buffers that are not velocity-specific use `ClientPlugin.Buffers.BufferCatalog` — see [Buffers/README.md](../Buffers/README.md). `Active("velocity")` is the same producer as `VelocityRegistry.Active`.

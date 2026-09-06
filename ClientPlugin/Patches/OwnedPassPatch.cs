@@ -46,7 +46,7 @@ static class OwnedPassAtmospherePatch
     static bool Prepare() => TargetMethod() != null;
 
     static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyAtmosphereRenderer), nameof(MyAtmosphereRenderer.RenderGBuffer));
+        AccessTools.Method(typeof(MyAtmosphereRenderer), "RenderGBuffer");
 
     [HarmonyPrefix]
     static void Prefix(MyRenderContext rc) =>
@@ -87,7 +87,7 @@ static class OwnedPassTonemapPatch
     static bool Prepare() => TargetMethod() != null;
 
     static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyToneMapping), nameof(MyToneMapping.Run));
+        AccessTools.Method(typeof(MyToneMapping), "Run");
 
     [HarmonyPrefix]
     [HarmonyPriority(Priority.Last)]

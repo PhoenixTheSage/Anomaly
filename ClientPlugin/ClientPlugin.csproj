@@ -20,6 +20,9 @@
       
     <!-- Ensure SDK generates assembly attributes (no need for AssemblyInfo) -->
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- CS0811: vendored RichHudFramework API surface uses nested MyTuple
+         generics whose fully qualified names exceed the PDB type-name limit. -->
+    <NoWarn>$(NoWarn);CS0811</NoWarn>
 
     <!-- Default versions; overridden by Version.Build.props  -->
     <AssemblyVersion>1.1.0.0</AssemblyVersion>
@@ -312,6 +315,10 @@
     </Reference>
   </ItemGroup>
 
+  <!-- Krafs is the MSBuild stand-in for Pulsar's Roslyn publicizer. Match that
+       compiler: types/fields/properties and non-virtual methods become public;
+       virtual/override methods stay hidden (see Pulsar Compiler/Publicizer.cs).
+       Harmony targets on those methods must use string names, not nameof. -->
   <PropertyGroup>
     <PublicizerClearCacheOnClean>true</PublicizerClearCacheOnClean>
     <PublicizerRuntimeStrategies>Unsafe;IgnoresAccessChecksTo</PublicizerRuntimeStrategies>
@@ -319,7 +326,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Publicize Include="VRage.Render11"/>
+    <Publicize Include="VRage.Render11" IncludeVirtualMembers="false" IncludeCompilerGeneratedMembers="false" />
   </ItemGroup>
   <Target Name="VerifyProps" BeforeTargets="BeforeBuild">
     <Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))"

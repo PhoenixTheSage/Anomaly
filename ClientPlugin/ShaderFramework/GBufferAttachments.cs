@@ -20,13 +20,16 @@ namespace ClientPlugin.Shaders;
 /// <c>ClientPlugin.Shaders.GBufferAttachments</c> — do not take a
 /// compile-time reference to Anomaly. <see cref="Request"/> a named
 /// extra (full MRT or packed <c>GBuffer1.a</c>). Velocity owns
-/// <c>SV_Target3</c>; packs cannot claim it.
+/// <c>SV_Target3</c>; Target7 is reserved for internal diagnostics; packs
+/// cannot claim either slot.
 /// </summary>
 public static class GBufferAttachments
 {
     public const string PackedGBuffer1A = "GBuffer1.a";
     public const int FirstExtraTarget = 4;
-    public const int MaxColorTargets = 8;
+    // D3D11 exposes eight color outputs. Target7 is reserved for Anomaly's
+    // same-draw velocity pipeline proof, leaving Target4-6 for shader packs.
+    public const int MaxColorTargets = 7;
     public const string GeneratedFieldsPath = "Anomaly/Extras/GBufferAttachmentFields.hlsli";
     public const string GeneratedInitPath = "Anomaly/Extras/GBufferAttachmentInit.hlsli";
     public const string GeneratedDefsPath = "Anomaly/Extras/GBufferAttachmentDefs.hlsli";

@@ -6,12 +6,15 @@ cbuffer Constants : register(b0)
     float Scale;
     float HistoryValid;
     float HasDepth;
+    float PersistenceDecay;
+    float PersistenceValid;
 };
 
 Texture2D Tex : register(t0);
 Texture2D DepthTex : register(t1);
 Texture2D AuditTex : register(t2);
 Texture2D GBuffer0Tex : register(t3);
+Texture2D PersistenceTex : register(t4);
 SamplerState PointSamp : register(s0);
 
 // Complementary GBuffer: 0 is clear / sky. Camera-from-depth on that value
@@ -20,6 +23,8 @@ static const float3 kSky = float3(0.06, 0.06, 0.06);
 
 float3 VelocityColor(float2 v)
 {
+    // Display the stored backward vector directly: rightward travel lowers R,
+    // downward travel lowers G. Probe sentinels retain their wire-test colors.
     float mag = length(v);
     return float3(
         saturate(v.x * Scale + 0.5),
@@ -38,6 +43,24 @@ bool IsSky(float2 uv)
 // Mode 2: history color (passthrough).
 float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
 {
+    // Private debug history: signed pixel motion in RG, foreground in B.
+    // Peak retention avoids cancellation of opposite directions. Screen-space
+    // trails are intentional evidence, not reprojected consumer motion.
+    if (Mode > 4.5)
+    {
+        float4 old = PersistenceTex.SampleLevel(PointSamp, uv, 0);
+        float2 retained = PersistenceValid > 0.5 ? old.rg * PersistenceDecay : float2(0, 0);
+        bool foreground = !IsSky(uv);
+        float2 live = foreground && HistoryValid > 0.5 ? Tex.SampleLevel(PointSamp, uv, 0).rg : float2(0, 0);
+        if (!all(isfinite(live))) live = 0;
+        float2 v = length(live) >= length(retained) ? live : retained;
+        return float4(v, foreground || length(v) * Scale > 0.001 ? 1 : 0, 1);
+    }
+    if (Mode > 2.4 && Mode < 2.6)
+    {
+        float4 held = Tex.SampleLevel(PointSamp, uv, 0);
+        return float4(held.b > 0.5 ? VelocityColor(held.rg) : kSky, 1);
+    }
     // Mode 4: one-frame, same-draw proof matrix. Each panel remaps to the full
     // scene so silhouettes line up and can be compared directly:
     // top: Target3, pixel execution, PS b7

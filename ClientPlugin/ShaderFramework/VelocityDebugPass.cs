@@ -37,6 +37,11 @@ public static class VelocityDebugPass
     static bool shadersReady;
     static bool loggedError;
     static string lastError;
+    static IRtvTexture persistentA, persistentB;
+    static bool persistentValid;
+    static DebugBuffer persistentMode;
+    static long persistenceTick;
+    public static string PersistenceStatus { get; private set; } = "LIVE";
 
     public static string LastError => lastError;
 
@@ -47,12 +52,20 @@ public static class VelocityDebugPass
         public float Scale;
         public float HistoryValid;
         public float HasDepth;
+        public float PersistenceDecay;
+        public float PersistenceValid;
     }
 
     public static void Draw(IRtvBindable dest)
     {
         if (!OverlayOn() || dest == null)
+        {
+            // This patch runs every frame. Keep the default Off path lock-free;
+            // there is cleanup work only after persistence allocated textures.
+            if (persistentA != null || persistentB != null)
+                lock (Gate) ResetPersistence();
             return;
+        }
 
         lock (Gate)
         {
@@ -73,6 +86,7 @@ public static class VelocityDebugPass
     {
         lock (Gate)
         {
+            ResetPersistence();
             if (constants != null)
             {
                 MyManagers.Buffers.Dispose(new[] { constants });
@@ -94,7 +108,7 @@ public static class VelocityDebugPass
         var cfg = Config.Current;
         if (cfg == null)
             return false;
-        return cfg.DebugBuffer != DebugBuffer.Off || cfg.DebugVelocity;
+        return cfg.DebugBuffer != DebugBuffer.Off;
     }
 
     static DebugBuffer EffectiveBuffer()
@@ -102,9 +116,7 @@ public static class VelocityDebugPass
         var cfg = Config.Current;
         if (cfg == null)
             return DebugBuffer.Off;
-        if (cfg.DebugBuffer != DebugBuffer.Off)
-            return cfg.DebugBuffer;
-        return cfg.DebugVelocity ? DebugBuffer.Velocity : DebugBuffer.Off;
+        return cfg.DebugBuffer;
     }
 
     static void DrawUnlocked(IRtvBindable dest)
@@ -186,6 +198,60 @@ public static class VelocityDebugPass
             HistoryValid = historyValid,
             HasDepth = depthSrv != null ? 1f : 0f
         };
+        bool persist = Config.Current.DebugMotionPersistence && Config.Current.VelocityProbe == VelocityProbe.Off &&
+            Config.Current.Target3Checkpoint == Target3Checkpoint.Live && shaderMode == 0f;
+        if (persist)
+        {
+            var size = srv.Size;
+            if (persistentA == null || persistentA.Size != size || persistentMode != mode)
+            {
+                ResetPersistence();
+                persistentA = MyManagers.RwTextures.CreateRtv("Anomaly.DebugMotion.A", size.X, size.Y, SharpDX.DXGI.Format.R16G16B16A16_Float);
+                persistentB = MyManagers.RwTextures.CreateRtv("Anomaly.DebugMotion.B", size.X, size.Y, SharpDX.DXGI.Format.R16G16B16A16_Float);
+                persistentMode = mode;
+            }
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            var elapsed = persistenceTick == 0 ? 0 : (now - persistenceTick) / (double)System.Diagnostics.Stopwatch.Frequency;
+            persistenceTick = now;
+            cb.Scale *= Config.Current.DebugMotionGain;
+            bool paused = Sandbox.MySandboxGame.IsPaused;
+            // A real camera cut must not carry old evidence into a new view.
+            // Pause can invalidate live history; preserve the debug copy then.
+            if (!paused && historyValid < 0.5) persistentValid = false;
+            if (!paused || !persistentValid)
+            {
+                cb.Mode = 5;
+                cb.PersistenceDecay = (float)Math.Pow(0.5, elapsed / Config.Current.DebugMotionHalfLife);
+                cb.PersistenceValid = persistentValid ? 1 : 0;
+                Render(rc, persistentB, cb, srv, depthSrv, null, null, persistentValid ? persistentA : null);
+                var swap = persistentA; persistentA = persistentB; persistentB = swap;
+                persistentValid = true;
+            }
+            PersistenceStatus = paused ? "PERSISTENT / PAUSED (retained evidence)" : "PERSISTENT (screen-space trails)";
+            cb.Mode = 2.5f;
+            Render(rc, dest, cb, persistentA, null, null, null, null);
+        }
+        else
+        {
+            ResetPersistence();
+            Render(rc, dest, cb, srv, depthSrv, auditSrv, gbuffer0Srv, null);
+        }
+        lastError = null;
+        loggedError = false;
+    }
+
+    static void ResetPersistence()
+    {
+        if (persistentA != null) MyManagers.RwTextures.DisposeTex(ref persistentA);
+        if (persistentB != null) MyManagers.RwTextures.DisposeTex(ref persistentB);
+        persistentValid = false;
+        persistenceTick = 0;
+        PersistenceStatus = "LIVE";
+    }
+
+    static void Render(MyRenderContext rc, IRtvBindable dest, Constants cb, ISrvBindable srv,
+        ISrvBindable depthSrv, ISrvBindable auditSrv, ISrvBindable gbuffer0Srv, ISrvBindable previous)
+    {
         var mapping = MyMapping.MapDiscard(rc, constants);
         mapping.WriteAndPosition(ref cb);
         mapping.Unmap();
@@ -207,6 +273,7 @@ public static class VelocityDebugPass
         rc.PixelShader.SetSrv(1, depthSrv);
         rc.PixelShader.SetSrv(2, auditSrv);
         rc.PixelShader.SetSrv(3, gbuffer0Srv);
+        rc.PixelShader.SetSrv(4, previous);
         rc.Draw(3, 0);
         rc.ClearState();
         lastError = null;

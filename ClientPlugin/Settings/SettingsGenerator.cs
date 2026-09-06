@@ -42,10 +42,13 @@ internal class SettingsGenerator
         return Delegate.CreateDelegate(type, null, methodInfo);
     }
 
-    public SettingsGenerator()
+    public SettingsGenerator(string name = null, IEnumerable<string> memberNames = null)
     {
-        attributes = ExtractAttributes();
-        Name = Config.Current.Title;
+        var filter = memberNames == null
+            ? null
+            : new HashSet<string>(memberNames, StringComparer.Ordinal);
+        attributes = ExtractAttributes(filter);
+        Name = string.IsNullOrWhiteSpace(name) ? Config.Current.Title : name;
         ActiveLayout = new None(()=>controls);
         Dialog = new SettingsScreen(Name, OnRecreateControls, size: ActiveLayout.SettingsPanelSize);
     }
@@ -79,13 +82,15 @@ internal class SettingsGenerator
         }
     }
 
-    private static List<AttributeInfo> ExtractAttributes()
+    private static List<AttributeInfo> ExtractAttributes(HashSet<string> memberNames)
     {
         var config = new List<AttributeInfo>();
 
         foreach (var propertyInfo in typeof(Config).GetProperties())
         {
             var name = propertyInfo.Name;
+            if (memberNames != null && !memberNames.Contains(name))
+                continue;
             foreach (var attribute in propertyInfo.GetCustomAttributes())
             {
                 if (attribute is IElement element)
@@ -118,6 +123,8 @@ internal class SettingsGenerator
         foreach (var methodInfo in typeof(Config).GetMethods())
         {
             string name = methodInfo.Name;
+            if (memberNames != null && !memberNames.Contains(name))
+                continue;
             Delegate method = GetDelegate(methodInfo);
 
             foreach (var attribute in methodInfo.GetCustomAttributes())

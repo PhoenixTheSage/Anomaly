@@ -31,7 +31,7 @@ internal sealed class CameraVelocityBuffer : IVelocityBuffer
 
     public VelocityConvention Convention =>
         VelocityConvention.Unjittered | VelocityConvention.PixelSpace |
-        VelocityConvention.MatchesRenderResolution;
+        VelocityConvention.MatchesRenderResolution | VelocityConvention.CurrentToPrevious;
 
     public bool HistoryValid => historyValid;
 

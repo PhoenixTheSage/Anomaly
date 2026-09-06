@@ -29,12 +29,11 @@
 #ifdef ANOMALY_VELOCITY
 #ifdef ANOMALY_PIXEL_STAGE
 // Final Target3 wire probe.  Pixel b7 is unused by Keen's GBuffer material
-// shaders (voxel material constants occupy pixel b6), so the same 224-byte
-// runtime payload can safely select MrtWrite after the shader cache is built.
-// c13.y is byte 212, matching Constants.ProbeMode on the CPU.
+// shaders (voxel material constants occupy pixel b6). A dedicated 16-byte
+// payload selects MrtWrite independently of the vertex constants.
 cbuffer AnomalyVelocityPixelProbe : register(b7)
 {
-    // Keep the pixel-output diagnostic independent from the 224-byte VS b6
+    // Keep the pixel-output diagnostic independent from the 240-byte VS b6
     // layout.  A dedicated float4 at byte zero avoids partial-cbuffer and
     // cross-stage buffer-layout ambiguity while resident GBuffer shaders are
     // being tested.
@@ -56,6 +55,8 @@ cbuffer AnomalyVelocity : register(MERGE(b, ANOMALY_CB_SLOT))
     float4 AnomalyPrevRow2;
     uint AnomalyInstanceBase;
     uint AnomalyProbeMode;
+    float2 AnomalyPadding;
+    float3 AnomalyCameraDelta;
 };
 
 // Keen's construct_matrix_43 lives in Geometry/VertexTemplateBase.hlsli (VS only).
@@ -82,7 +83,8 @@ float2 AnomalyClipToPixelDelta(float4 currClip, float4 prevClip)
     prevClip /= max(prevClip.w, 1e-6);
     float2 currUv = float2(currClip.x * 0.5 + 0.5, 0.5 - currClip.y * 0.5);
     float2 prevUv = float2(prevClip.x * 0.5 + 0.5, 0.5 - prevClip.y * 0.5);
-    return (currUv - prevUv) * AnomalyRenderSize;
+    // Backward reprojection: previousPixel = currentPixel + motion.
+    return (prevUv - currUv) * AnomalyRenderSize;
 }
 
 float3 AnomalyWorldToObject(float3 world, matrix m)
@@ -94,7 +96,8 @@ float3 AnomalyWorldToObject(float3 world, matrix m)
     float3 c2 = r._31_32_33;
     float3x3 adj = float3x3(cross(c1, c2), cross(c2, c0), cross(c0, c1));
     float det = dot(c0, adj._11_12_13);
-    float3x3 invR = adj / max(abs(det), 1e-8);
+    float safeDet = abs(det) < 1e-8 ? (det < 0 ? -1e-8 : 1e-8) : det;
+    float3x3 invR = transpose(adj) / safeDet;
     return mul(world - t, invR);
 }
 
@@ -127,7 +130,8 @@ float2 AnomalyComputeVelocity(float3 positionLocal, matrix localMatrix, uint svI
     float4x4 currVp = transpose(AnomalyUnjitteredViewProj);
     float4x4 prevVp = transpose(AnomalyPrevViewProj);
     float4 currClip = mul(float4(positionLocal, 1), currVp);
-    float3 prevPos = positionLocal;
+    // Positions and history transforms use different camera-relative origins.
+    float3 prevPos = positionLocal + AnomalyCameraDelta;
 
     matrix prevM = localMatrix;
     bool hasPrevWorld = false;

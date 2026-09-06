@@ -15,6 +15,8 @@ NVIDIA flags for consumers (not Anomaly create flags): `MVJittered` off, `MVLowR
 
 ## Convention
 
+Direction revision: `CurrentToPrevious = 8`, combined flags **15** (legacy flags 7 emitted current-minus-previous). `previousPixel = currentPixel + motion`. A surface moving 3 pixels right emits (-3, 0). Consumers must recognize the direction flag: direct NGX uses (+1,+1) for this revision and (-1,-1) for legacy Anomaly. Do not negate twice. This change does not certify numerical accuracy.
+
 - Texture: render-resolution `RG16F` (or `RGBA16F` if a fourth channel is needed later).
 - Units: **pixel delta** at internal (DRS) resolution.
 - Y-down D3D (top of the RT is v = 0).
@@ -36,6 +38,6 @@ foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
 
 If `Active` is null or `IsAvailable` is false, keep a camera-only fallback. Do not Harmony-patch instance updates from the consumer.
 
-Anomaly can overlay this texture in-game (**Debug velocity** in settings) so you can compare `GBuffer` vs `CameraOnly` without a frame debugger. Complementary-depth ≈ 0 (sky) is dark grey in that overlay so still meshes silhouette; the published RG16F still camera-fills those pixels.
+Anomaly can overlay this texture in-game (**Velocity Debug** → **Debug view** → `Velocity`) so you can compare `GBuffer` vs `CameraOnly` without a frame debugger. Complementary-depth 0 (sky) is dark grey in that overlay so still meshes silhouette; the published RG16F still camera-fills those pixels.
 
 Named buffers that are not velocity-specific use `ClientPlugin.Buffers.BufferCatalog` — see [Buffers/README.md](../Buffers/README.md). `Active("velocity")` is the same producer as `VelocityRegistry.Active`.

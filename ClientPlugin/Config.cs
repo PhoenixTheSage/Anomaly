@@ -16,6 +16,10 @@ public class Config : INotifyPropertyChanged
     private bool debugVelocity;
     private DebugBuffer debugBuffer = DebugBuffer.Off;
     private int debugVelocityScale = 32;
+    private bool debugMotionPersistence;
+    private int debugMotionGain = 8;
+    private int debugMotionHalfLife = 2;
+
     private VelocityProbe velocityProbe = VelocityProbe.Off;
     private Target3Checkpoint target3Checkpoint = Target3Checkpoint.Live;
 
@@ -35,15 +39,16 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref velocitySource, value);
     }
 
-    [Checkbox(label: "Debug velocity",
-        description: "Legacy toggle for the velocity overlay. Prefer Debug buffer. Mid-gray is no motion. Red/green are X/Y pixel delta; blue is speed. Magenta is first frame or a camera cut.")]
+    // Serialized only so older configs can be migrated. It is deliberately not
+    // exposed in either settings page; DebugBuffer is the single source of truth.
     public bool DebugVelocity
     {
         get => debugVelocity;
         set => SetField(ref debugVelocity, value);
     }
 
-    [Dropdown(visibleRows: 9, label: "Debug buffer",
+    [Separator("Visualization")]
+    [Dropdown(visibleRows: 9, label: "Debug view",
         description: "Velocity is the final composite. GBufferVelocityRaw is SV_Target3 before camera/depth gap fill. VelocityPipelineAudit shows Target3, pixel execution, PS b7, VS velocity, a GBuffer0 b7 marker, and raw GBuffer0 together. Other entries inspect owned catalog buffers.")]
     public DebugBuffer DebugBuffer
     {
@@ -59,6 +64,17 @@ public class Config : INotifyPropertyChanged
         set => SetField(ref debugVelocityScale, value < 1 ? 32 : (value > 128 ? 128 : value));
     }
 
+    [Separator("Motion persistence")]
+    [Checkbox(label: "Persistent visualization", description: "Retain screen-space motion trails and preserve the image while paused. Applies to Velocity and GBufferVelocityRaw with probe Off. Consumer vectors are unchanged.")]
+    public bool DebugMotionPersistence { get => debugMotionPersistence; set => SetField(ref debugMotionPersistence, value); }
+
+    [Slider(min: 1, max: 64, step: 1, type: SliderAttribute.SliderType.Integer, label: "Motion gain", description: "Additional sensitivity for persistent visualization only.")]
+    public int DebugMotionGain { get => debugMotionGain; set => SetField(ref debugMotionGain, System.Math.Max(1, System.Math.Min(64, value))); }
+
+    [Slider(min: 1, max: 10, step: 1, type: SliderAttribute.SliderType.Integer, label: "Fade half-life (seconds)", description: "Time for retained motion evidence to halve. Pausing stops the fade.")]
+    public int DebugMotionHalfLife { get => debugMotionHalfLife; set => SetField(ref debugMotionHalfLife, System.Math.Max(1, System.Math.Min(10, value))); }
+
+    [Separator("Audit proofing")]
     [Dropdown(visibleRows: 5, label: "Velocity probe",
         description: "Developer diagnostic. TargetClear tests the frame clear; MrtWrite: pink = live pixel-output-to-Target3 write, cyan = no geometry write, gray = explicit zero; PassEndClear clears the final target after all deferred geometry lists execute; HistoryCoverage: pink = previous-world hit, cyan = miss. Probe changes apply immediately. Return to Off after testing.")]
     public VelocityProbe VelocityProbe
@@ -77,18 +93,26 @@ public class Config : INotifyPropertyChanged
 
     [Separator("Status")]
 
-    [Button(label: "Show Status", description: "Operational health for shader integration, passes, buffers, velocity, and active debug modes")]
+    [Button(label: "Show Status", description: "Operational health for the Anomaly framework")]
     // ReSharper disable once UnusedMember.Global
     public static void ShowStatus()
     {
         MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Status", "AnomalyStatus", VelocityStatus.CurrentText));
     }
 
-    [Button(label: "Debug Status", description: "Detailed shader, GBuffer, Stage 2, MRT, history, and draw-boundary diagnostics")]
+    [Button(label: "Velocity Debug", description: "Open velocity visualization, persistence, and audit settings")]
     // ReSharper disable once UnusedMember.Global
-    public static void ShowDebugStatus()
+    public static void ShowVelocityDebug()
     {
-        MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Debug Status", "AnomalyDebugStatus", VelocityStatus.DebugText));
+        Plugin.Instance?.OpenVelocityDebugDialog();
+    }
+
+    [Separator("Status")]
+    [Button(label: "Velocity Status", description: "Concise motion-vector health and active proofing results")]
+    // ReSharper disable once UnusedMember.Global
+    public static void ShowVelocityStatus()
+    {
+        MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Velocity Status", "AnomalyVelocityStatus", VelocityStatus.VelocityText));
     }
 
     #endregion

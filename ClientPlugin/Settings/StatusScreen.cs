@@ -10,13 +10,13 @@ namespace ClientPlugin.Settings;
 internal class StatusScreen : MyGuiScreenBase
 {
     const float DefaultTextScale = 0.7f;
-    const float DebugTextScale = 0.58f;
+    const float VelocityTextScale = 0.58f;
     const string TextFont = "Blue";
 
     readonly string bodyText;
     readonly string caption;
     readonly string friendlyName;
-    readonly bool debugLayout;
+    readonly bool velocityLayout;
 
     public StatusScreen(string text)
         : this("Anomaly Status", "AnomalyStatus", text)
@@ -35,7 +35,7 @@ internal class StatusScreen : MyGuiScreenBase
     {
         caption = string.IsNullOrWhiteSpace(title) ? "Anomaly Status" : title;
         friendlyName = string.IsNullOrWhiteSpace(name) ? "AnomalyStatus" : name;
-        debugLayout = string.Equals(friendlyName, "AnomalyDebugStatus", System.StringComparison.Ordinal);
+        velocityLayout = string.Equals(friendlyName, "AnomalyVelocityStatus", System.StringComparison.Ordinal);
         bodyText = text ?? "";
         EnabledBackgroundFade = true;
         m_closeOnEsc = true;
@@ -59,9 +59,9 @@ internal class StatusScreen : MyGuiScreenBase
         AddCaption(caption);
 
         var screenSize = Size ?? GetScreenSize(friendlyName);
-        var textScale = debugLayout ? DebugTextScale : DefaultTextScale;
-        var topInset = debugLayout ? 0.075f : 0.09f;
-        var bottomInset = debugLayout ? 0.075f : 0.09f;
+        var textScale = velocityLayout ? VelocityTextScale : DefaultTextScale;
+        var topInset = velocityLayout ? 0.075f : 0.09f;
+        var bottomInset = velocityLayout ? 0.075f : 0.09f;
         var textSize = new Vector2(screenSize.X - 0.06f, screenSize.Y - topInset - bottomInset);
         var wrapWidth = textSize.X - 0.04f;
         string wrapped;
@@ -101,7 +101,7 @@ internal class StatusScreen : MyGuiScreenBase
     }
 
     static Vector2 GetScreenSize(string name) =>
-        string.Equals(name, "AnomalyDebugStatus", System.StringComparison.Ordinal)
-            ? new Vector2(0.82f, 0.84f)
-            : new Vector2(0.72f, 0.78f);
+        string.Equals(name, "AnomalyVelocityStatus", System.StringComparison.Ordinal)
+            ? new Vector2(0.72f, 0.72f)
+            : new Vector2(0.68f, 0.72f);
 }

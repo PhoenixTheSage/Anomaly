@@ -13,8 +13,8 @@ using VRage.Plugins;
 using VRage.Utils;
 
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.5.0.0")]
 #endif
 
 namespace ClientPlugin;
@@ -29,6 +29,7 @@ public sealed class Plugin : IPlugin
     public static Func<string, string, string> GetConfigPath;
 
     private SettingsGenerator settingsGenerator;
+    private SettingsGenerator velocityDebugGenerator;
     private bool disposed;
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -36,7 +37,23 @@ public sealed class Plugin : IPlugin
     {
         disposed = false;
         Instance = this;
-        settingsGenerator = new SettingsGenerator();
+        settingsGenerator = new SettingsGenerator(Config.Current.Title, new[]
+        {
+            nameof(Config.VelocitySource),
+            nameof(Config.ShowStatus),
+            nameof(Config.ShowVelocityDebug),
+        });
+        velocityDebugGenerator = new SettingsGenerator("Velocity Debug", new[]
+        {
+            nameof(Config.DebugBuffer),
+            nameof(Config.DebugVelocityScale),
+            nameof(Config.DebugMotionPersistence),
+            nameof(Config.DebugMotionGain),
+            nameof(Config.DebugMotionHalfLife),
+            nameof(Config.VelocityProbe),
+            nameof(Config.Target3Checkpoint),
+            nameof(Config.ShowVelocityStatus),
+        });
         DebugLog.Open();
         VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
 
@@ -75,6 +92,7 @@ public sealed class Plugin : IPlugin
         ShaderBindRegistry.Release();
         OwnedPassRegistry.Release();
         settingsGenerator = null;
+        velocityDebugGenerator = null;
         if (ReferenceEquals(Instance, this))
             Instance = null;
         DebugLog.Close();
@@ -93,6 +111,17 @@ public sealed class Plugin : IPlugin
     public void OpenConfigDialog()
     {
         var generator = settingsGenerator;
+        if (disposed || generator == null)
+            return;
+
+        generator.SetLayout<Simple>();
+        generator.Dialog.RecreateControls(true);
+        MyGuiSandbox.AddScreen(generator.Dialog);
+    }
+
+    internal void OpenVelocityDebugDialog()
+    {
+        var generator = velocityDebugGenerator;
         if (disposed || generator == null)
             return;
 

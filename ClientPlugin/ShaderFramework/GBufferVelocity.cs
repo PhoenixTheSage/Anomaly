@@ -43,12 +43,12 @@ public static class GBufferVelocity
     public const int PixelProbeConstantSlot = 7;
     public const int PrevWorldSlot = 15;
     public const int PrevBoneSlot = 16;
-    // The shader-visible layouts are 224 and 16 bytes, but D3D11.1 ranged
+    // The shader-visible layouts are 240 and 16 bytes, but D3D11.1 ranged
     // constant-buffer binds require both the first constant and the constant
     // count to be multiples of 16 constants (256 bytes). Keep one physical
     // 256-byte window per buffer; the unused tail is outside the HLSL layout.
     // These buffers are Anomaly-owned and never alias Keen's object-CB cache.
-    const int ConstantLayoutBytes = 224;
+    const int ConstantLayoutBytes = 240;
     const int PixelProbeLayoutBytes = 16;
     const int ConstantBufferBytes = 256;
     const int PixelProbeConstantBufferBytes = 256;
@@ -445,6 +445,8 @@ public static class GBufferVelocity
         public Vector4 PrevRow2;
         public uint InstanceBase;
         public uint ProbeMode;
+        public Vector2 Padding;
+        public Vector3 CameraDelta;
     }
 
     [StructLayout(LayoutKind.Sequential, Size = PixelProbeLayoutBytes)]
@@ -2250,15 +2252,20 @@ public static class GBufferVelocity
 
         var samples = Math.Max(gbuffer?.SamplesCount ?? 1, 1);
         var quality = gbuffer?.SamplesQuality ?? 0;
-        if (target != null && auditTarget != null && targetWidth == size.X && targetHeight == size.Y &&
+        if ((Config.Current?.Target3Checkpoint ?? Target3Checkpoint.Live) == Target3Checkpoint.Live &&
+            checkpointTarget != null)
+            DisposeCheckpointTarget();
+        var auditReady = AuditProofWanted ? auditTarget != null : auditTarget == null;
+        if (target != null && auditReady && targetWidth == size.X && targetHeight == size.Y &&
             targetSamples == samples && targetSamplesQuality == quality)
             return;
 
         DisposeTarget();
         target = MyManagers.RwTextures.CreateRtv("Anomaly.GBufferVelocity", size.X, size.Y, Format.R16G16_Float,
             samples, quality);
-        auditTarget = MyManagers.RwTextures.CreateRtv("Anomaly.VelocityPipelineAudit", size.X, size.Y,
-            Format.R16G16B16A16_Float, samples, quality);
+        if (AuditProofWanted)
+            auditTarget = MyManagers.RwTextures.CreateRtv("Anomaly.VelocityPipelineAudit", size.X, size.Y,
+                Format.R16G16B16A16_Float, samples, quality);
         targetWidth = size.X;
         targetHeight = size.Y;
         targetSamples = samples;
@@ -2638,7 +2645,10 @@ public static class GBufferVelocity
             PrevRow1 = row1,
             PrevRow2 = row2,
             InstanceBase = instanceBase,
-            ProbeMode = probeMode
+            ProbeMode = probeMode,
+            CameraDelta = historyValid && CameraVelocityPass.TryGetPrevCamera(out var previousCamera)
+                ? (Vector3)(MyRender11.Environment.Matrices.CameraPosition - previousCamera)
+                : Vector3.Zero
         };
         var mapping = MyMapping.MapDiscard(rc, dest);
         mapping.WriteAndPosition(ref cb);

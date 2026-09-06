@@ -4,7 +4,7 @@ namespace ClientPlugin.Velocity;
 
 /// <summary>
 /// How <see cref="IVelocityBuffer"/> stores motion. Combine flags; the built-in producer
-/// always sets all three once a buffer exists.
+/// sets the spatial flags and explicit CurrentToPrevious direction.
 /// </summary>
 /// <remarks>
 /// Units are <b>pixel delta</b> at internal (DRS) resolution. Y is down in D3D (top of
@@ -23,5 +23,8 @@ public enum VelocityConvention
     PixelSpace = 2,
 
     /// <summary>Width/height match Keen internal render resolution (<c>ResolutionI</c>), not the swapchain.</summary>
-    MatchesRenderResolution = 4
+    MatchesRenderResolution = 4,
+
+    /// <summary>Previous pixel = current pixel + XY. Absent on legacy forward-displacement producers.</summary>
+    CurrentToPrevious = 8
 }

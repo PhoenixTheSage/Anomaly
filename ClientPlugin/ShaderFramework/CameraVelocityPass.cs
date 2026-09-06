@@ -199,7 +199,10 @@ public static class CameraVelocityPass
         {
             InvViewProj = env.InvViewProjectionAt0,
             UnjitteredViewProj = unjittered,
-            PrevViewProj = prev,
+            // Reconstructed depth positions are relative to the current camera.
+            PrevViewProj = historyValid
+                ? Matrix.CreateTranslation((Vector3)(env.CameraPosition - prevCameraPos)) * prev
+                : prev,
             RenderSize = new Vector2(size.X, size.Y),
             InvRenderSize = new Vector2(1f / size.X, 1f / size.Y)
         };

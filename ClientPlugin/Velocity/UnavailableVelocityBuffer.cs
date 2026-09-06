@@ -21,7 +21,7 @@ internal sealed class UnavailableVelocityBuffer : IVelocityBuffer
 
     public VelocityConvention Convention =>
         VelocityConvention.Unjittered | VelocityConvention.PixelSpace |
-        VelocityConvention.MatchesRenderResolution;
+        VelocityConvention.MatchesRenderResolution | VelocityConvention.CurrentToPrevious;
 
     public bool HistoryValid => false;
 }

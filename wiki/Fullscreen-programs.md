@@ -42,7 +42,7 @@ Folder defaults: compose `IsolatedAdd`, id `{packId}.{name}`, output `pass.{id}`
 | Replace | One owner | Fail closed if two claim the slot |
 | DirectAdd | Opt-in | Isolated then additive merge |
 
-HDR slots (AfterLighting / AfterAtmosphere / AfterTransparent / BeforeTonemap) merge into `LBuffer`. AfterTonemap merges into Keen’s tonemap result. AfterUpscale publishes isolated; merge is skipped unless a consumer passed a dest.
+HDR slots (AfterLighting / AfterAtmosphere / AfterTransparent / BeforeTonemap) merge into `LBuffer`. AfterTonemap merges into Keen’s tonemap result. AfterUpscale t0 is catalog `upscaledColor` when the unique consumer notified with a dest; Isolated still publishes; merge writes into that dest when it is an RTV. Without a dest, t0 falls back to `LBuffer` (wrong at output res).
 
 ## Bus (fixed)
 
@@ -50,7 +50,7 @@ HDR slots (AfterLighting / AfterAtmosphere / AfterTransparent / BeforeTonemap) m
 
 | Slot | What |
 |------|------|
-| t0 | Scene color (`LBuffer`, LDR dest, or previous isolated in Chain) |
+| t0 | Scene color (`LBuffer`, LDR dest, `upscaledColor` at AfterUpscale, or previous isolated in Chain) |
 | t1 | `linearDepth` |
 | t2 | `velocity` |
 | t3 | `reactiveMask` |

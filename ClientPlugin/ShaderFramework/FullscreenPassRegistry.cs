@@ -137,6 +137,23 @@ public static class FullscreenPassRegistry
         return false;
     }
 
+    internal static bool HasPolicy(OwnedPassSlot slot, TemporalPolicy policy)
+    {
+        if (policy == TemporalPolicy.None)
+            return false;
+        lock (Gate)
+        {
+            for (var i = 0; i < Programs.Count; i++)
+            {
+                if (Programs[i].Enabled && Programs[i].Slot == slot &&
+                    (Programs[i].Policy & policy) != 0)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     internal static void ReplaceAll(IReadOnlyList<FullscreenProgramSpec> specs)
     {
         lock (Gate)
@@ -188,6 +205,13 @@ public static class FullscreenPassRegistry
         if (target == null && CanMergeToLBuffer(slot))
             target = MyGBuffer.Main?.LBuffer;
         ISrvBindable sceneSrv = dest as ISrvBindable ?? target as ISrvBindable;
+        if (sceneSrv == null)
+        {
+            var up = BufferCatalog.Active(BufferCatalog.UpscaledColor);
+            if (up != null && up.IsAvailable)
+                sceneSrv = up.Srv as ISrvBindable;
+        }
+
         if (sceneSrv == null)
             sceneSrv = MyGBuffer.Main?.LBuffer as ISrvBindable;
 

@@ -138,7 +138,7 @@ Pack fullscreen effects ship `Fullscreen/<Slot>/*.hlsl`. Anomaly compiles and dr
 | `Replace` | One owner | Fail closed if two claim the slot; other compose on that slot is disabled |
 | `DirectAdd` | Opt-in | Isolated then additive merge (same bus) |
 
-Fixed bus: t0 scene, t1 `linearDepth`, t2 `velocity`, t3 `reactiveMask`, b6 extras (same append-only layout as lighting), b7 uniforms (`SetUniforms`, 16 floats). `#include <AnomalyFullscreen.hlsli>`. AfterUpscale has no dest unless a consumer passes one — Isolated still publishes; merge is skipped if dest is null.
+Fixed bus: t0 scene, t1 `linearDepth`, t2 `velocity`, t3 `reactiveMask`, b6 extras (same append-only layout as lighting), b7 uniforms (`SetUniforms`, 16 floats). `#include <AnomalyFullscreen.hlsli>`. AfterUpscale t0 is catalog `upscaledColor` when the unique consumer called `NotifyUpscaleComplete(rc, color)`; Isolated still publishes; merge writes into that dest when it is an RTV. Without a dest, t0 falls back to `LBuffer` (wrong pixels at output res — display tenants must check `HasUpscaledColor`).
 
 Iris analog: `composite` / `final` — extra passes the framework owns.
 
@@ -189,7 +189,7 @@ Rules:
 5. **`ClearState` / DRS / device reset** stay Anomaly’s problem. Replacements must not leak RT/SRV ([Rich HUD](https://github.com/ZachHembree/RichHudFramework.Client)).
 6. **Anomaly-owned GBuffer write stages** (`Geometry/Passes/GBuffer/*Stage.hlsli`, `GBuffer/GBufferWrite.hlsli`) stay Anomaly’s unless a pack sets `exclusive: ["GBuffer"]`. **Read wraps** (`GBuffer/GBuffer.hlsli`, `Surface.hlsli`) need `exclusive: ["GBuffer"]` or `["Lighting"]`. **`Lighting/Light.hlsli`** needs `exclusive: ["Lighting"]`. **`Transparent/Atmosphere/AtmosphereCommon.hlsli`** needs `exclusive: ["Atmosphere"]`.
 7. **Compile failure rolls back that pack** (sentinel per live named stage after apply; in-game overlay errors log `pack=<id>` and disable the owner).
-8. **Inject/overlay of Atmosphere does not fix DLSS.** Animated emission after `MyRenderScheduler.Done` is invisible to the frozen velocity buffer unless the pass sets `ContributeVelocity` / `Reactive`. SE-DLSS evaluates **LDR after tonemap** and owns Halton jitter.
+8. **Inject/overlay of Atmosphere does not fix DLSS.** Animated emission after `MyRenderScheduler.Done` is invisible to the frozen velocity buffer unless the pass sets `ContributeVelocity` / `Reactive`. The unique upscaler owns Halton jitter. When an AfterUpscale `Display` tenant is registered, that upscaler should evaluate **pre-tonemap HDR** and publish the dest; otherwise it may still evaluate LDR after Keen tonemap.
 9. **Geometry GBuffer reserves VS b6.** Developer `MrtWrite` additionally reserves PS b7 for a dedicated 16-byte final-output sentinel during the geometry pass. Fullscreen b7 remains the unrelated `SetUniforms` bus in fullscreen-pass scope.
 
 [SmoothFrames](https://github.com/WhiteFang34/SmoothFrames) also patches the render thread. Do not assume exclusive ownership of `DrawGameScene`.
@@ -211,10 +211,10 @@ Order is Keen’s, not a pack’s. Velocity and derived depth extras freeze at s
 | Clouds / OIT / additive-top | Keen | Transparent emission. **No new MVs** unless a pass contributed. |
 | AfterTransparent | `OwnedPassRegistry` | Postfix `Transparent.Render`. |
 | BeforeTonemap | `OwnedPassRegistry` | Prefix `MyToneMapping.Run` (Priority.Last). HDR, internal res. |
-| Tonemap | Keen | HDR → LDR at internal / DRS size |
-| AfterTonemap | `OwnedPassRegistry` | Postfix `Run` (Priority.First) — **before** SE-DLSS evaluate. Internal LDR. |
-| SE-DLSS evaluate | Consumer | LDR + `VelocityRegistry.Active` (size must match internal DRS). Jitter owner. |
-| AfterUpscale | `NotifyUpscaleComplete` | Output res if a consumer notified; else `DrawGameScene` postfix fallback at native res. |
+| Tonemap | Keen (or skipped) | HDR → LDR at internal / DRS size — **skip** when `HasDisplayTenant` so the upscaler can evaluate HDR |
+| AfterTonemap | `OwnedPassRegistry` | Postfix `Run` (Priority.First) — **before** upscale evaluate. Internal LDR if Keen ran. |
+| Upscale evaluate | Unique consumer (`ClaimUpscale`) | `hdrColor` / `LBuffer` when a `Display` tenant exists; else LDR after Keen. Jitter owner. |
+| AfterUpscale | `NotifyUpscaleComplete(rc, color)` | Output res. Catalog `upscaledColor` + fullscreen t0 + `ctx.SceneColor`. Fallback at `DrawGameScene` postfix (native res, no dest) if nobody notifies. |
 | History + debug | Anomaly | `historyColor` copy and catalog debug at `DrawGameScene` postfix (debug is Priority.Last, `ViewportResolution` on the backbuffer). |
 
 Jitter owner is **SE-DLSS** (`Projection.M31` / `M32`). Anomaly reads it into `FrameTemporal` and republishes an **unjittered** view-projection on the extras CB. Packs must not patch the projection.
@@ -234,15 +234,16 @@ Well-known types: `ClientPlugin.Shaders.OwnedPassRegistry` and `ClientPlugin.Sha
 | `AfterTransparent` | Postfix `Transparent.Render` | After OIT + top billboards |
 | `BeforeTonemap` | Prefix `ToneMapping.Run` (Last) | HDR grade |
 | `AfterTonemap` | Postfix `Run` (First) | Internal LDR, before upscale evaluate |
-| `AfterUpscale` | `NotifyUpscaleComplete` or DrawGameScene fallback | Output-res composite |
+| `AfterUpscale` | `NotifyUpscaleComplete(rc, color)` or DrawGameScene fallback | Output-res display / composite. Read `upscaledColor`, not raw `LBuffer`. |
 
-`TemporalPolicy` flags (OR together): `InColor`, `ContributeVelocity`, `Reactive`.
+`TemporalPolicy` flags (OR together): `InColor`, `ContributeVelocity`, `Reactive`, `Display`.
 
 - **InColor** — writes `LBuffer` (HDR) or LDR after tonemap. Temporal consumers see the color.
 - **ContributeVelocity** — after draw, call `OwnedPassContext.ContributeVelocity(overlaySrv, maskSrv)` to composite extra MVs where mask &gt; 0.5. Republishes `velocity` so SE-DLSS sees them.
 - **Reactive** — may write catalog `reactiveMask` (R8, cleared to 0 at first use each frame). High = do not trust history. SE-DLSS must bind this itself; Anomaly only publishes it.
+- **Display** — AfterUpscale display-referred grade (BT.2390 / scRGB). `HasDisplayTenant` is the signal for the unique upscaler to evaluate HDR and skip Keen SDR. The pass must sample `ctx.SceneColor` / `upscaledColor`.
 
-SE-DLSS (or any upscaler) calls `OwnedPassRegistry.NotifyUpscaleComplete()` after evaluate. If nobody notifies, Anomaly runs AfterUpscale once at `DrawGameScene` postfix.
+The unique upscaler calls `ClaimUpscale(id)` at init and `NotifyUpscaleComplete(rc, color)` after evaluate. A second claimer fails closed. Two notifiers would fight (`upscaleNotified` is once per frame). If nobody notifies, Anomaly runs AfterUpscale once at `DrawGameScene` postfix with `LBuffer`. Anomaly does not present.
 
 `FrameTemporal` (well-known): `JitterX` / `JitterY`, `UnjitteredViewProj`, `PrevViewProj`, `InvalidateHistory()`. Same extras CB fields for lighting, atmosphere, and post (`AnomalyLightingJitter`, `AnomalyUnjitteredViewProj`, `AnomalyPrevViewProj`, `AnomalyLightingFrameIndex`). Append-only.
 

@@ -168,6 +168,10 @@ public static class VelocityDebugPass
                 buf = BufferCatalog.Active(BufferCatalog.FullscreenIsolated);
                 shaderMode = 2f;
                 break;
+            case DebugBuffer.UpscaledColor:
+                buf = BufferCatalog.Active(BufferCatalog.UpscaledColor);
+                shaderMode = 2f;
+                break;
             default:
                 buf = BufferCatalog.Active(BufferCatalog.Velocity);
                 shaderMode = 0f;

@@ -68,9 +68,26 @@ float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Targ
 
 Folder default is IsolatedAdd into `LBuffer`. Set `temporal: ["InColor","Reactive"]` (and contribute MVs from C# if the curtain animates) or DLSS will ghost. AfterAtmosphere cannot sample Keen `DensityLut` (already unbound).
 
+## AfterUpscale display (fullscreen)
+
+`Fullscreen/AfterUpscale/Tonemap.hlsl` — t0 is catalog `upscaledColor` after notify, not internal `LBuffer`. Set `temporal: ["InColor","Display"]` so the unique upscaler evaluates HDR.
+
+```hlsl
+#include <AnomalyFullscreen.hlsli>
+
+float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
+{
+    float3 hdr = AnomalySceneColor.SampleLevel(PointSampler, uv, 0).rgb;
+    // Display-referred grade at ViewportResolution. Do not sample LBuffer here.
+    return float4(hdr, 1);
+}
+```
+
+C# display tenants use `ctx.SceneColor` at `ctx.Width` × `ctx.Height` the same way. Keep swapchain / UI composite off this slot.
+
 ## Overlay Post.Tonemap
 
-Drop `Overlay/Post.Tonemap/Main.hlsl`. Unique basename maps to Keen’s file. If compile fails, that pack rolls back; Keen tonemap returns.
+Drop `Overlay/Post.Tonemap/Main.hlsl`. Unique basename maps to Keen’s file. If compile fails, that pack rolls back; Keen tonemap returns. Prefer AfterUpscale `Display` when an upscaler is live.
 
 ## Includes
 

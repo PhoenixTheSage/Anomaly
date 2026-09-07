@@ -6,7 +6,7 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 
 **Next (velocity proof):** Use the debug overlay in-game (PLAN test plan: moving grid vs camera pan, Depth still compiles) and, when ready, PluginHub pin.
 
-**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–Z** and **AA–AF** are in this repo (owned-pass scheduler, `FullscreenPassRegistry`, temporal policy, Atmosphere wrap at t6, catalog publish). Next code is **K** (sample pack) when a pack needs to demonstrate `Fullscreen/AfterAtmosphere`, inject, or a named-stage overlay.
+**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–Z**, **AA–AF**, and **AG** are in this repo (owned-pass scheduler, `FullscreenPassRegistry`, temporal policy, Atmosphere wrap at t6, catalog publish, color bus). Next code is **K** (sample pack) when a pack needs to demonstrate `Fullscreen/AfterAtmosphere`, inject, or a named-stage overlay.
 
 ---
 
@@ -152,6 +152,8 @@ Skip [PLAN.md](PLAN.md) phase 4 (owned raster) unless D is blocked and SE-DLSS n
 
 **Slice E code done when:** Show Status reports `History bones` for a character and `GBuffer injection: live`. **Slice E proven when:** skinned movers no longer ghost vs rigid; sky/particles are not stuck at zero; Depth/shadows still work.
 
+Camera-fill fallback for non-GBuffer materials is shipped. Object-accurate coverage of the leftover holes is [Slice M](#slice-m--non-gbuffer-velocity-coverage-near-future).
+
 ---
 
 ## Slice F — Shader API surface
@@ -241,6 +243,20 @@ Goal: Slice I only proves Standard Depth. A broken `exclusive: ["GBuffer"]` or `
 
 ---
 
+## Slice M — Non-GBuffer velocity coverage (near-future)
+
+`ANOMALY_VELOCITY` is GBuffer-only (`RENDERING_PASS == 0`). The composite camera-fills complementary-depth 0 (sky) and other clear-zero pixels. That is enough for empty background.
+
+Leftover holes: **transparent, glass / holo / shield, foliage, and deferred decals** never write Target3. Those pixels get camera-from-depth, so a moving window, leaf, or decal ghosts like CameraOnly even when GBuffer grids are correct. Do not put a fourth target on Depth. OIT, foliage streaming, and decal blend states stay 3-attachment-safe unless a dedicated write path is proven.
+
+- [ ] Inventory which of Transparent, TransparentForDecals, Decals, Foliage, and Glass/Holo/Shield actually hit pixels DLSS samples
+- [ ] Object-accurate or instance-backed MVs on those pixels, or a Status line that says a stage stays camera-fill by design
+- [ ] Depth, shadows, and OIT still compile and look correct
+
+**Slice M done when:** a moving glass pane, foliage clump, or deferred decal no longer ghosts versus GBuffer grids — or Status names the stages that remain camera-fill on purpose.
+
+---
+
 ## Velocity debug overlay
 
 Goal: prove GBuffer vs CameraOnly without PIX. Anomaly-owned fullscreen, not a Keen overlay.
@@ -273,8 +289,9 @@ Do A completely before B if time is short: a broken Depth compile is worse than 
 | 10 | J named stages | — | 2 |
 | — | K sample pack | — | 2 (deferred) |
 | 11 | L stage compile probes | — | 2 |
+| 12 | M non-GBuffer Target3 coverage | 6 leftover | 1 (near-future) |
 
-Phase 4 owned raster: skipped. GBuffer piggyback shipped.
+Phase 4 owned raster: skipped. GBuffer piggyback shipped. Slice M is the next velocity coverage goal after GBuffer + sky fill.
 
 ---
 
@@ -286,4 +303,4 @@ Slice A–C code are in. Remaining proof is in-game:
 - B: live `RG16F` + `HistoryValid` after looking around
 - C: `History actors` tracks visible movers; jumps reset
 
-Next session is **in-game** with **Debug buffer** (velocity / linear depth / history / Hi-Z) or PluginHub pin. Framework code continues in [Extensibility.md](Extensibility.md) at slice **K**. Slice K (sample pack) stays deferred until a pack needs to demonstrate inject + defines.
+Next session is **in-game** with **Debug buffer** (velocity / linear depth / history / Hi-Z) or PluginHub pin. Framework code continues in [Extensibility.md](Extensibility.md) at slice **K**. Slice K (sample pack) stays deferred until a pack needs to demonstrate inject + defines. Near-future velocity work is [Slice M](#slice-m--non-gbuffer-velocity-coverage-near-future) (transparent / glass / foliage / decal Target3 holes).

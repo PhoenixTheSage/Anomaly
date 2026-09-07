@@ -40,4 +40,6 @@ If `Active` is null or `IsAvailable` is false, keep a camera-only fallback. Do n
 
 Anomaly can overlay this texture in-game (**Velocity Debug** → **Debug view** → `Velocity`) so you can compare `GBuffer` vs `CameraOnly` without a frame debugger. Complementary-depth 0 (sky) is dark grey in that overlay so still meshes silhouette; the published RG16F still camera-fills those pixels.
 
+Transparent, glass / holo / shield, foliage, and deferred decals do not write Target3 today. They receive the same camera-from-depth fill as sky. That leftover coverage is near-future [Slice M](../../Docs/ROADMAP.md#slice-m--non-gbuffer-velocity-coverage-near-future), not a consumer contract change.
+
 Named buffers that are not velocity-specific use `ClientPlugin.Buffers.BufferCatalog` — see [Buffers/README.md](../Buffers/README.md). `Active("velocity")` is the same producer as `VelocityRegistry.Active`.

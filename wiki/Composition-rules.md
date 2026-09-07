@@ -12,6 +12,7 @@ Iris packs are exclusive. Pulsar loads many plugins. These rules are the law so 
 | 6 | `exclusive` GBuffer opts out of Anomaly-owned write stages. Atmosphere wrap needs exclusive Atmosphere. |
 | 7 | Depth stays 3-attachment-free. Compile failure rolls back that pack. |
 | 8 | Atmosphere inject does not fix DLSS. After `Scheduler.Done` use `ContributeVelocity` / `Reactive`. |
+| 9 | AfterUpscale is a scheduler. Display tenants read `upscaledColor` / `ctx.SceneColor`. One `ClaimUpscale` + one `NotifyUpscaleComplete`. Anomaly does not present. |
 
 ## Do not
 

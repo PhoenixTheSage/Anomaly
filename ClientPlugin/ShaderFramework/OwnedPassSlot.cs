@@ -23,8 +23,11 @@ public enum OwnedPassSlot
     AfterTonemap = 4,
 
     /// <summary>
-    /// After an upscale consumer calls <see cref="OwnedPassRegistry.NotifyUpscaleComplete"/>.
-    /// Output resolution. If nobody notifies, Anomaly runs this at <c>DrawGameScene</c> postfix (native res).
+    /// After the unique upscale consumer calls
+    /// <see cref="OwnedPassRegistry.NotifyUpscaleComplete"/>. Output resolution.
+    /// Read <see cref="OwnedPassContext.SceneColor"/> / catalog <c>upscaledColor</c>,
+    /// not raw <c>LBuffer</c>. If nobody notifies, Anomaly runs this at
+    /// <c>DrawGameScene</c> postfix (native res, <c>LBuffer</c>).
     /// </summary>
     AfterUpscale = 5
 }

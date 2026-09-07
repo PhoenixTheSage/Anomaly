@@ -2156,7 +2156,7 @@ public static class GBufferVelocity
         IsLive = ShaderCompileIntercept.GBufferOverlayPresent;
         LastError = ShaderCompileIntercept.GBufferOverlayPresent
             ? null
-            : "GBuffer overlay HLSL missing";
+            : (KeenShaderGuard.LastError ?? "Keen GBuffer patch not applied");
         loggedError = false;
     }
 

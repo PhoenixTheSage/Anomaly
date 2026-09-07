@@ -162,6 +162,8 @@ public static class ShaderPackRegistry
     {
         if (getConfigPath == null)
             return;
+        if (ClientPlugin.Config.Current == null || !ClientPlugin.Config.Current.ScanLocalPacks)
+            return;
         lock (Gate)
         {
             if (localScanned)

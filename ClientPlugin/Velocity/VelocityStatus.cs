@@ -19,11 +19,13 @@ public static class VelocityStatus
             var sb = new StringBuilder();
             sb.AppendLine("Anomaly Shader Framework");
             sb.Append("Compile intercept: ").AppendLine(FormatInterceptSummary());
+            sb.Append("Keen GBuffer patch: ").AppendLine(KeenShaderGuard.StatusLine);
             sb.Append("Rich HUD: ").AppendLine(RichHudSupport.StatusLine);
             sb.Append("Shader packs: ").AppendLine(ShaderPackRegistry.StatusLine);
             sb.Append("GBuffer attachments: ").AppendLine(GBufferAttachments.StatusLine);
             sb.Append("Pass binds: ").AppendLine(ShaderBindRegistry.StatusLine);
             sb.Append("Owned passes: ").AppendLine(OwnedPassRegistry.StatusLine);
+            sb.Append("Color bus: ").AppendLine(OwnedPassRegistry.ColorStatusLine);
             sb.Append("Fullscreen: ").AppendLine(FullscreenPassRegistry.StatusLine);
             sb.Append("Owned buffers: ").AppendLine(OwnedBuffersPass.StatusLine);
             sb.Append("Velocity service: ").Append(cfg != null ? cfg.VelocitySource.ToString() : "—")

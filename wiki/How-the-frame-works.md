@@ -27,7 +27,7 @@ nested local include while still leaving every draw and pass implementation to K
 
 ## One frame, in order
 
-Velocity freezes at `MyRenderScheduler.Done` — before atmosphere, clouds, and OIT. Linear depth / Hi-Z / history color are produced only when a pack is live or the matching Debug buffer is on. SE-DLSS evaluates LDR after tonemap and owns Halton jitter. Atmosphere inject does not invent motion vectors.
+Velocity freezes at `MyRenderScheduler.Done` — before atmosphere, clouds, and OIT. Linear depth / Hi-Z / history color are produced only when a pack is live or the matching Debug buffer is on. The unique upscaler owns Halton jitter. When an AfterUpscale Display tenant is registered it should evaluate pre-tonemap HDR and publish the dest. Atmosphere inject does not invent motion vectors.
 
 → [[Frame-graph|Full frame graph]]
 

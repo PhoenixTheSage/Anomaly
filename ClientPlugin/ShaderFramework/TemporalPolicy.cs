@@ -18,5 +18,14 @@ public enum TemporalPolicy
     ContributeVelocity = 2,
 
     /// <summary>The pass may write <c>reactiveMask</c> (cleared to 0 at frame start). High = do not trust history.</summary>
-    Reactive = 4
+    Reactive = 4,
+
+    /// <summary>
+    /// AfterUpscale display-referred grade (BT.2390 / scRGB / paper-white).
+    /// The unique upscale consumer should evaluate pre-tonemap HDR, skip Keen
+    /// SDR tonemap, and call <see cref="OwnedPassRegistry.NotifyUpscaleComplete"/>
+    /// with the dest so this pass reads <c>upscaledColor</c> — not raw
+    /// <c>LBuffer</c>.
+    /// </summary>
+    Display = 8
 }

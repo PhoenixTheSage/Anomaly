@@ -22,6 +22,11 @@ public class Config : INotifyPropertyChanged
 
     private VelocityProbe velocityProbe = VelocityProbe.Off;
     private Target3Checkpoint target3Checkpoint = Target3Checkpoint.Live;
+#if LOCAL_BUILD
+    private bool scanLocalPacks = true;
+#else
+    private bool scanLocalPacks = false;
+#endif
 
     #endregion
 
@@ -48,8 +53,8 @@ public class Config : INotifyPropertyChanged
     }
 
     [Separator("Visualization")]
-    [Dropdown(visibleRows: 9, label: "Debug view",
-        description: "Velocity is the final composite. GBufferVelocityRaw is SV_Target3 before camera/depth gap fill. VelocityPipelineAudit shows Target3, pixel execution, PS b7, VS velocity, a GBuffer0 b7 marker, and raw GBuffer0 together. Other entries inspect owned catalog buffers.")]
+    [Dropdown(visibleRows: 10, label: "Debug view",
+        description: "Velocity is the final composite. GBufferVelocityRaw is SV_Target3 before camera/depth gap fill. VelocityPipelineAudit shows Target3, pixel execution, PS b7, VS velocity, a GBuffer0 b7 marker, and raw GBuffer0 together. UpscaledColor is the dest an upscaler published this frame. Other entries inspect owned catalog buffers.")]
     public DebugBuffer DebugBuffer
     {
         get => debugBuffer;
@@ -89,6 +94,15 @@ public class Config : INotifyPropertyChanged
     {
         get => target3Checkpoint;
         set => SetField(ref target3Checkpoint, value);
+    }
+
+    [Separator("Developer")]
+    [Checkbox(label: "Load local shader packs",
+        description: "Scan Data/Anomaly/Packs for unsigned folders and zips. Off for PluginHub builds. Requires a restart.")]
+    public bool ScanLocalPacks
+    {
+        get => scanLocalPacks;
+        set => SetField(ref scanLocalPacks, value);
     }
 
     [Separator("Status")]

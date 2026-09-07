@@ -14,7 +14,8 @@
 | Fullscreen program | Pack PS under `Fullscreen/<Slot>/`. Anomaly compiles and draws (`FullscreenPassRegistry`). |
 | FullscreenCompose | IsolatedAdd, IsolatedMix, Chain, PublishOnly, Replace, DirectAdd. |
 | OwnedPassSlot | AfterLighting, AfterAtmosphere, AfterTransparent, BeforeTonemap, AfterTonemap, AfterUpscale. |
-| TemporalPolicy | `InColor` \| `ContributeVelocity` \| `Reactive`. |
+| TemporalPolicy | `InColor` \| `ContributeVelocity` \| `Reactive` \| `Display`. |
+| Color bus | Catalog `hdrColor` (LBuffer) + `upscaledColor` (notify dest). AfterUpscale is the clock; Display tenants sample `ctx.SceneColor`. |
 | FrameTemporal | SE-DLSS jitter read + unjittered VP republish. Do not patch Projection. |
 | `Keen/` include | Compile intercept opens `Content/Shaders` and skips overlay remap. |
 | DRS | Dynamic resolution. Extra RTs follow `MyRender11.ResolutionI`. |

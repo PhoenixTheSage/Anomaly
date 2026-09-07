@@ -10,6 +10,7 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | [Docs/ShaderPacks.md](https://github.com/PhoenixTheSage/Anomaly/blob/main/Docs/ShaderPacks.md) | Pulsar assets, pack layout, security |
 | [Docs/Extensibility.md](https://github.com/PhoenixTheSage/Anomaly/blob/main/Docs/Extensibility.md) | Slices M–Z and AA–AF (inject, owned passes, fullscreen programs) |
 | [Docs/PLAN.md](https://github.com/PhoenixTheSage/Anomaly/blob/main/Docs/PLAN.md) | Why velocity, Keen frame order |
+| [Docs/ROADMAP.md](https://github.com/PhoenixTheSage/Anomaly/blob/main/Docs/ROADMAP.md) | Slices; Slice M is leftover Target3 coverage |
 | [Docs/KeenShaders.md](https://github.com/PhoenixTheSage/Anomaly/blob/main/Docs/KeenShaders.md) | Inventory of Keen HLSL |
 | [ClientPlugin/Buffers/README.md](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Buffers/README.md) | Catalog names, jitter contract |
 | [ClientPlugin/Velocity/README.md](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Velocity/README.md) | `IVelocityBuffer` convention |
@@ -22,7 +23,7 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | `ClientPlugin.Shaders.ShaderStages` | Named stage table |
 | `ClientPlugin.Shaders.GBufferAttachments` | `Request(name, format)` |
 | `ClientPlugin.Shaders.ShaderBindRegistry` | `RequestSrv(stage, catalogName)` |
-| `ClientPlugin.Shaders.OwnedPassRegistry` | `Register` / `NotifyUpscaleComplete` |
+| `ClientPlugin.Shaders.OwnedPassRegistry` | `Register` / `ClaimUpscale` / `NotifyUpscaleComplete(rc, color)` / `HasDisplayTenant` |
 | `ClientPlugin.Shaders.FullscreenPassRegistry` | `SetUniforms` / data-driven `Fullscreen/` draws |
 | `ClientPlugin.Shaders.FullscreenCompose` | IsolatedAdd / Replace / Chain / … |
 | `ClientPlugin.Shaders.FrameTemporal` | `JitterX`/`Y`, `UnjitteredViewProj`, `InvalidateHistory` |

@@ -40,7 +40,7 @@ Public API is semantic names, not 215 Keen paths. Implemented in `ClientPlugin.S
 | EnvProbe | `EnvProbe/*` | ps `EnvProbeBlend.hlsl` |
 | Foliage | `Foliage/*` | ps `Foliage.hlsl` |
 
-Decals and foliage include `GBufferWrite`. Anomaly does not add `ANOMALY_VELOCITY` on those compiles (no `RENDERING_PASS`). Deferred-decal velocity coverage is still a hole.
+Decals and foliage include `GBufferWrite`. Anomaly does not add `ANOMALY_VELOCITY` on those compiles (no `RENDERING_PASS`). Transparent, glass / holo / shield, foliage, and deferred decals never write Target3; camera fill already covers sky. Those materials are the leftover coverage holes — near-future work in [Docs/ROADMAP.md](../Docs/ROADMAP.md#slice-m--non-gbuffer-velocity-coverage-near-future) Slice M.
 
 ## Anomaly-owned stages
 

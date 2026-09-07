@@ -40,6 +40,7 @@ public sealed class Plugin : IPlugin
         settingsGenerator = new SettingsGenerator(Config.Current.Title, new[]
         {
             nameof(Config.VelocitySource),
+            nameof(Config.ScanLocalPacks),
             nameof(Config.ShowStatus),
             nameof(Config.ShowVelocityDebug),
         });

@@ -20,14 +20,21 @@ Two layers: Anomaly-drawn fullscreen products, and a scheduler packs register in
 | AfterTransparent | Postfix `Transparent.Render` | After OIT + top billboards |
 | BeforeTonemap | Prefix `ToneMapping.Run` (Last) | HDR grade, internal res |
 | AfterTonemap | Postfix `Run` (First) | Internal LDR, before SE-DLSS evaluate |
-| AfterUpscale | `NotifyUpscaleComplete` or `DrawGameScene` fallback | Output res if the upscaler notified |
+| AfterUpscale | `NotifyUpscaleComplete(rc, color)` or `DrawGameScene` fallback | Output res. Read `upscaledColor` / `ctx.SceneColor`, not raw `LBuffer` |
 
 ```csharp
 // ClientPlugin.Shaders.OwnedPassRegistry
 Register("my.aurora", "AfterAtmosphere", 0,
     /* InColor|ContributeVelocity|Reactive */ 1 | 2 | 4,
     ctxObj => { /* OwnedPassContext */ });
+
+// Display tenant (HdrRender-class). AfterUpscale reads upscaledColor.
+Register("hdr.tonemap", "AfterUpscale", 0,
+    /* InColor|Display */ 1 | 8,
+    ctxObj => { /* ctx.SceneColor at ctx.Width x ctx.Height */ });
 ```
+
+Upscalers call `ClaimUpscale("se-dlss")` at init and `NotifyUpscaleComplete(rc, dest)` after evaluate. Query `HasDisplayTenant` to evaluate pre-tonemap HDR. Display tenants query `HasUpscaleConsumer` and yield `MyToneMapping.Run`.
 
 ## TemporalPolicy
 
@@ -36,8 +43,9 @@ Register("my.aurora", "AfterAtmosphere", 0,
 | InColor | Writes LBuffer (HDR) or LDR after tonemap |
 | ContributeVelocity | Call `ctx.ContributeVelocity(overlay, mask)` — republishes velocity |
 | Reactive | May write `reactiveMask` (R8, cleared to 0). High = reject history |
+| Display | AfterUpscale display-referred grade. Sample `ctx.SceneColor` / `upscaledColor` |
 
-> **Caution — Atmosphere inject does not fix DLSS.** Velocity freezes at scheduler Done. Animated emission after that is color-in / motion-out unless you contribute MVs and/or write the reactive mask. SE-DLSS evaluates LDR after tonemap and must bind `reactiveMask` itself.
+> **Caution — Atmosphere inject does not fix DLSS.** Velocity freezes at scheduler Done. Animated emission after that is color-in / motion-out unless you contribute MVs and/or write the reactive mask. The unique upscaler must bind `reactiveMask` itself. When a Display tenant is registered, evaluate HDR and publish the dest — AfterUpscale is the clock, not the image.
 
 > **Warning — Do not copy with `MyCopyToRT.Run`.** Other plugins may intercept that blit. History uses Anomaly’s `HistoryCopy.hlsl`. MSAA LBuffer is `ResolveSubresource`’d first.
 

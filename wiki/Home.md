@@ -18,7 +18,7 @@ Anomaly intercepts Space Engineers’ DX11 shader compiler and publishes shared 
 
 ### Buffer API
 
-Anomaly writes velocity, linear depth, Hi-Z, previous-frame color, and a reactive mask. You resolve types by name at runtime. No compile-time reference to this repo.
+Anomaly writes velocity, linear depth, Hi-Z, previous-frame color, a reactive mask, `hdrColor` (LBuffer alias), and `upscaledColor` after the unique upscaler notifies. You resolve types by name at runtime. No compile-time reference to this repo.
 
 → [[Buffer-catalog|Catalog]] · [[Velocity-contract|Velocity]]
 

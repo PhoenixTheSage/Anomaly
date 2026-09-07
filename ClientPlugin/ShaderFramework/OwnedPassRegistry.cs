@@ -15,8 +15,9 @@ namespace ClientPlugin.Shaders;
 /// compile-time reference. Register a draw at a named
 /// <see cref="OwnedPassSlot"/>; Anomaly owns the Harmony prefixes and the
 /// unbind (Rich HUD). Data-driven <see cref="FullscreenPassRegistry"/>
-/// programs run first, then C# callbacks. SE-DLSS (or any upscaler) calls
-/// <see cref="NotifyUpscaleComplete"/> after evaluate.
+/// programs run first, then C# callbacks. The unique upscale consumer
+/// calls <see cref="ClaimUpscale"/> then <see cref="NotifyUpscaleComplete"/>
+/// with the dest so AfterUpscale reads catalog <c>upscaledColor</c>.
 /// </summary>
 public static class OwnedPassRegistry
 {
@@ -33,7 +34,10 @@ public static class OwnedPassRegistry
     };
 
     static bool upscaleNotified;
+    static string upscaleConsumerId;
+    static object notifiedColor;
     static string statusLine = "none";
+    static string colorStatusLine = "upscale=none upscaledColor=none display=no";
 
     public static string StatusLine
     {
@@ -42,6 +46,154 @@ public static class OwnedPassRegistry
             lock (Gate)
                 return string.IsNullOrEmpty(statusLine) ? "none" : statusLine;
         }
+    }
+
+    /// <summary>
+    /// Unique upscale consumer, published dest, and whether an AfterUpscale
+    /// <see cref="TemporalPolicy.Display"/> tenant is registered.
+    /// </summary>
+    public static string ColorStatusLine
+    {
+        get
+        {
+            lock (Gate)
+                return string.IsNullOrEmpty(colorStatusLine) ? "upscale=none upscaledColor=none display=no" : colorStatusLine;
+        }
+    }
+
+    /// <summary>
+    /// True when an AfterUpscale C# pass or fullscreen program set
+    /// <see cref="TemporalPolicy.Display"/>. Upscalers should evaluate
+    /// pre-tonemap HDR and skip Keen SDR tonemap.
+    /// </summary>
+    public static bool HasDisplayTenant
+    {
+        get
+        {
+            lock (Gate)
+            {
+                for (var i = 0; i < Passes.Count; i++)
+                {
+                    if (Passes[i].Slot == OwnedPassSlot.AfterUpscale &&
+                        (Passes[i].Policy & TemporalPolicy.Display) != 0)
+                        return true;
+                }
+            }
+
+            return FullscreenPassRegistry.HasPolicy(OwnedPassSlot.AfterUpscale, TemporalPolicy.Display);
+        }
+    }
+
+    /// <summary>True after <see cref="ClaimUpscale"/>; HdrRender-class tenants skip stealing <c>MyToneMapping.Run</c>.</summary>
+    public static bool HasUpscaleConsumer
+    {
+        get
+        {
+            lock (Gate)
+                return !string.IsNullOrEmpty(upscaleConsumerId);
+        }
+    }
+
+    public static string UpscaleConsumerId
+    {
+        get
+        {
+            lock (Gate)
+                return upscaleConsumerId ?? "";
+        }
+    }
+
+    /// <summary>Catalog <c>upscaledColor</c> is live this frame (notify passed a dest).</summary>
+    public static bool HasUpscaledColor
+    {
+        get
+        {
+            var buf = BufferCatalog.Active(BufferCatalog.UpscaledColor);
+            return buf != null && buf.IsAvailable;
+        }
+    }
+
+    /// <summary>True after the unique consumer notified (or the DrawGameScene fallback ran).</summary>
+    public static bool WasUpscaleNotified
+    {
+        get
+        {
+            lock (Gate)
+                return upscaleNotified;
+        }
+    }
+
+    /// <summary>Raw dest from notify this frame, or null. Keen <c>ISrvBindable</c>.</summary>
+    internal static object NotifiedColor
+    {
+        get
+        {
+            lock (Gate)
+                return notifiedColor;
+        }
+    }
+
+    /// <summary>
+    /// Unique upscale consumer (SE-DLSS) claims the slot at init. A second
+    /// different id fails closed. Display tenants query
+    /// <see cref="HasUpscaleConsumer"/> and yield <c>MyToneMapping.Run</c>.
+    /// </summary>
+    public static bool ClaimUpscale(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return false;
+        id = id.Trim();
+        lock (Gate)
+        {
+            if (!string.IsNullOrEmpty(upscaleConsumerId) &&
+                !string.Equals(upscaleConsumerId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                Warn("ClaimUpscale ignored '" + id + "' — '" + upscaleConsumerId + "' already claimed");
+                return false;
+            }
+
+            upscaleConsumerId = id;
+            RefreshStatusUnlocked();
+        }
+
+        DebugLog.Write("OwnedPassRegistry ClaimUpscale " + id);
+        return true;
+    }
+
+    public static void ReleaseUpscale(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return;
+        lock (Gate)
+        {
+            if (!string.Equals(upscaleConsumerId, id, StringComparison.OrdinalIgnoreCase))
+                return;
+            upscaleConsumerId = null;
+            RefreshStatusUnlocked();
+        }
+
+        DebugLog.Write("OwnedPassRegistry ReleaseUpscale " + id);
+    }
+
+    /// <summary>
+    /// Reflection-friendly: any C# or fullscreen tenant on <paramref name="slot"/>.
+    /// </summary>
+    public static bool HasSlot(string slot)
+    {
+        if (!TryParseSlot(slot, out var parsed))
+            return false;
+        if (FullscreenPassRegistry.HasSlot(parsed))
+            return true;
+        lock (Gate)
+        {
+            for (var i = 0; i < Passes.Count; i++)
+            {
+                if (Passes[i].Slot == parsed)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -85,7 +237,7 @@ public static class OwnedPassRegistry
                 Draw = draw
             });
             Passes.Sort(Compare);
-            statusLine = FormatStatusUnlocked();
+            RefreshStatusUnlocked();
         }
 
         DebugLog.Write("OwnedPassRegistry register " + id + " " + slot + " pri=" + priority +
@@ -105,21 +257,40 @@ public static class OwnedPassRegistry
                 Passes.RemoveAt(i);
             }
 
-            statusLine = FormatStatusUnlocked();
+            RefreshStatusUnlocked();
         }
     }
 
     /// <summary>
-    /// Upscale consumer (SE-DLSS) calls this after evaluate, at output
+    /// Unique upscale consumer calls this after evaluate, at output
     /// resolution. Runs <see cref="OwnedPassSlot.AfterUpscale"/> once per frame.
-    /// Safe to call when no passes are registered.
+    /// Safe to call when no passes are registered. Prefer the two-argument
+    /// overload so AfterUpscale reads the dest, not internal <c>LBuffer</c>.
     /// </summary>
     public static void NotifyUpscaleComplete()
     {
-        NotifyUpscaleComplete(MyRender11.RC);
+        NotifyUpscaleComplete(MyRender11.RC, null);
     }
 
-    public static void NotifyUpscaleComplete(object renderContext)
+    /// <summary>
+    /// <paramref name="renderContextOrColor"/> is a <c>MyRenderContext</c> or
+    /// the upscaled dest (Keen <c>ISrvBindable</c> / <c>ICustomTexture</c>).
+    /// </summary>
+    public static void NotifyUpscaleComplete(object renderContextOrColor)
+    {
+        var rc = renderContextOrColor as MyRenderContext;
+        if (rc != null)
+            NotifyUpscaleComplete(rc, null);
+        else
+            NotifyUpscaleComplete(MyRender11.RC, renderContextOrColor);
+    }
+
+    /// <summary>
+    /// Publishes <paramref name="color"/> as catalog <c>upscaledColor</c>,
+    /// binds it as fullscreen t0 / <see cref="OwnedPassContext.SceneColor"/>,
+    /// then runs AfterUpscale at <c>ViewportResolution</c>.
+    /// </summary>
+    public static void NotifyUpscaleComplete(object renderContext, object color)
     {
         var rc = renderContext as MyRenderContext ?? MyRender11.RC;
         lock (Gate)
@@ -127,15 +298,27 @@ public static class OwnedPassRegistry
             if (upscaleNotified)
                 return;
             upscaleNotified = true;
+            notifiedColor = color;
         }
 
-        Run(OwnedPassSlot.AfterUpscale, rc, outputResolution: true);
+        var size = MyRender11.ViewportResolution;
+        BufferCatalog.PublishUpscaledColor(color, size.X, size.Y);
+        lock (Gate)
+            RefreshStatusUnlocked();
+        Run(OwnedPassSlot.AfterUpscale, rc, dest: color, outputResolution: true);
     }
 
     internal static void BeginFrame()
     {
         lock (Gate)
+        {
             upscaleNotified = false;
+            notifiedColor = null;
+        }
+
+        BufferCatalog.ClearUpscaledColor();
+        lock (Gate)
+            RefreshStatusUnlocked();
         FrameTemporal.BeginFrame();
         TemporalParticipation.BeginFrame();
     }
@@ -224,7 +407,10 @@ public static class OwnedPassRegistry
     {
         TemporalParticipation.OnResolutionChanged();
         FullscreenPassRegistry.OnResolutionChanged();
+        BufferCatalog.ClearUpscaledColor();
         BufferCatalogLifetime.NotifyResolutionChanged();
+        lock (Gate)
+            RefreshStatusUnlocked();
     }
 
     internal static void Release()
@@ -236,8 +422,11 @@ public static class OwnedPassRegistry
         lock (Gate)
         {
             upscaleNotified = false;
-            statusLine = FormatStatusUnlocked();
+            notifiedColor = null;
+            RefreshStatusUnlocked();
         }
+
+        BufferCatalog.ClearUpscaledColor();
     }
 
     internal static bool TryParseSlot(string name, out OwnedPassSlot slot)
@@ -254,6 +443,12 @@ public static class OwnedPassRegistry
         if (p != 0)
             return p;
         return string.Compare(a.Id, b.Id, StringComparison.OrdinalIgnoreCase);
+    }
+
+    static void RefreshStatusUnlocked()
+    {
+        statusLine = FormatStatusUnlocked();
+        colorStatusLine = FormatColorStatusUnlocked();
     }
 
     static string FormatStatusUnlocked()
@@ -279,10 +474,41 @@ public static class OwnedPassRegistry
                 else
                     sb.Append(',');
                 sb.Append(Passes[i].Id);
+                if ((Passes[i].Policy & TemporalPolicy.Display) != 0)
+                    sb.Append('*');
             }
         }
 
         return sb.Length == 0 ? "none" : sb.ToString();
+    }
+
+    static string FormatColorStatusUnlocked()
+    {
+        var sb = new StringBuilder();
+        sb.Append("upscale=");
+        sb.Append(string.IsNullOrEmpty(upscaleConsumerId) ? "none" : upscaleConsumerId);
+        sb.Append(" upscaledColor=");
+        var buf = BufferCatalog.Active(BufferCatalog.UpscaledColor);
+        if (buf != null && buf.IsAvailable)
+            sb.Append(buf.Width).Append('x').Append(buf.Height);
+        else
+            sb.Append("none");
+        sb.Append(" display=");
+        var display = false;
+        for (var i = 0; i < Passes.Count; i++)
+        {
+            if (Passes[i].Slot == OwnedPassSlot.AfterUpscale &&
+                (Passes[i].Policy & TemporalPolicy.Display) != 0)
+            {
+                display = true;
+                break;
+            }
+        }
+
+        if (!display)
+            display = FullscreenPassRegistry.HasPolicy(OwnedPassSlot.AfterUpscale, TemporalPolicy.Display);
+        sb.Append(display ? "yes" : "no");
+        return sb.ToString();
     }
 
     static void Warn(string message)

@@ -490,12 +490,16 @@ public static class ShaderCompileIntercept
             {
                 EnsureGlobalMacro();
                 EnsureIncludePath();
-                GBufferOverlayPresent = File.Exists(Path.Combine(IncludeDirectory,
-                    "Geometry", "Passes", "GBuffer", "VertexStage.hlsli"));
+                KeenShaderGuard.Prepare();
+                GBufferOverlayPresent = KeenShaderGuard.GBufferPatchesReady;
+                if (!GBufferOverlayPresent && !string.IsNullOrEmpty(KeenShaderGuard.LastError))
+                    LastError = KeenShaderGuard.LastError;
                 IsLive = true;
                 MyLog.Default.WriteLine("Anomaly compile intercept live. Include: " + IncludeDirectory
-                    + " GBuffer overlay=" + GBufferOverlayPresent);
-                DebugLog.Write("ShaderCompileIntercept live include=" + IncludeDirectory);
+                    + " GBuffer overlay=" + GBufferOverlayPresent
+                    + (GBufferOverlayPresent ? "" : " (" + KeenShaderGuard.StatusLine + ")"));
+                DebugLog.Write("ShaderCompileIntercept live include=" + IncludeDirectory
+                    + " keen=" + KeenShaderGuard.StatusLine);
             }
             catch (Exception e)
             {
@@ -1726,9 +1730,8 @@ public static class ShaderCompileIntercept
 
     /// <summary>
     /// Local Keen includes do not search <c>m_includes</c>. Prefix
-    /// <c>MyIncludeProcessor.Open</c> so arbitrary pack overlays and
-    /// <c>Keen/</c> escape-hatch includes still resolve. Core GBuffer injection
-    /// also ships thin system-include dispatchers and no longer depends on this redirect.
+    /// <c>MyIncludeProcessor.Open</c> so arbitrary pack overlays,
+    /// hashed Keen patches, and <c>Keen/</c> escape-hatch includes still resolve.
     /// </summary>
     public static bool TryOpenOverlay(IncludeType includeType, string fileName, Stream parentStream, out Stream stream)
     {
@@ -1751,6 +1754,16 @@ public static class ShaderCompileIntercept
             string parentDir = null;
             if (parentStream is FileStream parentFile && !string.IsNullOrEmpty(parentFile.Name))
                 parentDir = Path.GetDirectoryName(parentFile.Name);
+            else if (parentStream is KeenPatchedIncludeStream patchedParent &&
+                     !string.IsNullOrEmpty(patchedParent.VirtualPath))
+            {
+                var virt = patchedParent.VirtualPath.Replace('\\', '/');
+                var slash = virt.LastIndexOf('/');
+                var parentVirt = slash < 0 ? "" : virt.Substring(0, slash);
+                relativeKey = string.IsNullOrEmpty(parentVirt)
+                    ? fileName.Replace('\\', '/')
+                    : parentVirt + "/" + fileName.Replace('\\', '/');
+            }
             if (!string.IsNullOrEmpty(parentDir))
             {
                 var resolved = Path.GetFullPath(Path.Combine(parentDir, fileName));
@@ -1779,6 +1792,9 @@ public static class ShaderCompileIntercept
             stream = new FileStream(packFile, FileMode.Open, FileAccess.Read, FileShare.Read);
             return true;
         }
+
+        if (KeenShaderGuard.TryOpen(!string.IsNullOrEmpty(relativeKey) ? relativeKey : fileName, out stream))
+            return true;
 
         if (string.IsNullOrEmpty(IncludeDirectory) || string.IsNullOrEmpty(fileName))
             return false;
@@ -1811,10 +1827,21 @@ public static class ShaderCompileIntercept
     /// <summary>Records the actual file returned by Keen's include processor.</summary>
     public static void NoteOpenedInclude(Stream stream)
     {
-        if (stream is not FileStream file || string.IsNullOrEmpty(file.Name))
+        string path;
+        string origin;
+        if (stream is KeenPatchedIncludeStream patched && !string.IsNullOrEmpty(patched.VirtualPath))
+        {
+            path = patched.VirtualPath.Replace('\\', '/');
+            origin = "anomaly";
+        }
+        else if (stream is FileStream file && !string.IsNullOrEmpty(file.Name))
+        {
+            path = file.Name.Replace('\\', '/');
+            origin = DescribeIncludeOrigin(file.Name);
+        }
+        else
             return;
-        var key = file.Name.Replace('\\', '/');
-        var origin = DescribeIncludeOrigin(file.Name);
+        var key = path.StartsWith("/", StringComparison.Ordinal) ? path : "/" + path;
         if (key.EndsWith("/Geometry/Passes/VertexStage.hlsli", StringComparison.OrdinalIgnoreCase))
         {
             Interlocked.Increment(ref dispatcherVertexOpenCount);

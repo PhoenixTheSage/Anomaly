@@ -263,6 +263,8 @@ Use this only if GBuffer inject is blocked and SE-DLSS needs object MVs before i
 - [x] GPU particles, foliage: camera only unless instance-backed.
 - [x] New/unknown geometry: degrade to camera background, never zero.
 
+Camera fill covers sky. Object-accurate MVs on transparent / glass / foliage / deferred decals are [ROADMAP Slice M](ROADMAP.md#slice-m--non-gbuffer-velocity-coverage-near-future).
+
 ### 7 — Consumer wiring (SE-DLSS repo, not this one)
 
 - [x] `VelocitySource`: `External` \| `CameraOnly`. If Anomaly’s `IVelocityBuffer` is null, log and use camera-only; do not Harmony-patch instance updates from DLSS.

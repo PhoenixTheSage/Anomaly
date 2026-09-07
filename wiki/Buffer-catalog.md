@@ -11,6 +11,8 @@ Resolve `ClientPlugin.Buffers.BufferCatalog` by type name. `Active(name)` never 
 | `reactiveMask` | When an owned pass sets `TemporalPolicy.Reactive` | R8, full res; white = do not trust history |
 | `objectId` (or any attachment name) | If a pack requested it | Pack format; also `GBufferAttachments.TryGet` |
 | `fullscreenIsolated` | After a `Fullscreen/` program runs | Last isolated RT; reserved |
+| `hdrColor` | When GBuffer exists | Aliases Keen `LBuffer` (internal HDR) |
+| `upscaledColor` | After `NotifyUpscaleComplete(rc, color)` | Unique upscale dest at output res. Cleared next frame. Reserved |
 | `pass.<id>` | Same draw | That program’s isolated output |
 
 ```csharp

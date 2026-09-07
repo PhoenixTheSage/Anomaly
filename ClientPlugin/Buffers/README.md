@@ -23,9 +23,11 @@ Well-known names:
 | `reactiveMask` | Live when an owned pass sets `TemporalPolicy.Reactive` | `R8_UNorm`, full res; 0 = trust history, 1 = reject |
 | `objectId` | Live extra GBuffer attachments also resolve through `Active(name)` via `GBufferAttachments.TryGet` | pack-requested |
 | `fullscreenIsolated` | Last Anomaly-drawn pack `Fullscreen/` isolated output this frame | `RGBA16F`, slot resolution (`ResolutionI` or viewport) |
+| `hdrColor` | Live — aliases Keen `LBuffer` (internal HDR) | Same as `LBuffer`; bind without poking `MyGBuffer` |
+| `upscaledColor` | Live after the unique upscale consumer calls `NotifyUpscaleComplete(rc, color)` | Output-res dest (HDR or LDR — whatever the consumer wrote). Cleared each `DrawGameScene` prefix |
 | `pass.<id>` | Named isolated output for a fullscreen program | Same as isolated; not reserved — published by Anomaly for that pack id |
 
-Reserved names (`velocity`, `linearDepth`, `hiZ`, `historyColor`, `reactiveMask`, `fullscreenIsolated`) cannot be `Publish`ed by a pack. Same name from two pack ids fails closed. `UnpublishAll(packId)` on dispose.
+Reserved names (`velocity`, `linearDepth`, `hiZ`, `historyColor`, `reactiveMask`, `fullscreenIsolated`, `hdrColor`, `upscaledColor`) cannot be `Publish`ed by a pack. Same name from two pack ids fails closed. `UnpublishAll(packId)` on dispose.
 
 Linear depth and Hi-Z are filled after GBuffer + lighting (`MyRenderScheduler.Done`) and stay **frozen** for the rest of the frame. Atmosphere, clouds, OIT, and owned AfterAtmosphere draws do **not** update them. History is copied at `DrawGameScene` postfix (after Keen post). First frame / resize: `historyColor` stays unavailable until one copy exists. MSAA `LBuffer` is resolved before the blit. Do **not** use `MyCopyToRT.Run` for this copy (other plugins may intercept it).
 
@@ -35,7 +37,18 @@ Linear depth and Hi-Z are filled after GBuffer + lighting (`MyRenderScheduler.Do
 
 SE-DLSS owns Halton jitter (`Projection.M31` / `M32`). Anomaly reads it into `ClientPlugin.Shaders.FrameTemporal` and republishes an **unjittered** view-projection on the lighting/atmosphere/post extras CB (`AnomalyLightingJitter`, `AnomalyUnjitteredViewProj`, `AnomalyPrevViewProj`). Linearize uses `Projection.M33` / `M43` only, so jitter does not change `linearDepth`. TAA / SSR plugins must not assume Anomaly owns jitter, and must not steal SE-DLSS’s jitter. Call `FrameTemporal.InvalidateHistory()` on a camera cut you own; do not patch the projection.
 
-Velocity is written at `MyRenderScheduler.Done` (**before** transparent). Animated AfterAtmosphere emission is invisible to DLSS unless the pass calls `OwnedPassContext.ContributeVelocity` and/or writes `reactiveMask`. SE-DLSS evaluates **LDR after tonemap** and should call `OwnedPassRegistry.NotifyUpscaleComplete()` after evaluate. Binding `reactiveMask` is the consumer’s job.
+Velocity is written at `MyRenderScheduler.Done` (**before** transparent). Animated AfterAtmosphere emission is invisible to DLSS unless the pass calls `OwnedPassContext.ContributeVelocity` and/or writes `reactiveMask`. Binding `reactiveMask` is the consumer’s job.
+
+AfterUpscale is a **scheduler**, not a color API. `OwnedPassContext.LBuffer` is Keen’s internal HDR lighting buffer. Display tenants (HdrRender-class BT.2390) must sample `upscaledColor` / `ctx.SceneColor`, not raw `LBuffer` at output dispatch size.
+
+Handshake (no compile-time Anomaly reference):
+
+1. Display tenant: `OwnedPassRegistry.Register("hdr.tonemap", "AfterUpscale", priority, InColor\|Display, draw)`.
+2. Unique upscaler: `ClaimUpscale("se-dlss")` at init. Query `HasDisplayTenant` — if true, skip Keen SDR tonemap, evaluate **pre-tonemap** `hdrColor` / `LBuffer` into an output-sized dest, then `NotifyUpscaleComplete(rc, dest)`.
+3. Display tenant: query `HasUpscaleConsumer` and yield the `MyToneMapping.Run` prefix. In `draw`, tonemap `ctx.SceneColor` at `ctx.Width` × `ctx.Height`. Keep swapchain / UI composite off AfterUpscale.
+4. Only one caller of `NotifyUpscaleComplete` per frame. If nobody notifies, AfterUpscale falls back at native res with `LBuffer` (no `upscaledColor`).
+
+Two upscale claimers fail closed. Anomaly does not present and does not skip Keen unless a consumer yields.
 
 ## Discovery (C# sketch)
 

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using ClientPlugin.Shaders;
 using ClientPlugin.Velocity;
+using VRage.Render11.Resources;
+using VRageRender;
 
 namespace ClientPlugin.Buffers;
 
@@ -10,9 +12,11 @@ namespace ClientPlugin.Buffers;
 /// <c>ClientPlugin.Buffers.BufferCatalog</c> — do not take a compile-time
 /// reference to Anomaly. <see cref="Active"/> looks up a named buffer
 /// (<c>velocity</c>, <c>linearDepth</c>, <c>hiZ</c>, <c>historyColor</c>,
-/// <c>reactiveMask</c>, <c>fullscreenIsolated</c>, <c>objectId</c>). <c>velocity</c> aliases
-/// <see cref="VelocityRegistry.Active"/>. Packs publish extras with
-/// <see cref="Publish"/>; reserved names fail closed.
+/// <c>reactiveMask</c>, <c>fullscreenIsolated</c>, <c>hdrColor</c>,
+/// <c>upscaledColor</c>, <c>objectId</c>). <c>velocity</c> aliases
+/// <see cref="VelocityRegistry.Active"/>. <c>hdrColor</c> aliases Keen
+/// <c>LBuffer</c>. Packs publish extras with <see cref="Publish"/>;
+/// reserved names fail closed.
 /// </summary>
 public static class BufferCatalog
 {
@@ -23,6 +27,8 @@ public static class BufferCatalog
     public const string HiZ = "hiZ";
     public const string ReactiveMask = "reactiveMask";
     public const string FullscreenIsolated = "fullscreenIsolated";
+    public const string HdrColor = "hdrColor";
+    public const string UpscaledColor = "upscaledColor";
 
     static readonly object Gate = new();
     static readonly Dictionary<string, ISharedBuffer> ByName =
@@ -31,7 +37,8 @@ public static class BufferCatalog
         new(StringComparer.OrdinalIgnoreCase);
     static readonly string[] Reserved =
     {
-        Velocity, LinearDepth, HiZ, HistoryColor, ReactiveMask, FullscreenIsolated
+        Velocity, LinearDepth, HiZ, HistoryColor, ReactiveMask, FullscreenIsolated,
+        HdrColor, UpscaledColor
     };
 
     /// <summary>
@@ -51,6 +58,9 @@ public static class BufferCatalog
 
         if (string.Equals(name, Velocity, StringComparison.OrdinalIgnoreCase))
             return VelocitySharedBuffer.Wrap(VelocityRegistry.Active);
+
+        if (string.Equals(name, HdrColor, StringComparison.OrdinalIgnoreCase))
+            return LBufferSharedBuffer.Instance;
 
         if (GBufferAttachments.TryGet(name, out var attachment))
             return new AttachmentSharedBuffer(attachment);
@@ -78,8 +88,8 @@ public static class BufferCatalog
     /// <summary>
     /// Pack-owned catalog entry. Reserved names
     /// (<c>velocity</c>, <c>linearDepth</c>, <c>hiZ</c>, <c>historyColor</c>,
-    /// <c>reactiveMask</c>, <c>fullscreenIsolated</c>) fail closed. Same name
-    /// from two pack ids fails closed.
+    /// <c>reactiveMask</c>, <c>fullscreenIsolated</c>, <c>hdrColor</c>,
+    /// <c>upscaledColor</c>) fail closed. Same name from two pack ids fails closed.
     /// </summary>
     public static bool Publish(string packId, string name, ISharedBuffer buffer)
     {
@@ -165,6 +175,22 @@ public static class BufferCatalog
     internal static void PublishVelocity(IVelocityBuffer buffer)
     {
         Set(Velocity, VelocitySharedBuffer.Wrap(buffer));
+    }
+
+    /// <summary>
+    /// Unique upscale consumer dest for this frame. Pass null to clear.
+    /// <paramref name="color"/> is Keen <c>ISrvBindable</c> /
+    /// <c>IRtvBindable</c> / <c>ICustomTexture</c>.
+    /// </summary>
+    internal static void PublishUpscaledColor(object color, int fallbackW, int fallbackH)
+    {
+        var wrapped = KeenColorBuffer.Wrap(color, fallbackW, fallbackH);
+        Set(UpscaledColor, wrapped != null && wrapped.IsAvailable ? wrapped : null);
+    }
+
+    internal static void ClearUpscaledColor()
+    {
+        Set(UpscaledColor, null);
     }
 }
 
@@ -288,4 +314,72 @@ sealed class AttachmentSharedBuffer : ISharedBuffer
     public IntPtr NativeResource => inner != null ? inner.NativeResource : IntPtr.Zero;
     public int Width => 0;
     public int Height => 0;
+}
+
+sealed class LBufferSharedBuffer : ISharedBuffer
+{
+    public static readonly LBufferSharedBuffer Instance = new();
+
+    LBufferSharedBuffer()
+    {
+    }
+
+    IRtvTexture Target => MyGBuffer.Main?.LBuffer;
+
+    public bool IsAvailable => Target != null;
+    public object Srv => Target;
+    public IntPtr NativeResource =>
+        Target?.Resource != null ? Target.Resource.NativePointer : IntPtr.Zero;
+    public int Width => MyRender11.ResolutionI.X;
+    public int Height => MyRender11.ResolutionI.Y;
+}
+
+sealed class KeenColorBuffer : ISharedBuffer
+{
+    readonly object srv;
+    readonly IntPtr nativeResource;
+    readonly int width;
+    readonly int height;
+
+    KeenColorBuffer(object srv, IntPtr nativeResource, int width, int height)
+    {
+        this.srv = srv;
+        this.nativeResource = nativeResource;
+        this.width = width;
+        this.height = height;
+    }
+
+    public static ISharedBuffer Wrap(object color, int fallbackW, int fallbackH)
+    {
+        if (color == null)
+            return UnavailableSharedBuffer.Instance;
+        if (color is ICustomTexture custom)
+            color = custom.Linear ?? (object)custom.SRgb;
+        var srv = color as ISrvBindable;
+        if (srv == null)
+            return UnavailableSharedBuffer.Instance;
+
+        var native = IntPtr.Zero;
+        var w = fallbackW;
+        var h = fallbackH;
+        var rtv = color as IRtvTexture;
+        if (rtv != null)
+        {
+            if (rtv.Resource != null)
+                native = rtv.Resource.NativePointer;
+            if (rtv.Size.X > 0 && rtv.Size.Y > 0)
+            {
+                w = rtv.Size.X;
+                h = rtv.Size.Y;
+            }
+        }
+
+        return new KeenColorBuffer(srv, native, w, h);
+    }
+
+    public bool IsAvailable => srv != null && width > 0 && height > 0;
+    public object Srv => srv;
+    public IntPtr NativeResource => nativeResource;
+    public int Width => width;
+    public int Height => height;
 }

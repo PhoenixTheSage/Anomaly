@@ -28,7 +28,8 @@ The detailed contracts are in [Velocity/README.md](../ClientPlugin/Velocity/READ
 
 | Plugin | Status | Required change |
 |---|---|---|
-| SE-DLSS | Integrated consumer | Continue consuming `IVelocityBuffer`; do not duplicate Anomaly sources. |
+| SE-DLSS | Integrated consumer | Continue consuming `IVelocityBuffer`. Call `ClaimUpscale` then `NotifyUpscaleComplete(rc, dest)` so AfterUpscale sees the dest. When `HasDisplayTenant`, evaluate pre-tonemap `hdrColor` and skip Keen SDR. |
+| HdrRender | Handshake ready | Register AfterUpscale with `TemporalPolicy.Display`. Read `ctx.SceneColor` / `upscaledColor`, not raw `LBuffer`. Yield the `MyToneMapping.Run` prefix when `HasUpscaleConsumer`. Keep swapchain / UI composite. |
 | SSGI / Prism | Confirmed incompatible until migrated | Remove its replacement shader compiler and independent Target3 velocity ownership. Consume Anomaly velocity and express its shader/pass work through Anomaly's pack, attachment, bind, and owned-pass APIs. |
 | Aurora | Migration required; implementation not yet audited | Convert its renderer hooks to the appropriate Anomaly pack, buffer, attachment, bind, and owned-pass contracts before compatibility is claimed. |
 

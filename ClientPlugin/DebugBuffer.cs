@@ -18,5 +18,7 @@ public enum DebugBuffer
     HistoryColor,
     HiZ,
     ReactiveMask,
-    FullscreenIsolated
+    FullscreenIsolated,
+    /// <summary>Unique upscale dest published by <c>NotifyUpscaleComplete</c>.</summary>
+    UpscaledColor
 }

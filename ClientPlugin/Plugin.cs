@@ -13,8 +13,8 @@ using VRage.Plugins;
 using VRage.Utils;
 
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("1.5.0.0")]
-[assembly: AssemblyFileVersion("1.5.0.0")]
+[assembly: AssemblyVersion("1.6.0.0")]
+[assembly: AssemblyFileVersion("1.6.0.0")]
 #endif
 
 namespace ClientPlugin;
@@ -69,10 +69,13 @@ public sealed class Plugin : IPlugin
         ShaderPackRegistry.ValidateStages();
         ShaderCompileIntercept.ArmResidentShaderRefresh();
         ShaderCompileIntercept.RequestResidentShaderRefresh();
+        ShaderWarmup.Request();
         CameraVelocityPass.Enabled = true;
         OwnedBuffersPass.Enabled = true;
         GBufferVelocity.Enabled = true;
+        AnomalyTerminalPages.Install();
         MyLog.Default.WriteLine("Anomaly shader framework initialized.");
+        MyLog.Default.WriteLine("Anomaly RenderTrace ready (last-N GPU submit crumbs).");
         DebugLog.Write("Harmony patched, plugin initialized, intercept live=" + ShaderCompileIntercept.IsLive);
     }
 
@@ -83,6 +86,7 @@ public sealed class Plugin : IPlugin
 
         disposed = true;
         DebugLog.Write("Dispose");
+        ConfigStorage.FlushPending(true);
         RichHudSupport.Shutdown();
         CameraVelocityPass.Enabled = false;
         OwnedBuffersPass.Enabled = false;
@@ -105,6 +109,7 @@ public sealed class Plugin : IPlugin
             return;
 
         RichHudSupport.TryInitialize();
+        ConfigStorage.FlushPending();
         ShaderCompileIntercept.RequestResidentShaderRefresh();
     }
 
@@ -146,6 +151,7 @@ public sealed class Plugin : IPlugin
             ShaderPackRegistry.ValidateStages();
             ShaderCompileIntercept.ArmResidentShaderRefresh();
             ShaderCompileIntercept.RequestResidentShaderRefresh();
+            ShaderWarmup.Request();
         }
         MyLog.Default.WriteLine("Anomaly asset folder: " + folder);
         DebugLog.Write("LoadAssets " + folder);
@@ -171,6 +177,7 @@ public sealed class Plugin : IPlugin
             ShaderPackRegistry.ValidateStages();
             ShaderCompileIntercept.ArmResidentShaderRefresh();
             ShaderCompileIntercept.RequestResidentShaderRefresh();
+            ShaderWarmup.Request();
         }
         MyLog.Default.WriteLine("Anomaly named assets: " + assets.Count
             + (shaders != null ? " Shaders=" + shaders : ""));

@@ -11,19 +11,9 @@ Keen already compiles hundreds of HLSL permutations. Anomaly hooks that compile 
 | 0 Compile intercept | Nothing. Anomaly adds include dirs, defines, overlay resolve, cache identity. | Keen |
 | 1 Additive inject | Snippets under `Inject/<Stage>.hlsli` | Keen, with extra MRT/SRV Anomaly binds |
 | 2 Named overlay | A replacement file under `Overlay/<Stage>/` | Keen, using Anomaly-compiled bytecode |
-| 3 Owned pass | `Fullscreen/<Slot>/*.hlsl` or a C# `Register` | Anomaly fullscreen (data-driven first), then you bind |
+| 3 Owned pass | `Fullscreen/<Slot>/*.hlsl` or a C# `Register` | BeforeFullscreen C#, then data-driven Fullscreen, then AfterFullscreen |
 
-After Anomaly activates its include paths, defines, and pack overlays, it queues
-frame-boundary calls to Keen's native `MyShaders.Recompile()` and
-`MyMaterialShaders.Recompile()`. Together they rebuild Stage 2 shader IDs and
-old-pipeline native material bundles that became resident before Pulsar loaded
-Anomaly. They do not clear Keen's
-shader cache, create another compiler, or run another renderer.
-
-Anomaly also supplies the two small `Geometry/Passes/*Stage.hlsli` dispatchers.
-Their GBuffer branch resolves through Anomaly's include root; every other branch
-resolves to Keen's corresponding stage. This avoids depending on redirection of a
-nested local include while still leaving every draw and pass implementation to Keen.
+> **Note — Resident shaders join the overlay.** After assets and pack overlays activate, Anomaly queues Keen’s native `MyShaders.Recompile()` and `MyMaterialShaders.Recompile()` at the next frame boundary. The first replaces Stage 2 shader resources behind their IDs; the second rebuilds old-pipeline material bundles that own native shader objects. Both are rebuilt through the live intercept. This does not clear Keen’s cache, add another compiler, or run another renderer. Two thin pass dispatchers route only the GBuffer branch through Anomaly’s include root; every other branch still resolves to Keen. This avoids depending on a nested local-include redirect.
 
 ## One frame, in order
 

@@ -18,7 +18,7 @@ Anomaly intercepts Space Engineers’ DX11 shader compiler and publishes shared 
 
 ### Buffer API
 
-Anomaly writes velocity, linear depth, Hi-Z, previous-frame color, a reactive mask, `hdrColor` (LBuffer alias), and `upscaledColor` after the unique upscaler notifies. You resolve types by name at runtime. No compile-time reference to this repo.
+Anomaly writes velocity, linear depth, Hi-Z, previous-frame color, a reactive mask, `hdrColor` (LBuffer alias), `litMips` (request-driven scene mip chain), and `upscaledColor` after the unique upscaler notifies. You resolve types by name at runtime. No compile-time reference to this repo.
 
 → [[Buffer-catalog|Catalog]] · [[Velocity-contract|Velocity]]
 
@@ -27,6 +27,12 @@ Anomaly writes velocity, linear depth, Hi-Z, previous-frame color, a reactive ma
 A Pulsar plugin that depends on Anomaly drops `Overlay/`, `Inject/`, and `Fullscreen/` files. Overlay/Inject still draw through Keen. `Fullscreen/` is compiled and drawn by Anomaly.
 
 → [[Your-first-pack|First pack]] · [[Overlay-vs-inject|Overlay vs inject]] · [[Fullscreen-programs|Fullscreen programs]]
+
+### Terminal config
+
+When Rich HUD Master is in the world, Pulsar options appear under **Anomaly Shaders → Anomaly**. Packs request their own page titles beside that folder. MyGui still works without Master. Slider setters mark the pack config dirty; they do not write a `.cfg` on the HUD or Update thread. Host pages must not use Master `CustomValueGetter`.
+
+→ [[Terminal-config|Terminal config]]
 
 ## What it is not
 
@@ -42,7 +48,7 @@ A Pulsar plugin that depends on Anomaly drops `Overlay/`, `Inject/`, and `Fullsc
 
 Windows Space Engineers with [Pulsar](https://github.com/SpaceGT/Pulsar). Enable Anomaly Shader Framework (PluginHub or this repo’s local build). Any consumer or pack lists Anomaly as a dependency so Pulsar auto-enables it. Plugin id: `A9C29274-E447-49EE-881B-C980E6D190FD`. NVIDIA RTX is not required for Anomaly; SE-DLSS has its own GPU needs.
 
-> **Warning — Rich HUD / SmoothFrames.** Unbind extra RT/SRV before returning to Keen. SmoothFrames also patches the render thread — do not assume you own `DrawGameScene`.
+> **Warning — Rich HUD / SmoothFrames.** Unbind extra RT/SRV before returning to Keen. SmoothFrames also patches the render thread — do not assume you own `DrawGameScene`. After a TDR, search `SpaceEngineers.log` for `Anomaly RenderTrace dump at` (last-N GPU submits). Keen's `DEVICE_REMOVED` at Present is the wrapper, not the fault.
 
 ## Contents
 
@@ -54,6 +60,7 @@ Windows Space Engineers with [Pulsar](https://github.com/SpaceGT/Pulsar). Enable
 **Ship HLSL**
 
 - [[Your-first-pack|Your first pack]]
+- [[Terminal-config|Terminal config]]
 - [[Overlay-vs-inject|Overlay vs inject]]
 - [[Fullscreen-programs|Fullscreen programs]]
 - [[Named-stages|Named stages]]
@@ -74,6 +81,7 @@ Windows Space Engineers with [Pulsar](https://github.com/SpaceGT/Pulsar). Enable
 
 **Reference**
 
+- [[Compatibility]]
 - [[Troubleshooting]]
 - [[Glossary]]
 - [[Source-map|Source map]]

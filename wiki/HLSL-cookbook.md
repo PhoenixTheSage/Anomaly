@@ -61,12 +61,12 @@ uint id = AnomalyAttach_objectid[uint2(svPos.xy)].r;
 float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
 {
     float2 mv = AnomalyVelocityBuffer[uint2(pos.xy)].xy;
-    float intensity = AnomalyPassUniform0.x;
+    float intensity = AnomalyPassUniform0.x; // 0–15 on b7; 0–7 unchanged
     return float4(0.02, 0.05, 0.12, 1) * intensity;
 }
 ```
 
-Folder default is IsolatedAdd into `LBuffer`. Set `temporal: ["InColor","Reactive"]` (and contribute MVs from C# if the curtain animates) or DLSS will ghost. AfterAtmosphere cannot sample Keen `DensityLut` (already unbound).
+Folder default is IsolatedAdd into `LBuffer`. Set `temporal: ["InColor","Reactive"]` so IsolatedAdd stamps `reactiveMask` (dilated isolated luma) on the transparent deferred `rc`. Add `ContributeVelocity` from C# if the curtain should reconstruct instead of reject history. AfterAtmosphere cannot sample Keen `DensityLut` (already unbound). Use `ctx.Rc` (Anomaly redirects `MyRender11.RC` during the callback). Cap raymarch steps (`#define MAX 64` plus a runtime `break`) and multiply the budget by `AnomalySafetyScale` so a spectator dive cannot TDR.
 
 ## AfterUpscale display (fullscreen)
 
@@ -75,15 +75,20 @@ Folder default is IsolatedAdd into `LBuffer`. Set `temporal: ["InColor","Reactiv
 ```hlsl
 #include <AnomalyFullscreen.hlsli>
 
+SamplerState PointSamp : register(s0);
+SamplerState LinearSamp : register(s1);
+
 float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target
 {
-    float3 hdr = AnomalySceneColor.SampleLevel(PointSampler, uv, 0).rgb;
+    float3 hdr = AnomalySceneColor.SampleLevel(PointSamp, uv, 0).rgb;
+    float exposure = exp2(AnomalyAvgLuminance.Load(int3(0, 0, 0)).g);
+    float3 bloom = AnomalyBloom.SampleLevel(LinearSamp, uv, 0).xyz;
     // Display-referred grade at ViewportResolution. Do not sample LBuffer here.
-    return float4(hdr, 1);
+    return float4(hdr * exposure + bloom, 1);
 }
 ```
 
-C# display tenants use `ctx.SceneColor` at `ctx.Width` × `ctx.Height` the same way. Keep swapchain / UI composite off this slot.
+C# display tenants use `ctx.SceneColor` at `ctx.Width` × `ctx.Height` the same way. Anomaly captures t4–t6 on `MyToneMapping.Run`. Keep swapchain / UI composite off this slot.
 
 ## Overlay Post.Tonemap
 

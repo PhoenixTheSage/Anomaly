@@ -84,7 +84,10 @@ float2 AnomalyClipToPixelDelta(float4 currClip, float4 prevClip)
     float2 currUv = float2(currClip.x * 0.5 + 0.5, 0.5 - currClip.y * 0.5);
     float2 prevUv = float2(prevClip.x * 0.5 + 0.5, 0.5 - prevClip.y * 0.5);
     // Backward reprojection: previousPixel = currentPixel + motion.
-    return (prevUv - currUv) * AnomalyRenderSize;
+    float2 mv = (prevUv - currUv) * AnomalyRenderSize;
+    if (!all(isfinite(mv)))
+        return float2(0, 0);
+    return clamp(mv, -AnomalyRenderSize, AnomalyRenderSize);
 }
 
 float3 AnomalyWorldToObject(float3 world, matrix m)

@@ -20,5 +20,7 @@ public enum DebugBuffer
     ReactiveMask,
     FullscreenIsolated,
     /// <summary>Unique upscale dest published by <c>NotifyUpscaleComplete</c>.</summary>
-    UpscaledColor
+    UpscaledColor,
+    /// <summary>GenerateMips of this-frame HDR LBuffer (AfterLighting).</summary>
+    LitMips
 }

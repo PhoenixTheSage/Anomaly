@@ -417,6 +417,7 @@ static class ShaderResidentRefreshPatch
 
     static void Prefix(MyRenderMessageBase message, out bool __state)
     {
+        ShaderWarmup.TryRun();
         __state = message != null && message.MessageType == MyRenderMessageEnum.ReloadEffects;
         if (__state)
             ShaderCompileIntercept.BeginResidentShaderRefresh();
@@ -433,5 +434,19 @@ static class ShaderResidentRefreshPatch
         if (__state && __exception != null)
             ShaderCompileIntercept.CompleteResidentShaderRefresh(__exception);
         return __exception;
+    }
+}
+
+[HarmonyPatch]
+static class ShaderSessionStartWarmupPatch
+{
+    static bool Prepare() => TargetMethod() != null;
+
+    static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(MyRender11), "OnSessionStart");
+
+    static void Postfix()
+    {
+        ShaderWarmup.TryRun();
     }
 }

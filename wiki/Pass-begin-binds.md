@@ -4,8 +4,10 @@ Compile intercept is not enough. Extra SRVs and CBs must be bound when Keen draw
 
 | Where | Slot | What |
 |-------|------|------|
-| Geometry GBuffer | b6 | Anomaly velocity CB — **VS only**. Pass begin writes a default; Stage 2 rebinds immediately before each group draw; old-pipeline cube/deformed draws bind after `BindShaderBundle`. Each render context owns a ring of exact-layout 224-byte CBs, and every entry is mapped at most once per frame; this avoids Keen's size-keyed object-CB cache and deferred `MapDiscard` alias reuse. |
-| Geometry GBuffer | t15 / t16 | Previous worlds / previous bones — **VS only**. t15 is instance-buffer order; Stage 2 b6 sets `InstanceBase` to the group's `OffsetInInstanceBuffer`, so `t15[SV_InstanceID + InstanceBase]` selects the group's base matrix copy. |
+| Geometry GBuffer | b6 | Anomaly velocity CB — **VS only**. Every render context owns a ring of exact-layout 240-byte buffers; each entry is mapped at most once per frame. Pass begin writes a default, Stage 2 binds one entry per group, and old-pipeline cube/deformed draws bind one after `BindShaderBundle` with last main-view object-CB rows (`HasPrevWorld`). |
+| Geometry GBuffer | b6 + PS b7 probe | `MrtWrite` clears to -X/cyan, emits runtime +X/pink from VS b6 and a dedicated immutable 16-byte PS b7 payload, and uses an RG-replace Target3 blend without changing Keen's Target0–2 behavior. Gray means an explicit zero. Status independently reflects and GPU-reads back both cbuffer layouts. |
+| Geometry GBuffer | scheduler-end probe | `PassEndClear` records +X once on Keen's immediate context after `MyRenderScheduler.Done` executes all deferred geometry lists. Every depth-foreground pixel must be pink; `pass-end-clear=1` proves the final sampled velocity resource. |
+| Geometry GBuffer | t15 / t16 | Previous worlds / previous bones — **VS only**. CPU packing runs during prepare; t15 upload is recorded on the Stage 2 GBuffer deferred context at pass begin. Each group rebinds VS b6 `InstanceBase` so `t15[SV_InstanceID + InstanceBase]` matches Keen's VB fetch. |
 | Lighting / post | t5 | Catalog velocity (`AnomalyVelocityBuffer`) |
 | Lighting | t6–t9 | Extra GBuffer color attachments, then `RequestSrv` leftovers |
 | Atmosphere | t5 | Keen `DensityLut` — never steal this slot |

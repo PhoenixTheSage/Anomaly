@@ -2,6 +2,8 @@
 
 Default to inject. Overlay is exclusive per file. Two packs claiming the same Keen path fail closed — Keen/Anomaly default is kept, both ids are logged.
 
+> **Note — Anomaly does not ship Keen sources.** GBuffer VertexStage, PixelStage, GBufferWrite, and GBuffer.hlsli are patched at load from the game’s `Content/Shaders`. Anomaly records a SHA-256 of each file and refuses the patch if a game update changes them. Camera velocity and Anomaly-owned HLSL stay up; GBuffer object motion turns off with a Status warning. Atmosphere and Lighting wraps already `#include` Keen originals.
+
 | | Inject | Overlay | Fullscreen |
 |--|--------|---------|------------|
 | Intent | Add helpers / sample extras | Replace a program | Anomaly-drawn composite |
@@ -25,7 +27,7 @@ Put a unique basename or path suffix under the stage folder. `Overlay/GBuffer/Pi
 | What you overlay | Required exclusive |
 |------------------|--------------------|
 | GBuffer write stages (`VertexStage`, `PixelStage`, `GBufferWrite.hlsli`) | `["GBuffer"]` — opts out of Anomaly velocity extras on those files |
-| GBuffer read wraps (`GBuffer.hlsli`, `Surface.hlsli`) | `["GBuffer"]` or `["Lighting"]` |
+| `GBuffer.hlsli` (patched Keen read) or `Surface.hlsli` (Keen original) | `["GBuffer"]` or `["Lighting"]` |
 | `Lighting/Light.hlsli` | `["Lighting"]` — not Lighting.Dir / .Point / .Spot |
 | `Transparent/Atmosphere/AtmosphereCommon.hlsli` | `["Atmosphere"]` — wrap includes Keen via `Keen/` prefix |
 

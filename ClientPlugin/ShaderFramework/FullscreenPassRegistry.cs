@@ -9,6 +9,7 @@ using ClientPlugin.Velocity;
 using SharpDX.Direct3D;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
+using SharpDX.Mathematics.Interop;
 using VRage.Render11.Common;
 using VRage.Render11.RenderContext;
 using VRage.Render11.Resources;
@@ -23,19 +24,29 @@ namespace ClientPlugin.Shaders;
 /// <c>ClientPlugin.Shaders.FullscreenPassRegistry</c>. Anomaly compiles and
 /// draws pack <c>Fullscreen/</c> programs. Packs do not call Draw or create
 /// RTs. <see cref="SetUniforms"/> writes the b7 blob for a program id.
+/// <see cref="SetEnabled"/> is the pack checkbox — independent of Replace
+/// fail-closed. <see cref="RequestLitMips"/> asks for catalog <c>litMips</c>.
 /// </summary>
 public static class FullscreenPassRegistry
 {
     public const string IsolatedCatalog = "fullscreenIsolated";
-    public const int UniformBytes = 64;
+    public const int UniformFloats = 64;
+    public const int UniformBytes = 256;
+    public const int PackSrvBase = 7;
+    public const int PackSrvLast = 9;
 
     const string VsFile = "Fullscreen.hlsl";
     const string MergeFile = "FullscreenMerge.hlsl";
     const int ExtrasBytes = 256;
 
     static readonly object Gate = new();
+    static readonly HashSet<string> LoggedWarnings = new();
     static readonly List<Program> Programs = new();
     static readonly Dictionary<string, UniformCb> Uniforms =
+        new(StringComparer.OrdinalIgnoreCase);
+    static readonly Dictionary<string, List<SrvBind>> ExtraSrvs =
+        new(StringComparer.OrdinalIgnoreCase);
+    static readonly Dictionary<string, bool> PackEnabledById =
         new(StringComparer.OrdinalIgnoreCase);
     static readonly PublishedBuffer IsolatedPublished = new();
 
@@ -71,9 +82,15 @@ public static class FullscreenPassRegistry
         public uint AttachCount;
         public uint FrameIndex;
         public Vector2 JitterOffset;
-        public Vector2 Pad1;
+        public float SafetyScale;
+        public float SafetyPad;
         public Matrix UnjitteredViewProj;
         public Matrix PrevViewProj;
+        public Vector4 CameraToWorldR0;
+        public Vector4 CameraToWorldR1;
+        public Vector4 CameraToWorldR2;
+        public Vector2 ProjScale;
+        public Vector2 CameraToWorldPad;
     }
 
     [StructLayout(LayoutKind.Sequential, Size = UniformBytes)]
@@ -83,6 +100,18 @@ public static class FullscreenPassRegistry
         public Vector4 V1;
         public Vector4 V2;
         public Vector4 V3;
+        public Vector4 V4;
+        public Vector4 V5;
+        public Vector4 V6;
+        public Vector4 V7;
+        public Vector4 V8;
+        public Vector4 V9;
+        public Vector4 V10;
+        public Vector4 V11;
+        public Vector4 V12;
+        public Vector4 V13;
+        public Vector4 V14;
+        public Vector4 V15;
     }
 
     public static string StatusLine
@@ -96,8 +125,10 @@ public static class FullscreenPassRegistry
 
     /// <summary>
     /// Pack-owned scalars for the next draw of <paramref name="id"/>.
-    /// At most 16 floats (b7, <see cref="UniformBytes"/>). Longer arrays
-    /// fail closed.
+    /// At most <see cref="UniformFloats"/> floats on b7 (16×float4,
+    /// 256 B, same size as extras). <c>AnomalyPassUniform0–7</c> stay
+    /// the first 128 bytes. Longer arrays fail closed; Anomaly logs
+    /// once per program id.
     /// </summary>
     public static bool SetUniforms(string id, float[] values)
     {
@@ -111,16 +142,75 @@ public static class FullscreenPassRegistry
                 return true;
             }
 
-            if (values.Length > 16)
+            var key = id.Trim();
+            if (values.Length > UniformFloats)
+            {
+                Warn($"SetUniforms '{key}': {values.Length} floats exceeds {UniformFloats} (b7). Fail closed.");
                 return false;
-            var u = default(UniformCb);
-            u.V0 = Read4(values, 0);
-            u.V1 = Read4(values, 4);
-            u.V2 = Read4(values, 8);
-            u.V3 = Read4(values, 12);
-            Uniforms[id.Trim()] = u;
+            }
+
+            Uniforms[key] = PackUniforms(values);
             return true;
         }
+    }
+
+    /// <summary>
+    /// Bind catalog texture <paramref name="catalogName"/> on fullscreen
+    /// program <paramref name="programId"/> at t7–t9. Slot <c>-1</c> assigns
+    /// the next free reserved SRV. Fail closed if the bank is exhausted or
+    /// the slot is already owned by a different catalog name.
+    /// </summary>
+    public static bool RequestSrv(string programId, string catalogName, int slot = -1)
+    {
+        if (string.IsNullOrWhiteSpace(programId) || string.IsNullOrWhiteSpace(catalogName))
+            return false;
+        lock (Gate)
+        {
+            try
+            {
+                return QueueSrvUnlocked(programId.Trim(), catalogName.Trim(), slot);
+            }
+            catch (Exception e)
+            {
+                Warn("RequestSrv(" + programId + "," + catalogName + "): " + e.Message);
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pack checkbox for program <paramref name="programId"/>. Independent of
+    /// Replace fail-closed (<see cref="Program.Enabled"/>). Survives pack
+    /// reload. Draw runs only when both flags are true.
+    /// </summary>
+    public static bool SetEnabled(string programId, bool enabled)
+    {
+        if (string.IsNullOrWhiteSpace(programId))
+            return false;
+        lock (Gate)
+        {
+            var id = programId.Trim();
+            PackEnabledById[id] = enabled;
+            for (var i = 0; i < Programs.Count; i++)
+            {
+                if (!string.Equals(Programs[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                Programs[i].PackEnabled = enabled;
+            }
+
+            statusLine = FormatStatusUnlocked();
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Ask Anomaly for catalog <c>litMips</c> this session. <paramref name="mipLevels"/>
+    /// <c>&lt;= 0</c> clears the explicit request; json / <see cref="RequestSrv"/>
+    /// binds still generate when that program is live.
+    /// </summary>
+    public static void RequestLitMips(int mipLevels = 5)
+    {
+        OwnedBuffersPass.RequestLitMips(mipLevels);
     }
 
     internal static bool HasSlot(OwnedPassSlot slot)
@@ -129,7 +219,7 @@ public static class FullscreenPassRegistry
         {
             for (var i = 0; i < Programs.Count; i++)
             {
-                if (Programs[i].Enabled && Programs[i].Slot == slot)
+                if (IsLiveUnlocked(Programs[i]) && Programs[i].Slot == slot)
                     return true;
             }
         }
@@ -145,9 +235,31 @@ public static class FullscreenPassRegistry
         {
             for (var i = 0; i < Programs.Count; i++)
             {
-                if (Programs[i].Enabled && Programs[i].Slot == slot &&
+                if (IsLiveUnlocked(Programs[i]) && Programs[i].Slot == slot &&
                     (Programs[i].Policy & policy) != 0)
                     return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool WantsCatalog(string catalogName)
+    {
+        if (string.IsNullOrWhiteSpace(catalogName))
+            return false;
+        lock (Gate)
+        {
+            foreach (var kv in ExtraSrvs)
+            {
+                if (!IsLiveIdUnlocked(kv.Key) || kv.Value == null)
+                    continue;
+                for (var i = 0; i < kv.Value.Count; i++)
+                {
+                    if (string.Equals(kv.Value[i].CatalogName, catalogName,
+                            StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
             }
         }
 
@@ -171,7 +283,8 @@ public static class FullscreenPassRegistry
         }
     }
 
-    internal static void Run(OwnedPassSlot slot, MyRenderContext rc, object dest, bool outputRes)
+    internal static void Run(OwnedPassSlot slot, MyRenderContext rc, object dest, bool outputRes,
+        object scene = null)
     {
         if (rc == null || !rc.IsInitialized)
             return;
@@ -181,7 +294,7 @@ public static class FullscreenPassRegistry
             var n = 0;
             for (var i = 0; i < Programs.Count; i++)
             {
-                if (Programs[i].Enabled && Programs[i].Slot == slot)
+                if (IsLiveUnlocked(Programs[i]) && Programs[i].Slot == slot)
                     n++;
             }
 
@@ -191,7 +304,7 @@ public static class FullscreenPassRegistry
             var w = 0;
             for (var i = 0; i < Programs.Count; i++)
             {
-                if (!Programs[i].Enabled || Programs[i].Slot != slot)
+                if (!IsLiveUnlocked(Programs[i]) || Programs[i].Slot != slot)
                     continue;
                 snapshot[w++] = Programs[i];
             }
@@ -204,7 +317,9 @@ public static class FullscreenPassRegistry
             target = custom.Linear ?? custom.SRgb;
         if (target == null && CanMergeToLBuffer(slot))
             target = MyGBuffer.Main?.LBuffer;
-        ISrvBindable sceneSrv = dest as ISrvBindable ?? target as ISrvBindable;
+        ISrvBindable sceneSrv = scene as ISrvBindable;
+        if (sceneSrv == null)
+            sceneSrv = dest as ISrvBindable ?? target as ISrvBindable;
         if (sceneSrv == null)
         {
             var up = BufferCatalog.Active(BufferCatalog.UpscaledColor);
@@ -220,18 +335,26 @@ public static class FullscreenPassRegistry
         for (var i = 0; i < snapshot.Length; i++)
         {
             var prog = snapshot[i];
+            RenderTrace.Begin(prog.Id);
             try
             {
                 if ((prog.Policy & TemporalPolicy.InColor) != 0 &&
                     (prog.Policy & (TemporalPolicy.Reactive | TemporalPolicy.ContributeVelocity)) == 0)
                     MotionOut(prog);
                 if ((prog.Policy & TemporalPolicy.Reactive) != 0)
-                    TemporalParticipation.EnsureReactive();
+                    TemporalParticipation.EnsureReactive(rc);
                 DrawOne(rc, prog, target, sceneSrv, ref previous, ref lastChain, outputRes);
             }
             catch (Exception e)
             {
+                RenderTrace.DumpIfLost(prog.Id, e);
+                if (RenderTrace.IsLostDevice(e))
+                    throw;
                 Warn("program '" + prog.Id + "' threw " + e.GetType().Name + ": " + e.Message);
+            }
+            finally
+            {
+                RenderTrace.End(prog.Id);
             }
         }
 
@@ -245,6 +368,12 @@ public static class FullscreenPassRegistry
             rc.PixelShader.SetSrv(1, null);
             rc.PixelShader.SetSrv(2, null);
             rc.PixelShader.SetSrv(3, null);
+            rc.PixelShader.SetSrv(4, null);
+            rc.PixelShader.SetSrv(5, null);
+            rc.PixelShader.SetSrv(6, null);
+            rc.PixelShader.SetSrv(7, null);
+            rc.PixelShader.SetSrv(8, null);
+            rc.PixelShader.SetSrv(9, null);
             rc.SetRtvNull();
         }
         catch
@@ -273,6 +402,7 @@ public static class FullscreenPassRegistry
             IsolatedPublished.Clear();
             BufferCatalog.Set(IsolatedCatalog, null);
             Uniforms.Clear();
+            ExtraSrvs.Clear();
             helpersReady = false;
             statusLine = FormatStatusUnlocked();
         }
@@ -303,8 +433,20 @@ public static class FullscreenPassRegistry
             OutputName = string.IsNullOrWhiteSpace(spec.OutputName)
                 ? "pass." + spec.Id.Trim()
                 : spec.OutputName.Trim(),
-            Enabled = true
+            Enabled = true,
+            PackEnabled = !PackEnabledById.TryGetValue(spec.Id.Trim(), out var packOn) || packOn
         });
+        if (spec.Binds != null)
+        {
+            for (var b = 0; b < spec.Binds.Length; b++)
+            {
+                var bind = spec.Binds[b];
+                if (bind == null || string.IsNullOrWhiteSpace(bind.CatalogName))
+                    continue;
+                QueueSrvUnlocked(spec.Id.Trim(), bind.CatalogName.Trim(), bind.Slot);
+            }
+        }
+
         Programs.Sort(Compare);
     }
 
@@ -366,7 +508,6 @@ public static class FullscreenPassRegistry
         var t0 = prog.Compose == FullscreenCompose.Chain ? (previous ?? scene) : scene;
         WriteExtras(rc, outputRes);
         WriteUniforms(rc, prog.Id);
-        BindBus(rc, t0);
         rc.SetRasterizerState(MyRasterizerStateManager.NocullRasterizerState);
         rc.SetDepthStencilState(MyDepthStencilStateManager.IgnoreDepthStencil);
         rc.SetInputLayout(null);
@@ -378,9 +519,20 @@ public static class FullscreenPassRegistry
 
         rc.SetViewport(0f, 0f, scratchW, scratchH, 0f, 1f);
 
+        // Transparent ConsumeWork replays this deferred list onto the
+        // immediate context after lighting left LBuffer (and sometimes
+        // GBuffer1/2) as RTVs. Unbind SRVs first, then force a single RTV
+        // before BindBus samples LBuffer / GBuffer / velocity. BindBus-first
+        // or Keen SetRtv-only is an RTV+SRV hazard (DEVICE_REMOVED at Present).
+        UnbindBus(rc);
+        rc.ClearRtv(isolated, default(RawColor4));
+        rc.SetBlendState(MyBlendStateManager.BlendReplace);
+        BindSingleRtv(rc, isolated);
+        BindBus(rc, t0, prog);
+
         if (prog.Compose == FullscreenCompose.Replace && dest != null)
         {
-            DrawIsolated(rc, isolated);
+            DrawIsolated(rc, prog, isolated);
             MergeToDest(rc, isolated, dest, 0);
             PublishIsolated(isolated);
             PublishNamed(prog, isolated);
@@ -391,7 +543,7 @@ public static class FullscreenPassRegistry
 
         if (prog.Compose == FullscreenCompose.DirectAdd && dest != null)
         {
-            DrawIsolated(rc, isolated);
+            DrawIsolated(rc, prog, isolated);
             MergeToDest(rc, isolated, dest, 1);
             PublishIsolated(isolated);
             PublishNamed(prog, isolated);
@@ -400,7 +552,7 @@ public static class FullscreenPassRegistry
             return;
         }
 
-        DrawIsolated(rc, isolated);
+        DrawIsolated(rc, prog, isolated);
         PublishIsolated(isolated);
         PublishNamed(prog, isolated);
         previous = isolated;
@@ -419,13 +571,14 @@ public static class FullscreenPassRegistry
             MergeToDest(rc, isolated, dest, 1);
     }
 
-    static void DrawIsolated(MyRenderContext rc, IRtvTexture isolated)
+    static void DrawIsolated(MyRenderContext rc, Program prog, IRtvTexture isolated)
     {
-        rc.SetBlendState(MyBlendStateManager.BlendReplace);
-        rc.SetRtv(isolated);
         rc.Draw(3, 0);
         UnbindBus(rc);
         rc.SetRtvNull();
+        if ((prog.Policy & TemporalPolicy.Reactive) != 0 &&
+            prog.Compose != FullscreenCompose.Replace)
+            TemporalParticipation.StampFromIsolated(rc, isolated);
     }
 
     static void MergeToDest(MyRenderContext rc, ISrvBindable isolated, IRtvBindable dest, int mode)
@@ -444,11 +597,12 @@ public static class FullscreenPassRegistry
                 destHistory = historyRt;
             }
             else
-                destHistory = dest as ISrvBindable;
+                return;
         }
 
         rc.SetBlendState(MyBlendStateManager.BlendReplace);
-        rc.SetRtv(dest);
+        UnbindBus(rc);
+        BindSingleRtv(rc, dest);
         rc.VertexShader.Set(vertexShader);
         rc.PixelShader.Set(shader);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
@@ -465,7 +619,8 @@ public static class FullscreenPassRegistry
         if (mergeCopy == null || src == null || dest == null)
             return;
         rc.SetBlendState(MyBlendStateManager.BlendReplace);
-        rc.SetRtv(dest);
+        UnbindBus(rc);
+        BindSingleRtv(rc, dest);
         rc.VertexShader.Set(vertexShader);
         rc.PixelShader.Set(mergeCopy);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
@@ -476,12 +631,30 @@ public static class FullscreenPassRegistry
         rc.SetRtvNull();
     }
 
-    static void BindBus(MyRenderContext rc, ISrvBindable scene)
+    /// <summary>
+    /// Keen <c>SetRtvNull</c> is <c>SetTarget(null)</c> and skips the native
+    /// call when the deferred tracker already has count=0 (fresh
+    /// <c>AcquireRC</c>). That omits OMSetRenderTargets from the command list,
+    /// so ConsumeWork replays BindBus onto lighting's leftover LBuffer RTV.
+    /// Always record a one-RTV native bind on this context.
+    /// </summary>
+    static void BindSingleRtv(MyRenderContext rc, IRtvBindable rtv)
+    {
+        rc.ResetTargets();
+        if (rtv?.Rtv == null)
+            return;
+        if (rc.DeviceContext != null)
+            rc.DeviceContext.OutputMerger.SetTargets(null, 1, new[] { rtv.Rtv });
+        rc.SetRtv(rtv);
+    }
+
+    static void BindBus(MyRenderContext rc, ISrvBindable scene, Program prog)
     {
         rc.AllShaderStages.SetConstantBuffer(6, extrasCb);
         rc.AllShaderStages.SetConstantBuffer(7, uniformCb);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
         rc.PixelShader.SetSampler(1, MySamplerStateManager.Linear);
+        rc.PixelShader.SetSampler(2, MySamplerStateManager.CloudSampler);
         rc.PixelShader.SetSrv(0, scene);
         var depth = BufferCatalog.Active(BufferCatalog.LinearDepth);
         rc.PixelShader.SetSrv(1, depth != null && depth.IsAvailable ? depth.Srv as ISrvBindable : null);
@@ -489,6 +662,45 @@ public static class FullscreenPassRegistry
         rc.PixelShader.SetSrv(2, vel != null && vel.IsAvailable ? vel.Srv as ISrvBindable : null);
         var react = BufferCatalog.Active(BufferCatalog.ReactiveMask);
         rc.PixelShader.SetSrv(3, react != null && react.IsAvailable ? react.Srv as ISrvBindable : null);
+        if (IsHdrGBufferSlot(prog.Slot))
+        {
+            var gb = MyGBuffer.Main;
+            rc.PixelShader.SetSrv(4, gb?.GBuffer0);
+            rc.PixelShader.SetSrv(5, gb?.GBuffer1);
+            rc.PixelShader.SetSrv(6, gb?.GBuffer2);
+        }
+        else
+        {
+            var avgLum = BufferCatalog.Active(BufferCatalog.AvgLuminance);
+            rc.PixelShader.SetSrv(4, avgLum != null && avgLum.IsAvailable ? avgLum.Srv as ISrvBindable : null);
+            var bloom = BufferCatalog.Active(BufferCatalog.Bloom);
+            rc.PixelShader.SetSrv(5, bloom != null && bloom.IsAvailable ? bloom.Srv as ISrvBindable : null);
+            var dirt = BufferCatalog.Active(BufferCatalog.Dirt);
+            rc.PixelShader.SetSrv(6, dirt != null && dirt.IsAvailable ? dirt.Srv as ISrvBindable : null);
+        }
+
+        BindPackSrvs(rc, prog.Id);
+    }
+
+    static void BindPackSrvs(MyRenderContext rc, string programId)
+    {
+        List<SrvBind> binds;
+        lock (Gate)
+        {
+            if (!ExtraSrvs.TryGetValue(programId, out binds) || binds == null || binds.Count == 0)
+                return;
+            binds = new List<SrvBind>(binds);
+        }
+
+        for (var i = 0; i < binds.Count; i++)
+        {
+            var bind = binds[i];
+            if (bind.Slot < PackSrvBase || bind.Slot > PackSrvLast)
+                continue;
+            var buf = BufferCatalog.Active(bind.CatalogName);
+            rc.PixelShader.SetSrv(bind.Slot,
+                buf != null && buf.IsAvailable ? buf.Srv as ISrvBindable : null);
+        }
     }
 
     static void UnbindBus(MyRenderContext rc)
@@ -497,8 +709,81 @@ public static class FullscreenPassRegistry
         rc.PixelShader.SetSrv(1, null);
         rc.PixelShader.SetSrv(2, null);
         rc.PixelShader.SetSrv(3, null);
+        rc.PixelShader.SetSrv(4, null);
+        rc.PixelShader.SetSrv(5, null);
+        rc.PixelShader.SetSrv(6, null);
+        rc.PixelShader.SetSrv(7, null);
+        rc.PixelShader.SetSrv(8, null);
+        rc.PixelShader.SetSrv(9, null);
+        rc.PixelShader.SetSampler(2, null);
         rc.AllShaderStages.SetConstantBuffer(6, null);
         rc.AllShaderStages.SetConstantBuffer(7, null);
+    }
+
+    static bool QueueSrvUnlocked(string programId, string catalogName, int slot)
+    {
+        if (!ExtraSrvs.TryGetValue(programId, out var list) || list == null)
+        {
+            list = new List<SrvBind>();
+            ExtraSrvs[programId] = list;
+        }
+
+        if (slot < 0)
+            slot = NextFreePackSlotUnlocked(list);
+        if (slot < PackSrvBase || slot > PackSrvLast)
+        {
+            Warn("RequestSrv slot t" + slot + " for '" + catalogName + "' on '" + programId +
+                 "' is outside t" + PackSrvBase + "–t" + PackSrvLast);
+            return false;
+        }
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            var existing = list[i];
+            if (string.Equals(existing.CatalogName, catalogName, StringComparison.OrdinalIgnoreCase))
+            {
+                existing.Slot = slot;
+                return true;
+            }
+
+            if (existing.Slot == slot &&
+                !string.Equals(existing.CatalogName, catalogName, StringComparison.OrdinalIgnoreCase))
+            {
+                Warn("RequestSrv slot t" + slot + " on '" + programId + "' already '" +
+                     existing.CatalogName + "', skipped '" + catalogName + "'");
+                return false;
+            }
+        }
+
+        list.Add(new SrvBind { CatalogName = catalogName, Slot = slot });
+        return true;
+    }
+
+    static int NextFreePackSlotUnlocked(List<SrvBind> list)
+    {
+        var used = new bool[PackSrvLast + 1];
+        if (list != null)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                var s = list[i].Slot;
+                if (s >= PackSrvBase && s <= PackSrvLast)
+                    used[s] = true;
+            }
+        }
+
+        for (var slot = PackSrvBase; slot <= PackSrvLast; slot++)
+        {
+            if (!used[slot])
+                return slot;
+        }
+
+        return -1;
+    }
+
+    static bool IsHdrGBufferSlot(OwnedPassSlot slot)
+    {
+        return CanMergeToLBuffer(slot);
     }
 
     static void WriteExtras(MyRenderContext rc, bool outputRes)
@@ -506,10 +791,10 @@ public static class FullscreenPassRegistry
         if (extrasCb == null)
             return;
         var size = outputRes ? MyRender11.ViewportResolution : MyRender11.ResolutionI;
-        var vel = BufferCatalog.Active(BufferCatalog.Velocity);
-        var hist = VelocityRegistry.Active;
         var w = size.X > 0 ? size.X : 1;
         var h = size.Y > 0 ? size.Y : 1;
+        var vel = BufferCatalog.Active(BufferCatalog.Velocity);
+        var hist = VelocityRegistry.Active;
         var cb = new ExtrasCb
         {
             RenderSize = new Vector2(w, h),
@@ -519,9 +804,15 @@ public static class FullscreenPassRegistry
             AttachCount = 0,
             FrameIndex = FrameTemporal.FrameIndex,
             JitterOffset = new Vector2(FrameTemporal.JitterX, FrameTemporal.JitterY),
-            Pad1 = Vector2.Zero,
+            SafetyScale = FrameTemporal.SafetyScale,
+            SafetyPad = 0f,
             UnjitteredViewProj = FrameTemporal.UnjitteredViewProj,
-            PrevViewProj = FrameTemporal.PrevViewProj
+            PrevViewProj = FrameTemporal.PrevViewProj,
+            CameraToWorldR0 = FrameTemporal.CameraToWorldRow(0),
+            CameraToWorldR1 = FrameTemporal.CameraToWorldRow(1),
+            CameraToWorldR2 = FrameTemporal.CameraToWorldRow(2),
+            ProjScale = FrameTemporal.ProjScale,
+            CameraToWorldPad = Vector2.Zero
         };
         var mapping = MyMapping.MapDiscard(rc, extrasCb);
         mapping.WriteAndPosition(ref cb);
@@ -538,6 +829,48 @@ public static class FullscreenPassRegistry
         var mapping = MyMapping.MapDiscard(rc, uniformCb);
         mapping.WriteAndPosition(ref u);
         mapping.Unmap();
+    }
+
+    internal static void CollectWarmupJobs(List<ShaderWarmup.Job> jobs)
+    {
+        lock (Gate)
+        {
+            if (!helpersReady)
+            {
+                var vsPath = FindHlsl(VsFile);
+                var mergePath = FindHlsl(MergeFile);
+                ShaderWarmup.Add(jobs, vsPath, MyShaderProfile.vs_5_0, "Anomaly.Fullscreen.VS");
+                if (!string.IsNullOrEmpty(mergePath))
+                {
+                    ShaderWarmup.Add(jobs, mergePath, MyShaderProfile.ps_5_0, "Anomaly.Fullscreen.Merge0",
+                        new ShaderMacro("MERGE_MODE", "0"));
+                    ShaderWarmup.Add(jobs, mergePath, MyShaderProfile.ps_5_0, "Anomaly.Fullscreen.Merge1",
+                        new ShaderMacro("MERGE_MODE", "1"));
+                    ShaderWarmup.Add(jobs, mergePath, MyShaderProfile.ps_5_0, "Anomaly.Fullscreen.Merge2",
+                        new ShaderMacro("MERGE_MODE", "2"));
+                }
+            }
+
+            for (var i = 0; i < Programs.Count; i++)
+            {
+                var prog = Programs[i];
+                if (prog.Shader != null || !prog.Enabled)
+                    continue;
+                ShaderWarmup.Add(jobs, prog.File, MyShaderProfile.ps_5_0, "Anomaly.Fullscreen." + prog.Id,
+                    new ShaderMacro("ANOMALY_FULLSCREEN", "1"),
+                    new ShaderMacro("ANOMALY_FULLSCREEN_SLOT_" + prog.Slot.ToString().ToUpperInvariant(), "1"));
+            }
+        }
+    }
+
+    internal static void Prewarm()
+    {
+        EnsureHelpers(null);
+        Program[] snapshot;
+        lock (Gate)
+            snapshot = Programs.ToArray();
+        for (var i = 0; i < snapshot.Length; i++)
+            EnsureProgram(snapshot[i]);
     }
 
     static bool EnsureHelpers(MyRenderContext rc)
@@ -586,25 +919,37 @@ public static class FullscreenPassRegistry
     {
         if (prog.Shader != null)
             return true;
+        if (!prog.Enabled)
+            return false;
         var macros = new[]
         {
             new ShaderMacro("ANOMALY_FULLSCREEN", "1"),
             new ShaderMacro("ANOMALY_FULLSCREEN_SLOT_" + prog.Slot.ToString().ToUpperInvariant(), "1")
         };
-        var bc = MyShaderCompiler.Compile(prog.File, macros, MyShaderProfile.ps_5_0,
-            "Anomaly.Fullscreen." + prog.Id, invalidateCache: false);
-        if (bc == null || bc.Length == 0)
+        try
         {
-            Warn("compile failed pack=" + prog.PackId + " id=" + prog.Id);
+            FullscreenHlslLint.WarnIfUnbounded(prog.Id, prog.File);
+            var bc = MyShaderCompiler.Compile(prog.File, macros, MyShaderProfile.ps_5_0,
+                "Anomaly.Fullscreen." + prog.Id, invalidateCache: false);
+            if (bc == null || bc.Length == 0)
+            {
+                Warn("compile failed pack=" + prog.PackId + " id=" + prog.Id);
+                prog.Enabled = false;
+                return false;
+            }
+
+            prog.Shader = new PixelShader(MyRender11.DeviceInstance, bc)
+            {
+                DebugName = "Anomaly.Fullscreen." + prog.Id
+            };
+            return true;
+        }
+        catch (Exception e)
+        {
+            Warn("compile failed pack=" + prog.PackId + " id=" + prog.Id + ": " + e.Message);
             prog.Enabled = false;
             return false;
         }
-
-        prog.Shader = new PixelShader(MyRender11.DeviceInstance, bc)
-        {
-            DebugName = "Anomaly.Fullscreen." + prog.Id
-        };
-        return true;
     }
 
     static bool EnsureScratch(bool outputRes)
@@ -667,6 +1012,29 @@ public static class FullscreenPassRegistry
         if (current == pongOut)
             return pingOut;
         return null;
+    }
+
+    static UniformCb PackUniforms(float[] values)
+    {
+        return new UniformCb
+        {
+            V0 = Read4(values, 0),
+            V1 = Read4(values, 4),
+            V2 = Read4(values, 8),
+            V3 = Read4(values, 12),
+            V4 = Read4(values, 16),
+            V5 = Read4(values, 20),
+            V6 = Read4(values, 24),
+            V7 = Read4(values, 28),
+            V8 = Read4(values, 32),
+            V9 = Read4(values, 36),
+            V10 = Read4(values, 40),
+            V11 = Read4(values, 44),
+            V12 = Read4(values, 48),
+            V13 = Read4(values, 52),
+            V14 = Read4(values, 56),
+            V15 = Read4(values, 60),
+        };
     }
 
     static Vector4 Read4(float[] values, int offset)
@@ -786,6 +1154,23 @@ public static class FullscreenPassRegistry
         return p != 0 ? p : string.Compare(a.Id, b.Id, StringComparison.OrdinalIgnoreCase);
     }
 
+    static bool IsLiveUnlocked(Program prog)
+    {
+        return prog != null && prog.Enabled && prog.PackEnabled;
+    }
+
+    static bool IsLiveIdUnlocked(string id)
+    {
+        for (var i = 0; i < Programs.Count; i++)
+        {
+            if (!string.Equals(Programs[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                continue;
+            return IsLiveUnlocked(Programs[i]);
+        }
+
+        return false;
+    }
+
     static string FormatStatusUnlocked()
     {
         if (Programs.Count == 0)
@@ -799,6 +1184,8 @@ public static class FullscreenPassRegistry
                 sb.Append(' ');
             sb.Append(Programs[i].Slot).Append('/').Append(Programs[i].Compose).Append(':')
                 .Append(Programs[i].Id);
+            if (!Programs[i].PackEnabled)
+                sb.Append('-');
         }
 
         return sb.Length == 0 ? "none" : sb.ToString();
@@ -814,6 +1201,7 @@ public static class FullscreenPassRegistry
 
     static void Fail(string message)
     {
+        RenderTrace.DumpIfLost("fullscreen", null);
         if (loggedError)
             return;
         loggedError = true;
@@ -822,6 +1210,12 @@ public static class FullscreenPassRegistry
 
     static void Warn(string message)
     {
+        lock (Gate)
+        {
+            if (!LoggedWarnings.Add(message))
+                return;
+        }
+
         MyLog.Default.WriteLine("Anomaly fullscreen: " + message);
         DebugLog.Write("FullscreenPassRegistry WARN " + message);
     }
@@ -837,6 +1231,7 @@ public static class FullscreenPassRegistry
         public string File;
         public string OutputName;
         public bool Enabled;
+        public bool PackEnabled = true;
         public bool WarnedMotion;
         public PixelShader Shader;
         public PublishedBuffer Published;
@@ -853,4 +1248,11 @@ internal sealed class FullscreenProgramSpec
     public TemporalPolicy Policy;
     public string File;
     public string OutputName;
+    public SrvBind[] Binds;
+}
+
+internal sealed class SrvBind
+{
+    public string CatalogName;
+    public int Slot = -1;
 }

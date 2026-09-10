@@ -33,6 +33,11 @@ public static class ShaderCompileIntercept
     public const string VelocityMacroName = "ANOMALY_VELOCITY";
     public const string VelocityMacroValue = "1";
     public const string RenderingPassMacro = "RENDERING_PASS";
+#if DEBUG
+    public const bool BytecodeAuditEnabled = true;
+#else
+    public const bool BytecodeAuditEnabled = false;
+#endif
 
     public static bool IsLive { get; private set; }
     public static bool GBufferOverlayPresent { get; private set; }
@@ -304,6 +309,8 @@ public static class ShaderCompileIntercept
     private static ShaderObjectEvidence[] residentPixelEvidence = Array.Empty<ShaderObjectEvidence>();
     private static ShaderObjectEvidence[] residentVertexEvidence = Array.Empty<ShaderObjectEvidence>();
     private static string residentRefreshError;
+    private static string lastArmedRefreshKey;
+    private static string lastCompletedRefreshKey;
     private static string assetFolder;
     private static string includeDirectoryOverride;
     private static readonly List<string> PackIncludes = new();
@@ -521,10 +528,23 @@ public static class ShaderCompileIntercept
         if (!IsLive)
             return;
 
+        var key = CurrentRefreshInputKey();
+        if (string.Equals(key, lastCompletedRefreshKey, StringComparison.Ordinal) ||
+            string.Equals(key, lastArmedRefreshKey, StringComparison.Ordinal))
+            return;
+
+        lastArmedRefreshKey = key;
         Interlocked.Increment(ref residentRefreshGeneration);
         residentRefreshError = null;
         DebugLog.Write("ShaderCompileIntercept armed resident refresh generation " +
-            Volatile.Read(ref residentRefreshGeneration));
+            Volatile.Read(ref residentRefreshGeneration) + " key=" + key);
+    }
+
+    static string CurrentRefreshInputKey()
+    {
+        return (ShaderPackRegistry.Fingerprint ?? "0") + "|" +
+               (KeenShaderGuard.GBufferPatchesReady ? "1" : "0") + "|" +
+               (KeenShaderGuard.StatusLine ?? "");
     }
 
     /// <summary>
@@ -643,6 +663,7 @@ public static class ShaderCompileIntercept
         if (error == null)
         {
             residentRefreshError = null;
+            lastCompletedRefreshKey = lastArmedRefreshKey ?? CurrentRefreshInputKey();
             Interlocked.Increment(ref residentRefreshCount);
             var message = "Anomaly resident shaders refreshed by Keen ReloadEffects. Opens: "
                 + OverlayOpenStatus + " GBuffer PS=" + ResidentGBufferCompileStatus;
@@ -664,6 +685,9 @@ public static class ShaderCompileIntercept
         if (Volatile.Read(ref residentRefreshRunning) != 0 &&
             profile == MyShaderProfile.ps_5_0 && isGBuffer)
             Interlocked.Increment(ref residentGBufferPixelCompiles);
+        if (ShaderRecompileCacheFill.IsRunning)
+            return;
+
         if (bytecode != null && bytecode.Length != 0)
         {
             if (ShaderPackRegistry.StageProbePending && !ShaderPackRegistry.StageProbeInProgress)
@@ -735,9 +759,8 @@ public static class ShaderCompileIntercept
                 state.File, state.Permutation);
             var count = vertex ? Volatile.Read(ref deepVertexOrphanCount) : Volatile.Read(ref deepPixelOrphanCount);
             if (count <= DeepMissingRouteLimit)
-                MyLog.Default.WriteLine("Anomaly unowned compile " + state.Profile + " " + state.File +
-                    "#" + state.Permutation + " thread=" + Thread.CurrentThread.ManagedThreadId +
-                    " stack=" + Environment.StackTrace);
+                DebugLog.Write("unowned compile " + state.Profile + " " + state.File +
+                    "#" + state.Permutation + " thread=" + Thread.CurrentThread.ManagedThreadId);
         }
 
         if (vertex)
@@ -754,6 +777,9 @@ public static class ShaderCompileIntercept
             if (state.InvalidateCache)
                 Interlocked.Increment(ref deepPixelInvalidatedCount);
         }
+
+        if (!BytecodeAuditEnabled)
+            return;
 
         var compiledEvidence = ReflectGBufferBytecode(state.Profile, bytecode);
         if (!owner.HasEvidence)
@@ -775,7 +801,7 @@ public static class ShaderCompileIntercept
         var route = state.File + "#" + state.Permutation;
         AddMissingDeepRoute(vertex, route);
         var cache = wasCached ? "cache" : "fresh";
-        MyLog.Default.WriteLine("Anomaly velocity deep compile missing flow profile=" + state.Profile +
+        DebugLog.Write("Anomaly velocity deep compile missing flow profile=" + state.Profile +
             " route=" + route + " sourceHash=" + (compilerHash ?? "?") +
             " resultHash=0x" + compiledEvidence.Hash.ToString("X16") +
             " mask=0x" + compiledEvidence.FlowMask.ToString("X") + " " + cache +
@@ -917,7 +943,7 @@ public static class ShaderCompileIntercept
     static void AttachShaderObjectEvidence(ShaderObjectCreationState state,
         MyShaderProfile profile, byte[] bytecode)
     {
-        if (state == null || state.HasEvidence || state.Profile != profile)
+        if (!BytecodeAuditEnabled || state == null || state.HasEvidence || state.Profile != profile)
             return;
         var evidence = ReflectGBufferBytecode(profile, bytecode);
         state.Evidence = evidence;
@@ -946,7 +972,7 @@ public static class ShaderCompileIntercept
     public static void RepairVertexShader(ref MyShaderCompilationInfo info, ref byte[] bytes,
         ref VertexShader shader, ShaderObjectCreationState state)
     {
-        if (state == null || !state.IsVelocityGBuffer || shader == null) return;
+        if (!BytecodeAuditEnabled || state == null || !state.IsVelocityGBuffer || shader == null) return;
         // The out array outranks earlier wrapper observations.
         state.Evidence = ReflectGBufferBytecode(info.Profile, bytes);
         state.HasEvidence = state.Evidence.Hash != 0;
@@ -976,7 +1002,7 @@ public static class ShaderCompileIntercept
     public static void RepairPixelShader(ref MyShaderCompilationInfo info, ref PixelShader shader,
         ShaderObjectCreationState state)
     {
-        if (state == null || !state.IsVelocityGBuffer || shader == null ||
+        if (!BytecodeAuditEnabled || state == null || !state.IsVelocityGBuffer || shader == null ||
             (state.HasEvidence && (state.Evidence.FlowMask & PixelFlowRequired) == PixelFlowRequired)) return;
         var original = state.Evidence;
         try
@@ -1012,6 +1038,8 @@ public static class ShaderCompileIntercept
     /// </summary>
     static ShaderBytecodeEvidence ReflectGBufferBytecode(MyShaderProfile profile, byte[] bytecode)
     {
+        if (!BytecodeAuditEnabled)
+            return default;
         try
         {
             using var reflection = new ShaderReflection(bytecode);
@@ -1147,6 +1175,8 @@ public static class ShaderCompileIntercept
     static int InspectExecutableFlow(MyShaderProfile profile, byte[] bytecode,
         int texcoord12Register, int target0Register, int target3Register, int target7Register)
     {
+        if (!BytecodeAuditEnabled)
+            return 0;
         try
         {
             using var shader = new ShaderBytecode(bytecode);
@@ -1352,10 +1382,13 @@ public static class ShaderCompileIntercept
             if (state.IsGBuffer)
             {
                 Volatile.Write(ref residentGBufferPixelObjects, AddPointer(residentGBufferPixelObjects, pointer));
-                if (state?.HasEvidence == true)
-                    Volatile.Write(ref residentPixelEvidence, AddEvidence(residentPixelEvidence, pointer, state.Evidence));
-                else
-                    Interlocked.Increment(ref pixelEvidenceMissingCount);
+                if (BytecodeAuditEnabled)
+                {
+                    if (state.HasEvidence)
+                        Volatile.Write(ref residentPixelEvidence, AddEvidence(residentPixelEvidence, pointer, state.Evidence));
+                    else
+                        Interlocked.Increment(ref pixelEvidenceMissingCount);
+                }
             }
             if (state.IsVelocityGBuffer)
                 Volatile.Write(ref residentVelocityPixelObjects, AddPointer(residentVelocityPixelObjects, pointer));
@@ -1378,10 +1411,13 @@ public static class ShaderCompileIntercept
             if (state.IsGBuffer)
             {
                 Volatile.Write(ref residentGBufferVertexObjects, AddPointer(residentGBufferVertexObjects, pointer));
-                if (state?.HasEvidence == true)
-                    Volatile.Write(ref residentVertexEvidence, AddEvidence(residentVertexEvidence, pointer, state.Evidence));
-                else
-                    Interlocked.Increment(ref vertexEvidenceMissingCount);
+                if (BytecodeAuditEnabled)
+                {
+                    if (state.HasEvidence)
+                        Volatile.Write(ref residentVertexEvidence, AddEvidence(residentVertexEvidence, pointer, state.Evidence));
+                    else
+                        Interlocked.Increment(ref vertexEvidenceMissingCount);
+                }
             }
             if (state.IsVelocityGBuffer)
                 Volatile.Write(ref residentVelocityVertexObjects, AddPointer(residentVelocityVertexObjects, pointer));

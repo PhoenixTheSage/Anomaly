@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -73,11 +74,16 @@ public static class VelocityDebugPass
                 return;
             try
             {
+                RenderTrace.Begin("CatalogDebug");
                 DrawUnlocked(dest);
             }
             catch (Exception e)
             {
                 Fail("draw: " + e.GetType().Name + ": " + e.Message, e);
+            }
+            finally
+            {
+                RenderTrace.End("CatalogDebug");
             }
         }
     }
@@ -170,6 +176,10 @@ public static class VelocityDebugPass
                 break;
             case DebugBuffer.UpscaledColor:
                 buf = BufferCatalog.Active(BufferCatalog.UpscaledColor);
+                shaderMode = 2f;
+                break;
+            case DebugBuffer.LitMips:
+                buf = BufferCatalog.Active(BufferCatalog.LitMips);
                 shaderMode = 2f;
                 break;
             default:
@@ -311,6 +321,19 @@ public static class VelocityDebugPass
         rc.SetViewport(0f, 0f, w, h, 0f, 1f);
     }
 
+    internal static void CollectWarmupJobs(List<ShaderWarmup.Job> jobs)
+    {
+        if (shadersReady && vertexShader != null && pixelShader != null)
+            return;
+        ShaderWarmup.Add(jobs, FindHlsl(VsFile), MyShaderProfile.vs_5_0, "Anomaly.Fullscreen");
+        ShaderWarmup.Add(jobs, FindHlsl(PsFile), MyShaderProfile.ps_5_0, "Anomaly.CatalogDebug");
+    }
+
+    internal static void Prewarm()
+    {
+        EnsureShaders();
+    }
+
     static void EnsureShaders()
     {
         if (shadersReady && vertexShader != null && pixelShader != null)
@@ -379,6 +402,7 @@ public static class VelocityDebugPass
     static void Fail(string message, Exception e)
     {
         lastError = message;
+        RenderTrace.DumpIfLost("CatalogDebug", e);
         if (loggedError)
             return;
         loggedError = true;

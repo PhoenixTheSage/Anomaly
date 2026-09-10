@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using ClientPlugin.ShaderFramework;
 using SharpDX.Direct3D;
 using VRage.Utils;
@@ -155,7 +156,10 @@ public static class ShaderPackRegistry
         }
 
         if (applied)
+        {
             ValidateStages();
+            ShaderWarmup.Request();
+        }
     }
 
     internal static void ScanLocalDrop(Func<string, string, string> getConfigPath)
@@ -198,6 +202,7 @@ public static class ShaderPackRegistry
         lock (Gate)
             ApplyUnlocked();
         ValidateStages();
+        ShaderWarmup.Request();
     }
 
     /// <summary>
@@ -209,7 +214,84 @@ public static class ShaderPackRegistry
     internal static void ValidateStages()
     {
         lock (Gate)
-            ValidateStagesUnlocked();
+        {
+            if (stageProbeInProgress)
+                return;
+            if (!ShaderCompileIntercept.IsLive)
+            {
+                stageProbePending = true;
+                return;
+            }
+
+            stageProbeInProgress = true;
+        }
+
+        try
+        {
+            for (var round = 0; round < 8; round++)
+            {
+                List<RuntimeProbe> probes;
+                lock (Gate)
+                {
+                    if (!TryBuildRuntimeProbes(out probes, out var notReady))
+                    {
+                        if (notReady)
+                        {
+                            stageProbePending = true;
+                            return;
+                        }
+
+                        stageProbePending = false;
+                        return;
+                    }
+                }
+
+                var snapshot = probes;
+                var results = new bool[snapshot.Count];
+                ShaderCompileParallel.For(0, snapshot.Count, i =>
+                {
+                    results[i] = CompileProbe(snapshot[i]);
+                });
+
+                string failedStage = null;
+                for (var i = 0; i < snapshot.Count; i++)
+                {
+                    if (results[i])
+                        continue;
+                    failedStage = snapshot[i].Stage;
+                    break;
+                }
+
+                if (failedStage == null)
+                {
+                    lock (Gate)
+                    {
+                        stageProbePending = false;
+                        Log("stage probes ok (" + DescribeProbeStages(snapshot) + ")");
+                    }
+
+                    return;
+                }
+
+                var stageProbes = FilterProbes(snapshot, failedStage);
+                bool isolated;
+                lock (Gate)
+                    isolated = IsolateStageFailureUnlocked(failedStage, stageProbes);
+                if (!isolated)
+                    return;
+            }
+
+            lock (Gate)
+            {
+                Warn("stage probes stopped after too many rollback rounds");
+                stageProbePending = false;
+            }
+        }
+        finally
+        {
+            lock (Gate)
+                stageProbeInProgress = false;
+        }
     }
 
     internal static void ValidateDepth()
@@ -910,6 +992,7 @@ public static class ShaderPackRegistry
             existing.Policy = policy;
             existing.File = full;
             existing.OutputName = output;
+            existing.Binds = spec.Binds;
         }
     }
 
@@ -936,17 +1019,19 @@ public static class ShaderPackRegistry
 
     static PassSpec[] ReadJsonPasses(string json)
     {
-        var m = Regex.Match(json, "\"passes\"\\s*:\\s*\\[(.*?)\\]", RegexOptions.Singleline);
+        var m = Regex.Match(json, "\"passes\"\\s*:\\s*\\[", RegexOptions.Singleline);
         if (!m.Success)
             return null;
-        var inner = m.Groups[1].Value;
-        var objects = Regex.Matches(inner, "\\{[^}]*\\}");
+        var inner = ExtractJsonArrayInner(json, m.Index + m.Length - 1);
+        if (inner == null)
+            return Array.Empty<PassSpec>();
+        var objects = ExtractJsonObjects(inner);
         if (objects.Count == 0)
             return Array.Empty<PassSpec>();
         var list = new List<PassSpec>(objects.Count);
         for (var i = 0; i < objects.Count; i++)
         {
-            var obj = objects[i].Value;
+            var obj = objects[i];
             var file = ReadJsonString(obj, "file");
             var slot = ReadJsonString(obj, "slot");
             if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(slot))
@@ -963,11 +1048,94 @@ public static class ShaderPackRegistry
                 Compose = ReadJsonString(obj, "compose"),
                 Priority = priority,
                 Temporal = ReadJsonStringArray(obj, "temporal"),
-                Output = ReadJsonString(obj, "output")
+                Output = ReadJsonString(obj, "output"),
+                Binds = ReadJsonBinds(obj)
             });
         }
 
         return list.ToArray();
+    }
+
+    static SrvBind[] ReadJsonBinds(string obj)
+    {
+        var m = Regex.Match(obj, "\"binds\"\\s*:\\s*\\[", RegexOptions.Singleline);
+        if (!m.Success)
+            return null;
+        var inner = ExtractJsonArrayInner(obj, m.Index + m.Length - 1);
+        if (string.IsNullOrWhiteSpace(inner))
+            return Array.Empty<SrvBind>();
+        var objects = ExtractJsonObjects(inner);
+        if (objects.Count > 0)
+        {
+            var list = new List<SrvBind>(objects.Count);
+            for (var i = 0; i < objects.Count; i++)
+            {
+                var catalog = ReadJsonString(objects[i], "catalog");
+                if (string.IsNullOrWhiteSpace(catalog))
+                    continue;
+                var slot = -1;
+                var slotText = ReadJsonNumber(objects[i], "slot");
+                if (slotText != null)
+                    int.TryParse(slotText, out slot);
+                list.Add(new SrvBind { CatalogName = catalog, Slot = slot });
+            }
+
+            return list.ToArray();
+        }
+
+        var names = Regex.Matches(inner, "\"((?:\\\\.|[^\"])*)\"");
+        if (names.Count == 0)
+            return Array.Empty<SrvBind>();
+        var simple = new SrvBind[names.Count];
+        for (var i = 0; i < names.Count; i++)
+            simple[i] = new SrvBind { CatalogName = Regex.Unescape(names[i].Groups[1].Value), Slot = -1 };
+        return simple;
+    }
+
+    static string ExtractJsonArrayInner(string json, int openBracketIndex)
+    {
+        if (openBracketIndex < 0 || openBracketIndex >= json.Length || json[openBracketIndex] != '[')
+            return null;
+        var depth = 0;
+        for (var i = openBracketIndex; i < json.Length; i++)
+        {
+            var c = json[i];
+            if (c == '[')
+                depth++;
+            else if (c == ']')
+            {
+                depth--;
+                if (depth == 0)
+                    return json.Substring(openBracketIndex + 1, i - openBracketIndex - 1);
+            }
+        }
+
+        return null;
+    }
+
+    static List<string> ExtractJsonObjects(string inner)
+    {
+        var list = new List<string>();
+        var depth = 0;
+        var start = -1;
+        for (var i = 0; i < inner.Length; i++)
+        {
+            var c = inner[i];
+            if (c == '{')
+            {
+                if (depth == 0)
+                    start = i;
+                depth++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0 && start >= 0)
+                    list.Add(inner.Substring(start, i - start + 1));
+            }
+        }
+
+        return list;
     }
 
     static PendingPack ScanPack(string registerId, string root, Manifest manifest, bool local)
@@ -1118,64 +1286,6 @@ public static class ShaderPackRegistry
         }
 
         return null;
-    }
-
-    static void ValidateStagesUnlocked()
-    {
-        if (stageProbeInProgress)
-            return;
-
-        if (!ShaderCompileIntercept.IsLive)
-        {
-            stageProbePending = true;
-            return;
-        }
-
-        stageProbeInProgress = true;
-        try
-        {
-            for (var round = 0; round < 8; round++)
-            {
-                if (!TryBuildRuntimeProbes(out var probes, out var notReady))
-                {
-                    if (notReady)
-                    {
-                        stageProbePending = true;
-                        return;
-                    }
-
-                    stageProbePending = false;
-                    return;
-                }
-
-                string failedStage = null;
-                for (var i = 0; i < probes.Count; i++)
-                {
-                    if (CompileProbe(probes[i]))
-                        continue;
-                    failedStage = probes[i].Stage;
-                    break;
-                }
-
-                if (failedStage == null)
-                {
-                    stageProbePending = false;
-                    Log("stage probes ok (" + DescribeProbeStages(probes) + ")");
-                    return;
-                }
-
-                var stageProbes = FilterProbes(probes, failedStage);
-                if (!IsolateStageFailureUnlocked(failedStage, stageProbes))
-                    return;
-            }
-
-            Warn("stage probes stopped after too many rollback rounds");
-            stageProbePending = false;
-        }
-        finally
-        {
-            stageProbeInProgress = false;
-        }
     }
 
     static bool IsolateStageFailureUnlocked(string stage, List<RuntimeProbe> stageProbes)
@@ -2179,5 +2289,6 @@ public static class ShaderPackRegistry
         public int? Priority;
         public string[] Temporal;
         public string Output;
+        public SrvBind[] Binds;
     }
 }

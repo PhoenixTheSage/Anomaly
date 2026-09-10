@@ -49,3 +49,4 @@ Decals and foliage include `GBufferWrite`. Anomaly does not add `ANOMALY_VELOCIT
 | Anomaly.CameraVelocity | `CameraVelocity.hlsl`, `Fullscreen.hlsl` |
 | Anomaly.LinearDepth | `LinearDepth.hlsl`, `HiZDownsample.hlsl`, `Fullscreen.hlsl` |
 | Anomaly.HistoryColor | `HistoryCopy.hlsl`, `Fullscreen.hlsl` |
+| Anomaly.LitMips | `HistoryCopy.hlsl` + `GenerateMips` of this-frame `LBuffer` |

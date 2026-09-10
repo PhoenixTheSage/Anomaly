@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -18,14 +19,19 @@ using VRageRender;
 namespace ClientPlugin.ShaderFramework;
 
 /// <summary>
-/// Owned linear view-depth, half-res min Hi-Z, and previous-frame HDR color.
+/// Owned linear view-depth, half-res min Hi-Z, previous-frame HDR color,
+/// and request-driven this-frame <c>litMips</c> (GenerateMips of LBuffer).
 /// Linear/Hi-Z run after <c>MyRenderScheduler.Done</c>. History is copied after
 /// post at <c>DrawGameScene</c> postfix so TAA still sees last frame during post.
+/// <c>litMips</c> is filled at AfterLighting (before fullscreen programs).
 /// </summary>
 public static class OwnedBuffersPass
 {
     static readonly object Gate = new();
     const int ConstantBufferBytes = 256;
+    const int DefaultLitMips = 5;
+    const int MinLitMips = 2;
+    const int MaxLitMips = 12;
     const string VsFile = "Fullscreen.hlsl";
     const string LinearPsFile = "LinearDepth.hlsl";
     const string HiZPsFile = "HiZDownsample.hlsl";
@@ -38,15 +44,18 @@ public static class OwnedBuffersPass
     static readonly CatalogTexture LinearPublished = new();
     static readonly CatalogTexture HiZPublished = new();
     static readonly CatalogTexture HistoryPublished = new();
+    static readonly CatalogTexture LitMipsPublished = new();
 
     static VertexShader vertexShader;
     static PixelShader linearShader;
     static PixelShader hiZShader;
     static PixelShader historyShader;
     static IConstantBuffer linearCb;
-    static IRtvTexture linearTarget;
+    static readonly IRtvTexture[] linearTargets = new IRtvTexture[2];
+    static int linearWriteIndex = 1;
     static IRtvTexture hiZTarget;
     static IRtvTexture historyTarget;
+    static IRtvTexture litMipsTarget;
     static IRtvTexture msaaScratch;
     static int linearWidth;
     static int linearHeight;
@@ -54,9 +63,14 @@ public static class OwnedBuffersPass
     static int hiZHeight;
     static int historyWidth;
     static int historyHeight;
+    static int litMipsWidth;
+    static int litMipsHeight;
+    static int litMipsLevels;
     static int scratchWidth;
     static int scratchHeight;
     static Format scratchFormat;
+    static int explicitMipLevels;
+    static bool litMipsDoneThisFrame;
     static bool loggedError;
 
     [StructLayout(LayoutKind.Sequential, Size = ConstantBufferBytes)]
@@ -82,7 +96,8 @@ public static class OwnedBuffersPass
                     return "shaders not ready";
                 return "linearDepth " + FormatTex(LinearPublished)
                     + "; hiZ " + FormatTex(HiZPublished)
-                    + "; historyColor " + FormatTex(HistoryPublished);
+                    + "; historyColor " + FormatTex(HistoryPublished)
+                    + "; litMips " + FormatTex(LitMipsPublished);
             }
         }
     }
@@ -103,12 +118,17 @@ public static class OwnedBuffersPass
             }
             try
             {
+                RenderTrace.Begin("OwnedBuffers");
                 ExecuteDepthUnlocked();
             }
             catch (Exception e)
             {
                 Fail("execute: " + e.GetType().Name + ": " + e.Message, e);
                 ClearDepthCatalog();
+            }
+            finally
+            {
+                RenderTrace.End("OwnedBuffers");
             }
         }
     }
@@ -129,12 +149,81 @@ public static class OwnedBuffersPass
             }
             try
             {
+                RenderTrace.Begin("historyColor");
                 CaptureHistoryUnlocked();
             }
             catch (Exception e)
             {
                 Fail("history: " + e.GetType().Name + ": " + e.Message, e);
                 ClearHistoryCatalog();
+            }
+            finally
+            {
+                RenderTrace.End("historyColor");
+            }
+        }
+    }
+
+    public static void BeginFrame()
+    {
+        lock (Gate)
+            litMipsDoneThisFrame = false;
+    }
+
+    /// <summary>
+    /// Sticky request for catalog <c>litMips</c>. <paramref name="mipLevels"/>
+    /// <c>&lt;= 0</c> clears the explicit request.
+    /// </summary>
+    public static void RequestLitMips(int mipLevels = DefaultLitMips)
+    {
+        lock (Gate)
+        {
+            if (mipLevels <= 0)
+            {
+                explicitMipLevels = 0;
+                return;
+            }
+
+            var clamped = mipLevels;
+            if (clamped < MinLitMips)
+                clamped = MinLitMips;
+            if (clamped > MaxLitMips)
+                clamped = MaxLitMips;
+            if (clamped > explicitMipLevels)
+                explicitMipLevels = clamped;
+        }
+    }
+
+    public static void ExecuteLitMips(MyRenderContext rc)
+    {
+        if (!Enabled || rc == null || !rc.IsInitialized)
+            return;
+
+        var want = WantLitMips();
+        lock (Gate)
+        {
+            if (!Enabled || litMipsDoneThisFrame)
+                return;
+            litMipsDoneThisFrame = true;
+            if (!want)
+            {
+                ClearLitMipsCatalog();
+                return;
+            }
+
+            try
+            {
+                RenderTrace.Begin("litMips");
+                ExecuteLitMipsUnlocked(rc);
+            }
+            catch (Exception e)
+            {
+                Fail("litMips: " + e.GetType().Name + ": " + e.Message, e);
+                ClearLitMipsCatalog();
+            }
+            finally
+            {
+                RenderTrace.End("litMips");
             }
         }
     }
@@ -148,6 +237,7 @@ public static class OwnedBuffersPass
             DisposeTargets();
             ClearDepthCatalog();
             ClearHistoryCatalog();
+            ClearLitMipsCatalog();
         }
     }
 
@@ -157,6 +247,7 @@ public static class OwnedBuffersPass
         {
             ClearDepthCatalog();
             ClearHistoryCatalog();
+            ClearLitMipsCatalog();
             DisposeTargets();
             DisposeShadersAndCb();
             ShadersReady = false;
@@ -185,6 +276,15 @@ public static class OwnedBuffersPass
         return (Config.Current?.DebugBuffer ?? DebugBuffer.Off) == DebugBuffer.HiZ;
     }
 
+    static bool WantLitMips()
+    {
+        if (explicitMipLevels > 0)
+            return true;
+        if ((Config.Current?.DebugBuffer ?? DebugBuffer.Off) == DebugBuffer.LitMips)
+            return true;
+        return FullscreenPassRegistry.WantsCatalog(BufferCatalog.LitMips);
+    }
+
     static void ExecuteDepthUnlocked()
     {
         var gbuffer = MyGBuffer.Main;
@@ -200,10 +300,14 @@ public static class OwnedBuffersPass
         EnsureShaders();
         EnsureDepthTargets();
         EnsureLinearCb();
-        if (!ShadersReady || linearTarget == null || linearCb == null ||
-            vertexShader == null || linearShader == null)
+        if (!ShadersReady || linearTargets[0] == null || linearTargets[1] == null ||
+            linearCb == null || vertexShader == null || linearShader == null)
             return;
         if (WantHiZ() && (hiZTarget == null || hiZShader == null))
+            return;
+
+        var dest = NextLinearWrite();
+        if (dest == null)
             return;
 
         var cb = new LinearConstants
@@ -217,7 +321,12 @@ public static class OwnedBuffersPass
 
         BindFullscreen(rc, linearShader);
         rc.SetScreenViewport();
-        rc.SetRtv(linearTarget);
+        // AfterAtmosphere IsolatedAdd may still be sampling last frame's
+        // published ping. Write the other.
+        rc.SetRtvNull();
+        rc.PixelShader.SetSrv(0, null);
+        rc.PixelShader.SetSrv(1, null);
+        rc.SetRtv(dest);
         rc.PixelShader.SetConstantBuffer(0, linearCb);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
         rc.PixelShader.SetSrv(0, depth);
@@ -227,10 +336,12 @@ public static class OwnedBuffersPass
         {
             BindFullscreen(rc, hiZShader);
             rc.SetViewport(0f, 0f, hiZWidth, hiZHeight, 0f, 1f);
+            rc.SetRtvNull();
+            rc.PixelShader.SetSrv(0, null);
             rc.SetRtv(hiZTarget);
             rc.PixelShader.SetConstantBuffer(0, null);
             rc.PixelShader.SetSampler(0, null);
-            rc.PixelShader.SetSrv(0, linearTarget);
+            rc.PixelShader.SetSrv(0, dest);
             rc.Draw(3, 0);
             Publish(HiZPublished, BufferCatalog.HiZ, hiZTarget, hiZWidth, hiZHeight);
         }
@@ -242,7 +353,7 @@ public static class OwnedBuffersPass
 
         rc.ClearState();
 
-        Publish(LinearPublished, BufferCatalog.LinearDepth, linearTarget, linearWidth, linearHeight);
+        Publish(LinearPublished, BufferCatalog.LinearDepth, dest, linearWidth, linearHeight);
         LastError = null;
         loggedError = false;
     }
@@ -285,6 +396,47 @@ public static class OwnedBuffersPass
         loggedError = false;
     }
 
+    static void ExecuteLitMipsUnlocked(MyRenderContext rc)
+    {
+        var gbuffer = MyGBuffer.Main;
+        var lbuffer = gbuffer?.LBuffer;
+        if (gbuffer == null || lbuffer == null)
+            return;
+
+        EnsureShaders();
+        var levels = explicitMipLevels > 0 ? explicitMipLevels : DefaultLitMips;
+        EnsureLitMipsTarget(levels);
+        if (!ShadersReady || litMipsTarget == null || historyShader == null || vertexShader == null)
+            return;
+
+        ISrvBindable src = lbuffer;
+        var samples = Math.Max(gbuffer.SamplesCount, 1);
+        if (samples > 1)
+        {
+            var format = lbuffer.Format;
+            EnsureMsaaScratch(format);
+            if (msaaScratch == null || rc.DeviceContext == null)
+                return;
+            rc.DeviceContext.ResolveSubresource(lbuffer.Resource, 0, msaaScratch.Resource, 0, format);
+            src = msaaScratch;
+        }
+
+        BindFullscreen(rc, historyShader);
+        rc.SetScreenViewport();
+        rc.SetRtv(litMipsTarget);
+        rc.PixelShader.SetSampler(0, MySamplerStateManager.Linear);
+        rc.PixelShader.SetSrv(0, src);
+        rc.Draw(3, 0);
+        rc.PixelShader.SetSrv(0, null);
+        rc.SetRtvNull();
+        rc.GenerateMips(litMipsTarget);
+        rc.ClearState();
+
+        Publish(LitMipsPublished, BufferCatalog.LitMips, litMipsTarget, litMipsWidth, litMipsHeight);
+        LastError = null;
+        loggedError = false;
+    }
+
     static void BindFullscreen(MyRenderContext rc, PixelShader ps)
     {
         rc.SetRasterizerState(MyRasterizerStateManager.NocullRasterizerState);
@@ -296,6 +448,25 @@ public static class OwnedBuffersPass
         rc.GeometryShader.Set(null);
         rc.VertexShader.Set(vertexShader);
         rc.PixelShader.Set(ps);
+    }
+
+    internal static void CollectWarmupJobs(List<ShaderWarmup.Job> jobs)
+    {
+        lock (Gate)
+        {
+            if (vertexShader != null && linearShader != null && hiZShader != null && historyShader != null)
+                return;
+            ShaderWarmup.Add(jobs, FindHlsl(VsFile), MyShaderProfile.vs_5_0, "Anomaly.Fullscreen");
+            ShaderWarmup.Add(jobs, FindHlsl(LinearPsFile), MyShaderProfile.ps_5_0, "Anomaly.LinearDepth");
+            ShaderWarmup.Add(jobs, FindHlsl(HiZPsFile), MyShaderProfile.ps_5_0, "Anomaly.HiZ");
+            ShaderWarmup.Add(jobs, FindHlsl(HistoryPsFile), MyShaderProfile.ps_5_0, "Anomaly.HistoryColor");
+        }
+    }
+
+    internal static void Prewarm()
+    {
+        lock (Gate)
+            EnsureShaders();
     }
 
     static void EnsureShaders()
@@ -353,19 +524,25 @@ public static class OwnedBuffersPass
 
         var halfX = Math.Max(1, size.X / 2);
         var halfY = Math.Max(1, size.Y / 2);
-        if (linearTarget != null && linearWidth == size.X && linearHeight == size.Y &&
+        if (linearTargets[0] != null && linearTargets[1] != null &&
+            linearWidth == size.X && linearHeight == size.Y &&
             hiZTarget != null && hiZWidth == halfX && hiZHeight == halfY)
             return;
 
         DisposeDepthTargets();
-        linearTarget = MyManagers.RwTextures.CreateRtv("Anomaly.LinearDepth", size.X, size.Y, Format.R32_Float);
+        linearTargets[0] = MyManagers.RwTextures.CreateRtv("Anomaly.LinearDepth.A", size.X, size.Y,
+            Format.R32_Float);
+        linearTargets[1] = MyManagers.RwTextures.CreateRtv("Anomaly.LinearDepth.B", size.X, size.Y,
+            Format.R32_Float);
         hiZTarget = MyManagers.RwTextures.CreateRtv("Anomaly.HiZ", halfX, halfY, Format.R32_Float);
+        linearWriteIndex = 1;
         linearWidth = size.X;
         linearHeight = size.Y;
         hiZWidth = halfX;
         hiZHeight = halfY;
         ClearDepthCatalog();
-        DebugLog.Write("OwnedBuffersPass depth RT " + size.X + "x" + size.Y + " hiZ " + halfX + "x" + halfY);
+        DebugLog.Write("OwnedBuffersPass depth RT " + size.X + "x" + size.Y +
+            " ping-pong hiZ " + halfX + "x" + halfY);
     }
 
     static void EnsureHistoryTarget()
@@ -383,6 +560,30 @@ public static class OwnedBuffersPass
         historyHeight = size.Y;
         ClearHistoryCatalog();
         DebugLog.Write("OwnedBuffersPass history RT " + size.X + "x" + size.Y);
+    }
+
+    static void EnsureLitMipsTarget(int mipLevels)
+    {
+        var size = MyRender11.ResolutionI;
+        if (size.X <= 0 || size.Y <= 0)
+            return;
+        if (mipLevels < MinLitMips)
+            mipLevels = MinLitMips;
+        if (mipLevels > MaxLitMips)
+            mipLevels = MaxLitMips;
+        if (litMipsTarget != null && litMipsWidth == size.X && litMipsHeight == size.Y &&
+            litMipsLevels == mipLevels)
+            return;
+
+        DisposeLitMipsTargets();
+        litMipsTarget = MyManagers.RwTextures.CreateRtv("Anomaly.LitMips", size.X, size.Y,
+            Format.R16G16B16A16_Float, mipLevels: mipLevels,
+            optionFlags: ResourceOptionFlags.GenerateMipMaps);
+        litMipsWidth = size.X;
+        litMipsHeight = size.Y;
+        litMipsLevels = mipLevels;
+        ClearLitMipsCatalog();
+        DebugLog.Write("OwnedBuffersPass litMips RT " + size.X + "x" + size.Y + " mips " + mipLevels);
     }
 
     static void EnsureMsaaScratch(Format format)
@@ -429,6 +630,12 @@ public static class OwnedBuffersPass
         BufferCatalog.Set(BufferCatalog.HistoryColor, null);
     }
 
+    static void ClearLitMipsCatalog()
+    {
+        LitMipsPublished.Clear();
+        BufferCatalog.Set(BufferCatalog.LitMips, null);
+    }
+
     static string FormatTex(CatalogTexture tex)
     {
         if (tex == null || !tex.IsAvailable)
@@ -465,16 +672,29 @@ public static class OwnedBuffersPass
     {
         DisposeDepthTargets();
         DisposeHistoryTargets();
+        DisposeLitMipsTargets();
+    }
+
+    static IRtvTexture NextLinearWrite()
+    {
+        linearWriteIndex ^= 1;
+        return linearTargets[linearWriteIndex];
     }
 
     static void DisposeDepthTargets()
     {
-        if (linearTarget != null)
-            MyManagers.RwTextures.DisposeTex(ref linearTarget);
+        for (var i = 0; i < linearTargets.Length; i++)
+        {
+            if (linearTargets[i] == null)
+                continue;
+            MyManagers.RwTextures.DisposeTex(ref linearTargets[i]);
+            linearTargets[i] = null;
+        }
+
         if (hiZTarget != null)
             MyManagers.RwTextures.DisposeTex(ref hiZTarget);
-        linearTarget = null;
         hiZTarget = null;
+        linearWriteIndex = 1;
         linearWidth = 0;
         linearHeight = 0;
         hiZWidth = 0;
@@ -489,6 +709,16 @@ public static class OwnedBuffersPass
         historyWidth = 0;
         historyHeight = 0;
         DisposeScratch();
+    }
+
+    static void DisposeLitMipsTargets()
+    {
+        if (litMipsTarget != null)
+            MyManagers.RwTextures.DisposeTex(ref litMipsTarget);
+        litMipsTarget = null;
+        litMipsWidth = 0;
+        litMipsHeight = 0;
+        litMipsLevels = 0;
     }
 
     static void DisposeScratch()
@@ -523,6 +753,7 @@ public static class OwnedBuffersPass
     static void Fail(string message, Exception e)
     {
         LastError = message;
+        RenderTrace.DumpIfLost("OwnedBuffers", e);
         if (loggedError)
             return;
         loggedError = true;

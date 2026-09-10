@@ -90,7 +90,8 @@ public static class GBufferVelocity
     public static string LastError { get; private set; }
 
     static IRtvTexture target;
-    static IRtvTexture resolved;
+    static readonly IRtvTexture[] resolvedPing = new IRtvTexture[2];
+    static int resolvedWrite = 1;
     static IRtvTexture auditTarget;
     static IRtvTexture auditResolved;
     static IRtvTexture checkpointTarget;
@@ -107,8 +108,10 @@ public static class GBufferVelocity
     static int checkpointCaptureCount;
     static IntPtr checkpointDebugSourceNative;
     static string checkpointLastError;
-    static ISrvBuffer prevWorld;
-    static ISrvBuffer prevBones;
+    static readonly Dictionary<MyRenderContext, ISrvBuffer> PrevWorldByContext = new();
+    static readonly Dictionary<MyRenderContext, ISrvBuffer> PrevBonesByContext = new();
+    static int nextPrevWorldId;
+    static int nextPrevBonesId;
     static int prevCapacity;
     static int prevCount;
     static PrevInstance[] cpuPrev = Array.Empty<PrevInstance>();
@@ -1036,9 +1039,11 @@ public static class GBufferVelocity
     }
 
     /// <summary>
-    /// Stage 2 pass begin. Records the t15 upload on this pass's deferred
-    /// context before recording its draws. Never map Keen's immediate context
-    /// from a parallel prepare worker.
+    /// Stage 2 pass begin. Uploads t15 into this deferred context's own
+    /// dynamic buffer, then records draws. Parallel GBuffer workers must not
+    /// MapDiscard one shared buffer — that hangs the NVIDIA driver (SE then
+    /// reports DEVICE_REMOVED at Present). Never map Keen's immediate context
+    /// from a prepare worker.
     /// </summary>
     public static void BindStage2(MyRenderContext rc, MyGBuffer gbuffer)
     {
@@ -1532,6 +1537,10 @@ public static class GBufferVelocity
         if (dsvBind == null || rtvs == null || rtvs.Length < 3)
             return;
         rc.SetRtvs(dsvBind, rtvs);
+        // Keen's tracker can skip a 4→3 restore. Repeat natively so Target3 is
+        // not still bound when lighting/post sample the velocity SRV.
+        if (rc.DeviceContext != null && activeGBufferDsv != null)
+            rc.DeviceContext.OutputMerger.SetTargets(activeGBufferDsv, rtvs.Length, rtvs);
         Interlocked.Increment(ref passTargetRestoresThisFrame);
     }
 
@@ -2124,14 +2133,14 @@ public static class GBufferVelocity
     {
         EnsureTargetUnlocked();
         EnsurePrevBufferUnlocked(Math.Max(prevCount, 1));
-        EnsureBoneBufferUnlocked();
-        if (target != null && prevWorld != null)
+        if (target != null && prevCapacity > 0)
             Volatile.Write(ref resourcesReady, 1);
     }
 
     static void BindToPass(MyRenderContext rc, MyGBuffer gbuffer)
     {
-        if (target == null || prevWorld == null)
+        var world = GetPrevWorld(rc);
+        if (target == null || world == null)
             return;
         if (gbuffer.GbufferRtvs == null || gbuffer.GbufferRtvs.Length < 3 || gbuffer.DepthStencil?.Dsv == null)
             return;
@@ -2149,9 +2158,12 @@ public static class GBufferVelocity
         drawBoundaryInspected = false;
         Interlocked.Increment(ref mrtBindsThisFrame);
         BindVelocityCb(rc, hasPrevWorld: false, default, default, default, boneCount: 0, instanceBase: 0);
-        rc.VertexShader.SetSrv(PrevWorldSlot, prevWorld);
-        if (prevBones != null)
-            rc.VertexShader.SetSrv(PrevBoneSlot, prevBones);
+        rc.VertexShader.SetSrv(PrevWorldSlot, world);
+        ISrvBuffer bones;
+        lock (Gate)
+            PrevBonesByContext.TryGetValue(rc, out bones);
+        if (bones != null)
+            rc.VertexShader.SetSrv(PrevBoneSlot, bones);
 
         IsLive = ShaderCompileIntercept.GBufferOverlayPresent;
         LastError = ShaderCompileIntercept.GBufferOverlayPresent
@@ -2199,19 +2211,9 @@ public static class GBufferVelocity
 
     static void PublishUnlocked()
     {
-        if (target == null)
+        var publish = CopyTarget3ForSampleUnlocked();
+        if (publish == null)
             return;
-
-        IRtvTexture publish = target;
-        if (targetSamples > 1)
-        {
-            EnsureResolvedUnlocked(targetWidth, targetHeight);
-            var rc = MyRender11.RC;
-            if (resolved == null || rc?.DeviceContext == null)
-                return;
-            rc.DeviceContext.ResolveSubresource(target.Resource, 0, resolved.Resource, 0, Format.R16G16_Float);
-            publish = resolved;
-        }
 
         var native = publish.Resource != null ? publish.Resource.NativePointer : IntPtr.Zero;
         CameraVelocityBuffer.Instance.Publish(publish, native, targetWidth, targetHeight, historyValidThisFrame);
@@ -2224,7 +2226,8 @@ public static class GBufferVelocity
     {
         var count = Math.Max(prevCount, 1);
         EnsurePrevBufferUnlocked(count);
-        if (prevWorld == null)
+        var world = GetPrevWorldUnlocked(rc);
+        if (world == null)
             return;
         if (rc == null || !rc.IsInitialized)
             return;
@@ -2235,7 +2238,7 @@ public static class GBufferVelocity
             cpuPrev = next;
         }
 
-        var mapping = MyMapping.MapDiscard(rc, prevWorld);
+        var mapping = MyMapping.MapDiscard(rc, world);
         mapping.WriteAndPosition(cpuPrev, count, 0);
         mapping.Unmap();
         Interlocked.Increment(ref stage2UploadsThisFrame);
@@ -2258,7 +2261,10 @@ public static class GBufferVelocity
         var auditReady = AuditProofWanted ? auditTarget != null : auditTarget == null;
         if (target != null && auditReady && targetWidth == size.X && targetHeight == size.Y &&
             targetSamples == samples && targetSamplesQuality == quality)
+        {
+            EnsureResolvedUnlocked(targetWidth, targetHeight);
             return;
+        }
 
         DisposeTarget();
         target = MyManagers.RwTextures.CreateRtv("Anomaly.GBufferVelocity", size.X, size.Y, Format.R16G16_Float,
@@ -2270,12 +2276,7 @@ public static class GBufferVelocity
         targetHeight = size.Y;
         targetSamples = samples;
         targetSamplesQuality = quality;
-        if (samples <= 1)
-        {
-            if (resolved != null)
-                MyManagers.RwTextures.DisposeTex(ref resolved);
-            resolved = null;
-        }
+        EnsureResolvedUnlocked(targetWidth, targetHeight);
 
         Volatile.Write(ref targetContractStatus,
             "velocity=" + size.X + "x" + size.Y + "/s" + samples + "q" + quality + " gbuffer=pending");
@@ -2284,11 +2285,20 @@ public static class GBufferVelocity
 
     static void EnsureResolvedUnlocked(int width, int height)
     {
-        if (resolved != null && resolved.Size.X == width && resolved.Size.Y == height)
+        if (resolvedPing[0] != null && resolvedPing[1] != null &&
+            resolvedPing[0].Size.X == width && resolvedPing[0].Size.Y == height &&
+            resolvedPing[1].Size.X == width && resolvedPing[1].Size.Y == height)
             return;
-        if (resolved != null)
-            MyManagers.RwTextures.DisposeTex(ref resolved);
-        resolved = MyManagers.RwTextures.CreateRtv("Anomaly.GBufferVelocity.Resolved", width, height, Format.R16G16_Float);
+        for (var i = 0; i < resolvedPing.Length; i++)
+        {
+            if (resolvedPing[i] != null)
+                MyManagers.RwTextures.DisposeTex(ref resolvedPing[i]);
+            resolvedPing[i] = MyManagers.RwTextures.CreateRtv(
+                i == 0 ? "Anomaly.GBufferVelocity.Resolved.A" : "Anomaly.GBufferVelocity.Resolved.B",
+                width, height, Format.R16G16_Float);
+        }
+
+        resolvedWrite = 1;
     }
 
     static void EnsureAuditResolvedUnlocked(int width, int height)
@@ -2373,43 +2383,95 @@ public static class GBufferVelocity
     static void EnsurePrevBufferUnlocked(int elements)
     {
         elements = Math.Max(elements, 1);
-        if (prevWorld != null && prevCapacity >= elements)
-            return;
-        if (prevWorld == null)
+        if (cpuPrev.Length < elements)
         {
-            prevWorld = MyManagers.Buffers.CreateSrv("Anomaly.PrevWorld", elements, PrevStride,
-                usage: ResourceUsage.Dynamic);
-            prevCapacity = elements;
-            return;
+            var next = new PrevInstance[elements];
+            if (cpuPrev.Length > 0)
+                Array.Copy(cpuPrev, next, cpuPrev.Length);
+            cpuPrev = next;
         }
 
-        MyManagers.Buffers.Resize(prevWorld, elements, PrevStride, null);
-        prevCapacity = elements;
-    }
-
-    static void EnsureBoneBufferUnlocked()
-    {
-        if (prevBones != null)
+        if (prevCapacity >= elements)
             return;
-        prevBones = MyManagers.Buffers.CreateSrv("Anomaly.PrevBones", BoneHistory.MaxBones, BoneStride,
-            usage: ResourceUsage.Dynamic);
+        prevCapacity = elements;
+        foreach (var buffer in PrevWorldByContext.Values)
+        {
+            if (buffer != null)
+                MyManagers.Buffers.Resize(buffer, elements, PrevStride, null);
+        }
     }
 
+    static ISrvBuffer GetPrevWorld(MyRenderContext rc)
+    {
+        if (rc == null)
+            return null;
+        lock (Gate)
+            return GetPrevWorldUnlocked(rc);
+    }
+
+    static ISrvBuffer GetPrevWorldUnlocked(MyRenderContext rc)
+    {
+        if (rc == null)
+            return null;
+        EnsurePrevBufferUnlocked(Math.Max(prevCount, 1));
+        if (PrevWorldByContext.TryGetValue(rc, out var buffer) && buffer != null)
+            return buffer;
+        buffer = MyManagers.Buffers.CreateSrv("Anomaly.PrevWorld." + (++nextPrevWorldId), prevCapacity,
+            PrevStride, usage: ResourceUsage.Dynamic);
+        PrevWorldByContext[rc] = buffer;
+        return buffer;
+    }
+
+    static ISrvBuffer GetPrevBones(MyRenderContext rc)
+    {
+        if (rc == null)
+            return null;
+        lock (Gate)
+            return GetPrevBonesUnlocked(rc);
+    }
+
+    static ISrvBuffer GetPrevBonesUnlocked(MyRenderContext rc)
+    {
+        if (rc == null)
+            return null;
+        if (PrevBonesByContext.TryGetValue(rc, out var buffer) && buffer != null)
+            return buffer;
+        buffer = MyManagers.Buffers.CreateSrv("Anomaly.PrevBones." + (++nextPrevBonesId), BoneHistory.MaxBones,
+            BoneStride, usage: ResourceUsage.Dynamic);
+        PrevBonesByContext[rc] = buffer;
+        return buffer;
+    }
+
+    /// <summary>
+    /// Target3 is an RTV on every GBuffer command list. Sampling or publishing
+    /// that same resource as an SRV (camera composite, lighting t5, DLSS) is an
+    /// RTV+SRV hazard — NVIDIA reports it as DEVICE_REMOVED at Present. Copy or
+    /// resolve into a dedicated non-MSAA texture after unbinding the OM.
+    /// </summary>
     static ISrvBindable PrepareCompositeSourceUnlocked()
     {
-        if (target == null)
+        return CopyTarget3ForSampleUnlocked();
+    }
+
+    static IRtvTexture CopyTarget3ForSampleUnlocked()
+    {
+        if (target?.Resource == null)
+            return null;
+        var rc = MyRender11.RC;
+        if (rc?.DeviceContext == null)
+            return null;
+        rc.SetRtvNull();
+        rc.PixelShader.SetSrv(1, null);
+        EnsureResolvedUnlocked(targetWidth, targetHeight);
+        resolvedWrite ^= 1;
+        var dest = resolvedPing[resolvedWrite];
+        if (dest?.Resource == null)
             return null;
         if (targetSamples > 1)
-        {
-            EnsureResolvedUnlocked(targetWidth, targetHeight);
-            var rc = MyRender11.RC;
-            if (resolved == null || rc?.DeviceContext == null)
-                return null;
-            rc.DeviceContext.ResolveSubresource(target.Resource, 0, resolved.Resource, 0, Format.R16G16_Float);
-            return resolved;
-        }
-
-        return target;
+            rc.DeviceContext.ResolveSubresource(target.Resource, 0, dest.Resource, 0, Format.R16G16_Float);
+        else
+            rc.DeviceContext.CopyResource(target.Resource, dest.Resource);
+        return dest;
     }
 
     static IntPtr ResourceNative(ISrvBindable resource)
@@ -2427,7 +2489,10 @@ public static class GBufferVelocity
 
     static int PackPrevBones(MyRenderContext rc, uint actorId, Matrix[] current, int[] mapping)
     {
-        if (current == null || actorId == 0 || prevBones == null)
+        if (current == null || actorId == 0 || rc == null)
+            return 0;
+        var bones = GetPrevBones(rc);
+        if (bones == null)
             return 0;
         if (!BoneHistory.Instance.TryGetPrevious(actorId, current.Length, out var previous) ||
             previous == null)
@@ -2454,7 +2519,7 @@ public static class GBufferVelocity
         if (count == 0)
             return 0;
 
-        var mappingGpu = MyMapping.MapDiscard(rc, prevBones);
+        var mappingGpu = MyMapping.MapDiscard(rc, bones);
         mappingGpu.WriteAndPosition(BoneScratch, count, 0);
         mappingGpu.Unmap();
         return count;
@@ -2721,14 +2786,19 @@ public static class GBufferVelocity
         DisposeCheckpointTarget();
         if (target != null)
             MyManagers.RwTextures.DisposeTex(ref target);
-        if (resolved != null)
-            MyManagers.RwTextures.DisposeTex(ref resolved);
+        for (var i = 0; i < resolvedPing.Length; i++)
+        {
+            if (resolvedPing[i] != null)
+                MyManagers.RwTextures.DisposeTex(ref resolvedPing[i]);
+            resolvedPing[i] = null;
+        }
+
+        resolvedWrite = 1;
         if (auditTarget != null)
             MyManagers.RwTextures.DisposeTex(ref auditTarget);
         if (auditResolved != null)
             MyManagers.RwTextures.DisposeTex(ref auditResolved);
         target = null;
-        resolved = null;
         auditTarget = null;
         auditResolved = null;
         targetWidth = 0;
@@ -2761,17 +2831,19 @@ public static class GBufferVelocity
 
     static void DisposePrevAndCb()
     {
-        if (prevWorld != null)
+        foreach (var buffer in PrevWorldByContext.Values)
         {
-            MyManagers.Buffers.Dispose(new ISrvBindable[] { prevWorld });
-            prevWorld = null;
+            if (buffer != null)
+                MyManagers.Buffers.Dispose(new ISrvBindable[] { buffer });
         }
+        PrevWorldByContext.Clear();
 
-        if (prevBones != null)
+        foreach (var buffer in PrevBonesByContext.Values)
         {
-            MyManagers.Buffers.Dispose(new ISrvBindable[] { prevBones });
-            prevBones = null;
+            if (buffer != null)
+                MyManagers.Buffers.Dispose(new ISrvBindable[] { buffer });
         }
+        PrevBonesByContext.Clear();
 
         prevCapacity = 0;
         prevCount = 0;
@@ -2846,6 +2918,7 @@ public static class GBufferVelocity
     {
         LastError = message;
         IsLive = false;
+        RenderTrace.DumpIfLost("GBufferVelocity", e);
         if (loggedError)
             return;
         loggedError = true;

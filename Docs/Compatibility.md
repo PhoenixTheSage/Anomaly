@@ -9,6 +9,7 @@ Anomaly is the shared renderer-extension framework. Plugins that need motion vec
 - Plugins do not patch GBuffer draw setup, independently append MRT outputs, or replace the compiler call used by Keen shader managers.
 - Consumers discover published buffers by well-known type name. They do not take a compile-time reference to Anomaly or patch instance-history updates.
 - Shader packs register with `ClientPlugin.Shaders.ShaderPackRegistry`. They use additive stage injection by default, request attachments through `GBufferAttachments`, request SRVs through `ShaderBindRegistry`, and schedule work through `OwnedPassRegistry` or data-driven `Fullscreen/` programs.
+- Terminal pages register with `ClientPlugin.RichHud.TerminalConfigRegistry.RequestPage(title)` and appear under **Anomaly Shaders**. Packs do not vendor Rich HUD or list Master as a Pulsar dependency. Pulsar MyGui remains the fallback when Master is absent.
 - Exclusive overlays are explicit and fail closed. Taking exclusive GBuffer ownership opts out of Anomaly's velocity stages and is not a compatibility mechanism for a second renderer framework.
 
 ## Migration paths
@@ -21,6 +22,7 @@ Choose the narrowest Anomaly contract that provides the required data or executi
 4. Extra GBuffer output: request a named attachment. Never hard-code or splice an `SV_TargetN` declaration.
 5. Extra resource binding: request a catalog SRV for a named stage through `ShaderBindRegistry`.
 6. Fullscreen or temporal work: register an Anomaly-owned pass or declare a `Fullscreen/<Slot>` program. Do not patch Keen pass methods or issue an independent competing draw at the same boundary.
+7. Player-facing options: `TerminalConfigRegistry.RequestPage` under **Anomaly Shaders** (sibling of the **Anomaly** folder). Do not open a second Rich HUD root. Reserved titles `Anomaly`, `Settings`, and `Velocity Debug` fail closed.
 
 The detailed contracts are in [Velocity/README.md](../ClientPlugin/Velocity/README.md), [Buffers/README.md](../ClientPlugin/Buffers/README.md), [ShaderPacks.md](ShaderPacks.md), and [Extensibility.md](Extensibility.md).
 
@@ -28,15 +30,15 @@ The detailed contracts are in [Velocity/README.md](../ClientPlugin/Velocity/READ
 
 | Plugin | Status | Required change |
 |---|---|---|
-| SE-DLSS | Integrated consumer | Continue consuming `IVelocityBuffer`. Call `ClaimUpscale` then `NotifyUpscaleComplete(rc, dest)` so AfterUpscale sees the dest. When `HasDisplayTenant`, evaluate pre-tonemap `hdrColor` and skip Keen SDR. |
-| HdrRender | Handshake ready | Register AfterUpscale with `TemporalPolicy.Display`. Read `ctx.SceneColor` / `upscaledColor`, not raw `LBuffer`. Yield the `MyToneMapping.Run` prefix when `HasUpscaleConsumer`. Keep swapchain / UI composite. |
-| SSGI / Prism | Confirmed incompatible until migrated | Remove its replacement shader compiler and independent Target3 velocity ownership. Consume Anomaly velocity and express its shader/pass work through Anomaly's pack, attachment, bind, and owned-pass APIs. |
-| Aurora | Migration required; implementation not yet audited | Convert its renderer hooks to the appropriate Anomaly pack, buffer, attachment, bind, and owned-pass contracts before compatibility is claimed. |
+| SE-DLSS | Integrated consumer | Continue consuming `IVelocityBuffer`. Call `ClaimUpscale` then `NotifyUpscaleComplete(rc, dest)` so AfterUpscale sees the dest. When `HasDisplayTenant`, evaluate pre-tonemap `hdrColor` and skip Keen SDR. A skip of `MyToneMapping.Run` must still return a dest — `DrawGameScene` NREs on `.Linear` / `.SRgb` otherwise. Anomaly adopts the notified dest (or borrows the Display wrap) when the skipper omits `__result`. |
+| HdrRender | Implemented Display pack | AfterUpscale `Replace` + `Display` (`hdr.tonemap`). Samples `upscaledColor` / t0 and captured bloom/avgLum/dirt at t4–t6. Anomaly skips Keen SDR when Display is live and no upscaler claimed, and still supplies a dest when an upscaler skipped `Run` without one. Keep swapchain / UI composite. |
+| SSGI / Prism | Migrated pack | Consumes Anomaly `velocity` (RG16F), `linearDepth`, and catalog `litMips`. Trace is `Fullscreen/AfterLighting` `PublishOnly`; C# BeforeFullscreen writes uniforms / `SetEnabled`; AfterFullscreen runs SVGF into `LBuffer`. No compiler intercept, no Target3, no pack ViewGuard. Rich HUD: **Anomaly Shaders → SSGI → Settings**. |
+| Aurora | Integrated pack | AfterAtmosphere `Fullscreen/` IsolatedAdd (`aurora.borealis.curtain`). Catalog `aurora.noise` / `aurora.ramp`. Rich HUD **Anomaly Shaders → Aurora Borealis → Settings**. |
 
 Other renderer plugins that intercept the same compiler, GBuffer targets, or render-pass boundaries should be treated as migration candidates until they use these contracts. This page records integration status; Anomaly does not carry plugin-specific runtime workarounds.
 
-## SSGI evidence
+## SSGI evidence (historical)
 
-The September 6, 2026 motion-vector audit found that the installed SSGI/Prism build replaced both new- and old-pipeline shader compilation, used a three-argument `__vertex_shader` wrapper, emitted its own velocity to `SV_Target3`, and owned a separate RGBA16F velocity texture. The game log reported twelve replacement failures at SSGI `Pipeline/vs.hlsl` with X3013. Fixing only the wrapper arity would leave Target3 and render-state ownership in conflict, so it is not a valid compatibility fix.
+The September 6, 2026 motion-vector audit found that the then-installed SSGI/Prism build replaced both new- and old-pipeline shader compilation, used a three-argument `__vertex_shader` wrapper, emitted its own velocity to `SV_Target3`, and owned a separate RGBA16F velocity texture. The game log reported twelve replacement failures at SSGI `Pipeline/vs.hlsl` with X3013. That build is retired. The current pack consumes Anomaly velocity and linearDepth and does not intercept the compiler or Target3.
 
 This evidence explains that test environment; it does not make SSGI behavior part of Anomaly's runtime contract.

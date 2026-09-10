@@ -18,7 +18,7 @@ DLSS keeps jitter, `SetDRS`, NGX evaluate, and HDR/LDR color. Anomaly **produces
 
 - **SE-DLSS** stays the consumer in its own repo. Do not compile Anomaly sources into SE-DLSS or the reverse.
 - Keep Harmony, publicizer, `VRage.Render11` access, settings/deploy/Pulsar XML shape, Rich HUD coexistence patterns.
-- Rich HUD client 1.3.0.0 is vendored under `ClientPlugin/RichHudFramework`. Handshake is `ClientPlugin.RichHud.RichHudSupport`. Master workshop `1965654081` is optional; no Pulsar `DependencyId`. MyGui settings remain until a terminal page exists.
+- Rich HUD client 1.3.0.0 is vendored under `ClientPlugin/RichHudFramework`. Handshake is `ClientPlugin.RichHud.RichHudSupport`. Master workshop `1965654081` is optional; no Pulsar `DependencyId`. Pulsar MyGui stays the fallback. When Master is in the world, Anomaly’s options mount under **Anomaly Shaders → Anomaly**; packs call `ClientPlugin.RichHud.TerminalConfigRegistry.RequestPage(title)` as siblings of that folder.
 - PluginHub id is `A9C29274-E447-49EE-881B-C980E6D190FD`. Do not reuse SE-DLSS’s id (`B6469FEE-…`).
 - GPU work is C# D3D11 (SharpDX). Camera-MV HLSL lives in `Assets/Shaders/`. `Native/AnomalyGfx` is deferred.
 - The link to consumers is a well-known interface + Pulsar `<DependencyIds>`.

@@ -24,7 +24,7 @@ namespace RichHudFramework.UI
 		{
 			get
 			{
-				var index = (int)GetOrSetMemberFunc(null, (int)ListBoxAccessors.SelectionIndex);
+				var index = AsInt(GetOrSetMemberFunc(null, (int)ListBoxAccessors.SelectionIndex), -1);
 				return (index != -1) ? this[index] : null;
 			}
 		}
@@ -36,7 +36,7 @@ namespace RichHudFramework.UI
 		{
 			get
 			{
-				return (int)GetOrSetMemberFunc(null, (int)ListBoxAccessors.SelectionIndex);
+				return AsInt(GetOrSetMemberFunc(null, (int)ListBoxAccessors.SelectionIndex), -1);
 			}
 		}
 
@@ -45,6 +45,22 @@ namespace RichHudFramework.UI
 		public ListBoxData(ApiMemberAccessor GetOrSetMemberFunc) : base(GetListData(GetOrSetMemberFunc))
 		{
 			this.GetOrSetMemberFunc = GetOrSetMemberFunc;
+		}
+
+		static int AsInt(object value, int fallback)
+		{
+			if (value is int i)
+				return i;
+			if (value == null)
+				return fallback;
+			try
+			{
+				return Convert.ToInt32(value);
+			}
+			catch
+			{
+				return fallback;
+			}
 		}
 
 		private static MyTuple<Func<int, EntryData<T>>, Func<int>> GetListData(ApiMemberAccessor GetOrSetMemberFunc)

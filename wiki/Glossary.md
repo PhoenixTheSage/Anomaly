@@ -18,6 +18,8 @@
 | Color bus | Catalog `hdrColor` (LBuffer) + `upscaledColor` (notify dest). AfterUpscale is the clock; Display tenants sample `ctx.SceneColor`. |
 | FrameTemporal | SE-DLSS jitter read + unjittered VP republish. Do not patch Projection. |
 | `Keen/` include | Compile intercept opens `Content/Shaders` and skips overlay remap. |
+| Keen patch | Load-time delta on a hashed `Content/Shaders` file. Mismatch disables GBuffer injection. |
 | DRS | Dynamic resolution. Extra RTs follow `MyRender11.ResolutionI`. |
 | Complementary depth | Hardware depth; `compute_depth` turns it into positive view Z. |
 | Fail closed | On conflict, keep Keen/Anomaly default; do not last-writer-wins. |
+| Anomaly Shaders | Rich HUD terminal root. Framework pages live under **Anomaly**; packs add sibling titles. Master optional. |

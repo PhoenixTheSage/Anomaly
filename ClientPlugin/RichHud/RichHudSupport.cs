@@ -33,9 +33,13 @@ public static class RichHudSupport
             if (initFailed)
                 return "unavailable (init failed)";
             if (Available)
-                return "registered";
+                return "registered  " + TerminalConfigRegistry.StatusLine;
             if (initAttempted)
-                return "waiting (Master not in world)";
+            {
+                if (TerminalConfigRegistry.PageCount > 0)
+                    return "waiting (Master handshake)  queued " + TerminalConfigRegistry.StatusLine;
+                return "waiting (Master handshake)";
+            }
             return "idle";
         }
     }
@@ -48,25 +52,70 @@ public static class RichHudSupport
 
         if (!ReferenceEquals(session, sessionToken))
         {
+            TerminalConfigRegistry.Unmount();
             sessionToken = session;
             initAttempted = false;
             ready = false;
             initFailed = false;
         }
 
-        if (initAttempted)
+        if (ExceptionHandler.ExceptionReported == null)
+        {
+            ExceptionHandler.ExceptionReported = e =>
+            {
+                DebugLog.Write("RHF exception: " + e);
+                try
+                {
+                    MyLog.Default.WriteLine("[Anomaly Shaders] RHF exception: " + e);
+                }
+                catch
+                {
+                    // ignored
+                }
+            };
+        }
+
+        if (RichHudClient.Registered)
+        {
+            initAttempted = true;
+            EnsureMounted();
             return;
+        }
+
+        // RemoteReset / ExceptionHandler.Close nulls RichHudClient.Instance.
+        // Official Init is a no-op only while that singleton still exists; after
+        // Close we must handshake again. Do not wait for a world reload.
+        if (ready)
+        {
+            ready = false;
+            TerminalConfigRegistry.Unmount();
+            DebugLog.Write("RichHudClient lost Master; will re-handshake");
+        }
 
         if (RichHudCore.Instance == null)
             return;
 
-        initAttempted = true;
+        if (initFailed)
+            return;
 
         try
         {
-            RichHudClient.Init(Plugin.Name, OnReady, OnReset);
-            MyLog.Default.WriteLine("Anomaly Rich HUD client handshake started.");
-            DebugLog.Write("RichHudClient handshake started");
+            if (!initAttempted)
+            {
+                initAttempted = true;
+                RichHudClient.Init(TerminalConfigRegistry.RootName, OnReady, OnReset);
+                MyLog.Default.WriteLine("Anomaly Rich HUD client handshake started.");
+                DebugLog.Write("RichHudClient handshake started");
+            }
+            else
+            {
+                // Instance is null after Close — Init creates a new client.
+                RichHudClient.Init(TerminalConfigRegistry.RootName, OnReady, OnReset);
+                RichHudClient.Pulse();
+            }
+
+            if (RichHudClient.Registered)
+                OnReady();
         }
         catch (Exception e)
         {
@@ -78,6 +127,7 @@ public static class RichHudSupport
 
     public static void Shutdown()
     {
+        TerminalConfigRegistry.Unmount();
         try
         {
             RichHudClient.Reset();
@@ -96,6 +146,7 @@ public static class RichHudSupport
     static void OnReady()
     {
         ready = true;
+        EnsureMounted();
         MyLog.Default.WriteLine("Anomaly Rich HUD client registered.");
         DebugLog.Write("RichHudClient registered");
     }
@@ -103,6 +154,13 @@ public static class RichHudSupport
     static void OnReset()
     {
         ready = false;
+        TerminalConfigRegistry.Unmount();
         DebugLog.Write("RichHudClient reset");
+    }
+
+    static void EnsureMounted()
+    {
+        AnomalyTerminalPages.Install();
+        TerminalConfigRegistry.Mount();
     }
 }

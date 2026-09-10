@@ -8,10 +8,11 @@ Resolve `ClientPlugin.Buffers.BufferCatalog` by type name. `Active(name)` never 
 | `linearDepth` | After scheduler Done, only if a pack is live or Debug buffer is Linear depth / Hi-Z | R32_Float, full res, positive view Z |
 | `hiZ` | Right after linearDepth, only if a pack is live or Debug buffer is Hi-Z | R32_Float, half res, 2×2 min (not GenerateMips) |
 | `historyColor` | After DrawGameScene postfix, only if a pack is live or Debug buffer is History color | RGBA16F HDR LBuffer copy; unpublished until one copy |
-| `reactiveMask` | When an owned pass sets `TemporalPolicy.Reactive` | R8, full res; white = do not trust history |
+| `reactiveMask` | When an owned pass or IsolatedAdd program sets `TemporalPolicy.Reactive` | R8, full res; IsolatedAdd auto-stamps dilated luma **on the slot `rc`** (transparent deferred worker for AfterAtmosphere). Anomaly redirects `MyRender11.RC` during those callbacks. White = do not trust history |
 | `objectId` (or any attachment name) | If a pack requested it | Pack format; also `GBufferAttachments.TryGet` |
 | `fullscreenIsolated` | After a `Fullscreen/` program runs | Last isolated RT; reserved |
 | `hdrColor` | When GBuffer exists | Aliases Keen `LBuffer` (internal HDR) |
+| `litMips` | AfterLighting, only if a live fullscreen program bound `litMips`, `RequestLitMips` was called, or Debug buffer is LitMips | RGBA16F, full res, default 5 mips of this-frame `LBuffer` (before atmosphere). Reserved |
 | `upscaledColor` | After `NotifyUpscaleComplete(rc, color)` | Unique upscale dest at output res. Cleared next frame. Reserved |
 | `pass.<id>` | Same draw | That program’s isolated output |
 

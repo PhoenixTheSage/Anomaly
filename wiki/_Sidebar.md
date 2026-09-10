@@ -5,6 +5,7 @@
 
 **Ship HLSL**
 * [[Your-first-pack|Your first pack]]
+* [[Terminal-config|Terminal config]]
 * [[Overlay-vs-inject|Overlay vs inject]]
 * [[Fullscreen-programs|Fullscreen programs]]
 * [[Named-stages|Named stages]]

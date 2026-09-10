@@ -56,10 +56,23 @@ Fullscreen/           Anomaly-drawn programs (not Keen overlays)
 }
 ```
 
-> **Warning — Local drop is developer-only.** Unsigned experiments can live in Pulsar `Data/Anomaly/Packs` (each subdirectory or zip). That path is not for PluginHub and has no SHA-256 unless you hash it yourself.
+> **Warning — Local drop is opt-in.** Unsigned experiments can live in Pulsar `Data/Anomaly/Packs` (each subdirectory or zip). **Anomaly → Load local shader packs** must be on (requires a restart). Hub builds default that off and do not create the folder. That path is not for PluginHub and has no SHA-256 unless you hash it yourself.
 
-## 5. Prove it
+## 5. Optional terminal page
 
-Load a world. Anomaly → Show Status: shader packs listed, Depth still compiles, `stages=` names any live overlays, `Fullscreen:` lists data-driven programs. A pack that breaks a sentinel is rolled back and named in the log as `pack=id`.
+When Rich HUD Master is in the world, players open **Anomaly Shaders** in the main terminal. Anomaly’s own pages live under **Anomaly**. Request a page named after your pack so it sits beside that folder. Do not vendor Rich HUD yourself.
+
+```csharp
+var t = assembly.GetType("ClientPlugin.RichHud.TerminalConfigRegistry");
+var page = t?.GetMethod("RequestPage")?.Invoke(null, new object[] { "My Shaders" });
+```
+
+Reserved titles `Anomaly`, `Settings`, and `Velocity Debug` fail closed. Persist your own config in the setter.
+
+→ [[Terminal-config|Terminal config]]
+
+## 6. Prove it
+
+Load a world. Anomaly → Show Status: shader packs listed, Depth still compiles, `stages=` names any live overlays, `Fullscreen:` lists data-driven programs, `Rich HUD:` lists `pages=` when Master is registered. A pack that breaks a sentinel is rolled back and named in the log as `pack=id`.
 
 → [[Overlay-vs-inject|Choose inject or overlay]] · [[Fullscreen-programs|Fullscreen programs]] · [[Troubleshooting|If Status looks wrong]]

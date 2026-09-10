@@ -13,7 +13,8 @@ namespace ClientPlugin.Buffers;
 /// reference to Anomaly. <see cref="Active"/> looks up a named buffer
 /// (<c>velocity</c>, <c>linearDepth</c>, <c>hiZ</c>, <c>historyColor</c>,
 /// <c>reactiveMask</c>, <c>fullscreenIsolated</c>, <c>hdrColor</c>,
-/// <c>upscaledColor</c>, <c>objectId</c>). <c>velocity</c> aliases
+/// <c>upscaledColor</c>, <c>avgLuminance</c>, <c>bloom</c>, <c>dirt</c>,
+/// <c>litMips</c>). <c>velocity</c> aliases
 /// <see cref="VelocityRegistry.Active"/>. <c>hdrColor</c> aliases Keen
 /// <c>LBuffer</c>. Packs publish extras with <see cref="Publish"/>;
 /// reserved names fail closed.
@@ -29,6 +30,10 @@ public static class BufferCatalog
     public const string FullscreenIsolated = "fullscreenIsolated";
     public const string HdrColor = "hdrColor";
     public const string UpscaledColor = "upscaledColor";
+    public const string AvgLuminance = "avgLuminance";
+    public const string Bloom = "bloom";
+    public const string Dirt = "dirt";
+    public const string LitMips = "litMips";
 
     static readonly object Gate = new();
     static readonly Dictionary<string, ISharedBuffer> ByName =
@@ -38,7 +43,7 @@ public static class BufferCatalog
     static readonly string[] Reserved =
     {
         Velocity, LinearDepth, HiZ, HistoryColor, ReactiveMask, FullscreenIsolated,
-        HdrColor, UpscaledColor
+        HdrColor, UpscaledColor, AvgLuminance, Bloom, Dirt, LitMips
     };
 
     /// <summary>
@@ -89,7 +94,8 @@ public static class BufferCatalog
     /// Pack-owned catalog entry. Reserved names
     /// (<c>velocity</c>, <c>linearDepth</c>, <c>hiZ</c>, <c>historyColor</c>,
     /// <c>reactiveMask</c>, <c>fullscreenIsolated</c>, <c>hdrColor</c>,
-    /// <c>upscaledColor</c>) fail closed. Same name from two pack ids fails closed.
+    /// <c>upscaledColor</c>, <c>avgLuminance</c>, <c>bloom</c>, <c>dirt</c>,
+    /// <c>litMips</c>) fail closed. Same name from two pack ids fails closed.
     /// </summary>
     public static bool Publish(string packId, string name, ISharedBuffer buffer)
     {
@@ -159,6 +165,17 @@ public static class BufferCatalog
         BufferCatalogLifetime.Unregister(packId);
     }
 
+    /// <summary>
+    /// Request catalog <c>litMips</c> (GenerateMips of this-frame HDR
+    /// <c>LBuffer</c> at AfterLighting). <paramref name="mipLevels"/> <c>&lt;= 0</c>
+    /// clears the explicit request. Json / <c>RequestSrv(..., "litMips")</c>
+    /// on a live fullscreen program also generates.
+    /// </summary>
+    public static void RequestLitMips(int mipLevels = 5)
+    {
+        ClientPlugin.ShaderFramework.OwnedBuffersPass.RequestLitMips(mipLevels);
+    }
+
     public static bool IsReservedName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -175,6 +192,21 @@ public static class BufferCatalog
     internal static void PublishVelocity(IVelocityBuffer buffer)
     {
         Set(Velocity, VelocitySharedBuffer.Wrap(buffer));
+    }
+
+    /// <summary>
+    /// Publish a Keen <c>ISrvBindable</c> under a reserved catalog name
+    /// (tonemap avg luminance / bloom / dirt). Pass null to clear.
+    /// </summary>
+    internal static void SetKeen(string name, object srv)
+    {
+        if (srv == null)
+        {
+            Set(name, null);
+            return;
+        }
+
+        Set(name, KeenColorBuffer.Wrap(srv, 1, 1));
     }
 
     /// <summary>

@@ -39,6 +39,7 @@ public static class ShaderBindRegistry
     const string VelocityName = BufferCatalog.Velocity;
 
     static readonly object Gate = new();
+    static readonly HashSet<string> LoggedWarnings = new();
     static readonly List<SrvRequest> Requests = new();
     static readonly Dictionary<string, List<int>> LastSlots =
         new(StringComparer.OrdinalIgnoreCase);
@@ -57,9 +58,15 @@ public static class ShaderBindRegistry
         public uint AttachCount;
         public uint FrameIndex;
         public Vector2 JitterOffset;
-        public Vector2 Pad1;
+        public float SafetyScale;
+        public float SafetyPad;
         public Matrix UnjitteredViewProj;
         public Matrix PrevViewProj;
+        public Vector4 CameraToWorldR0;
+        public Vector4 CameraToWorldR1;
+        public Vector4 CameraToWorldR2;
+        public Vector2 ProjScale;
+        public Vector2 CameraToWorldPad;
     }
 
     public static string StatusLine
@@ -304,9 +311,15 @@ public static class ShaderBindRegistry
             AttachCount = (uint)Math.Max(attachCount, 0),
             FrameIndex = FrameTemporal.FrameIndex,
             JitterOffset = new Vector2(FrameTemporal.JitterX, FrameTemporal.JitterY),
-            Pad1 = Vector2.Zero,
+            SafetyScale = FrameTemporal.SafetyScale,
+            SafetyPad = 0f,
             UnjitteredViewProj = FrameTemporal.UnjitteredViewProj,
-            PrevViewProj = FrameTemporal.PrevViewProj
+            PrevViewProj = FrameTemporal.PrevViewProj,
+            CameraToWorldR0 = FrameTemporal.CameraToWorldRow(0),
+            CameraToWorldR1 = FrameTemporal.CameraToWorldRow(1),
+            CameraToWorldR2 = FrameTemporal.CameraToWorldRow(2),
+            ProjScale = FrameTemporal.ProjScale,
+            CameraToWorldPad = Vector2.Zero
         };
         var mapping = MyMapping.MapDiscard(rc, extrasCb);
         mapping.WriteAndPosition(ref cb);
@@ -376,6 +389,12 @@ public static class ShaderBindRegistry
 
     static void Warn(string message)
     {
+        lock (Gate)
+        {
+            if (!LoggedWarnings.Add(message))
+                return;
+        }
+
         MyLog.Default.WriteLine("Anomaly bind registry: " + message);
         DebugLog.Write("ShaderBindRegistry WARN " + message);
     }

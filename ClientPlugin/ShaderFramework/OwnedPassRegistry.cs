@@ -4,6 +4,7 @@ using System.Text;
 using ClientPlugin.Buffers;
 using ClientPlugin.ShaderFramework;
 using VRage.Render11.RenderContext;
+using VRage.Render11.Resources;
 using VRage.Utils;
 using VRageRender;
 
@@ -14,14 +15,16 @@ namespace ClientPlugin.Shaders;
 /// <c>ClientPlugin.Shaders.OwnedPassRegistry</c> — do not take a
 /// compile-time reference. Register a draw at a named
 /// <see cref="OwnedPassSlot"/>; Anomaly owns the Harmony prefixes and the
-/// unbind (Rich HUD). Data-driven <see cref="FullscreenPassRegistry"/>
-/// programs run first, then C# callbacks. The unique upscale consumer
+/// unbind (Rich HUD). C# callbacks with <see cref="OwnedPassPhase.BeforeFullscreen"/>
+/// run first, then data-driven <see cref="FullscreenPassRegistry"/> programs,
+/// then AfterFullscreen C# (the default). The unique upscale consumer
 /// calls <see cref="ClaimUpscale"/> then <see cref="NotifyUpscaleComplete"/>
 /// with the dest so AfterUpscale reads catalog <c>upscaledColor</c>.
 /// </summary>
 public static class OwnedPassRegistry
 {
     static readonly object Gate = new();
+    static readonly HashSet<string> LoggedWarnings = new();
     static readonly List<Registration> Passes = new();
     static readonly OwnedPassSlot[] SlotOrder =
     {
@@ -37,7 +40,7 @@ public static class OwnedPassRegistry
     static string upscaleConsumerId;
     static object notifiedColor;
     static string statusLine = "none";
-    static string colorStatusLine = "upscale=none upscaledColor=none display=no";
+    static string colorStatusLine = "upscale=none upscaledColor=none display=no dest=none";
 
     public static string StatusLine
     {
@@ -57,7 +60,9 @@ public static class OwnedPassRegistry
         get
         {
             lock (Gate)
-                return string.IsNullOrEmpty(colorStatusLine) ? "upscale=none upscaledColor=none display=no" : colorStatusLine;
+                return string.IsNullOrEmpty(colorStatusLine)
+                    ? "upscale=none upscaledColor=none display=no dest=none"
+                    : colorStatusLine;
         }
     }
 
@@ -200,9 +205,21 @@ public static class OwnedPassRegistry
     /// Reflection-friendly register. <paramref name="slot"/> is an
     /// <see cref="OwnedPassSlot"/> name. <paramref name="temporalPolicy"/> is
     /// <see cref="TemporalPolicy"/> flags. <paramref name="draw"/> receives
-    /// an <see cref="OwnedPassContext"/> boxed as object.
+    /// an <see cref="OwnedPassContext"/> boxed as object. Runs after
+    /// data-driven fullscreen programs.
     /// </summary>
     public static void Register(string id, string slot, int priority, int temporalPolicy, Action<object> draw)
+    {
+        Register(id, slot, priority, temporalPolicy, draw, (int)OwnedPassPhase.AfterFullscreen);
+    }
+
+    /// <summary>
+    /// Reflection-friendly register with <see cref="OwnedPassPhase"/>.
+    /// <paramref name="phase"/> is <see cref="OwnedPassPhase"/> as int
+    /// (<c>0</c> = BeforeFullscreen, <c>1</c> = AfterFullscreen).
+    /// </summary>
+    public static void Register(string id, string slot, int priority, int temporalPolicy, Action<object> draw,
+        int phase)
     {
         if (draw == null)
             return;
@@ -212,11 +229,23 @@ public static class OwnedPassRegistry
             return;
         }
 
-        Register(id, parsed, priority, (TemporalPolicy)temporalPolicy, ctx => draw(ctx));
+        var parsedPhase = OwnedPassPhase.AfterFullscreen;
+        if (Enum.IsDefined(typeof(OwnedPassPhase), phase))
+            parsedPhase = (OwnedPassPhase)phase;
+        else
+            Warn("Register ignored unknown phase " + phase + " for '" + id + "' — AfterFullscreen");
+
+        Register(id, parsed, priority, (TemporalPolicy)temporalPolicy, ctx => draw(ctx), parsedPhase);
     }
 
     public static void Register(string id, OwnedPassSlot slot, int priority, TemporalPolicy policy,
         Action<OwnedPassContext> draw)
+    {
+        Register(id, slot, priority, policy, draw, OwnedPassPhase.AfterFullscreen);
+    }
+
+    public static void Register(string id, OwnedPassSlot slot, int priority, TemporalPolicy policy,
+        Action<OwnedPassContext> draw, OwnedPassPhase phase)
     {
         if (string.IsNullOrWhiteSpace(id) || draw == null)
             return;
@@ -234,6 +263,7 @@ public static class OwnedPassRegistry
                 Slot = slot,
                 Priority = priority,
                 Policy = policy,
+                Phase = phase,
                 Draw = draw
             });
             Passes.Sort(Compare);
@@ -241,7 +271,7 @@ public static class OwnedPassRegistry
         }
 
         DebugLog.Write("OwnedPassRegistry register " + id + " " + slot + " pri=" + priority +
-                       " policy=" + policy);
+                       " policy=" + policy + " phase=" + phase);
     }
 
     public static void Unregister(string id)
@@ -305,6 +335,7 @@ public static class OwnedPassRegistry
         BufferCatalog.PublishUpscaledColor(color, size.X, size.Y);
         lock (Gate)
             RefreshStatusUnlocked();
+        RenderTrace.Note("NotifyUpscale");
         Run(OwnedPassSlot.AfterUpscale, rc, dest: color, outputResolution: true);
     }
 
@@ -317,6 +348,8 @@ public static class OwnedPassRegistry
         }
 
         BufferCatalog.ClearUpscaledColor();
+        TonemapInputs.BeginFrame();
+        OwnedBuffersPass.BeginFrame();
         lock (Gate)
             RefreshStatusUnlocked();
         FrameTemporal.BeginFrame();
@@ -336,12 +369,104 @@ public static class OwnedPassRegistry
             Run(OwnedPassSlot.AfterUpscale, MyRender11.RC, outputResolution: false);
     }
 
+    /// <summary>
+    /// <c>DrawGameScene</c> NREs on <c>borrowedCustomTexture.Linear</c> /
+    /// <c>.SRgb</c> when <c>MyToneMapping.Run</c> returns null. Unique
+    /// upscalers skip Keen after <see cref="NotifyUpscaleComplete"/> and
+    /// often omit <c>__result</c>. Prefer the notified dest (already graded
+    /// by AfterUpscale); otherwise borrow the same HDR wrap Display-without-
+    /// upscale uses.
+    /// </summary>
+    internal static IBorrowedCustomTexture EnsureDrawSceneDest(IBorrowedCustomTexture dest)
+    {
+        if (dest != null)
+            return DisplayDest.EnsureHdr(DisplayDest.TonemappedName, dest);
+
+        var adopted = DisplayDest.Adopt(NotifiedColor);
+        if (adopted != null)
+        {
+            RenderTrace.Note("AdoptDisplayDest notify");
+            return adopted;
+        }
+
+        if (!HasDisplayTenant)
+            return null;
+
+        try
+        {
+            dest = DisplayDest.BorrowTonemapped();
+            if (dest != null)
+                RenderTrace.Note("AdoptDisplayDest borrow");
+            return dest;
+        }
+        catch (Exception e)
+        {
+            Warn("display dest: " + e.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Display tenant, no unique upscaler. Keen <c>Run</c> was skipped, so
+    /// grade <c>LBuffer</c> into the borrowed dest Keen's <c>DrawGameScene</c>
+    /// still copies (fp16 when the Keen dest is 8-bit UNORM). Marks notified
+    /// so the DrawGameScene postfix does not run AfterUpscale a second time
+    /// into <c>LBuffer</c>.
+    /// </summary>
+    internal static void CompleteDisplayWithoutUpscale(object dest)
+    {
+        if (dest == null)
+            return;
+
+        bool run;
+        lock (Gate)
+        {
+            run = !upscaleNotified;
+            if (run)
+            {
+                upscaleNotified = true;
+                notifiedColor = dest;
+            }
+        }
+
+        if (!run)
+            return;
+
+        Run(OwnedPassSlot.AfterUpscale, MyRender11.RC, dest: dest, outputResolution: false,
+            scene: MyGBuffer.Main?.LBuffer);
+    }
+
     internal static void Run(OwnedPassSlot slot, MyRenderContext rc, bool? outputResolution = null,
-        object dest = null)
+        object dest = null, object scene = null)
     {
         if (rc == null || !rc.IsInitialized)
             return;
+        if (IsHdrSlot(slot) && MainViewGate.IsOffscreen())
+            return;
 
+        var label = SlotLabel(slot);
+        RenderTrace.Begin(label);
+        try
+        {
+            using (DeferredContextGuard.Push(slot, rc))
+                RunUnlocked(slot, rc, outputResolution, dest, scene);
+        }
+        catch (Exception e)
+        {
+            RenderTrace.DumpIfLost(label, e);
+            if (RenderTrace.IsLostDevice(e))
+                throw;
+            Warn("slot " + label + " threw " + e.GetType().Name + ": " + e.Message);
+        }
+        finally
+        {
+            RenderTrace.End(label);
+        }
+    }
+
+    static void RunUnlocked(OwnedPassSlot slot, MyRenderContext rc, bool? outputResolution, object dest,
+        object scene = null)
+    {
         var hasFullscreen = FullscreenPassRegistry.HasSlot(slot);
         Registration[] snapshot;
         lock (Gate)
@@ -354,43 +479,45 @@ public static class OwnedPassRegistry
             }
 
             if (n == 0 && !hasFullscreen)
-                return;
-            snapshot = new Registration[n];
-            var w = 0;
-            for (var i = 0; i < Passes.Count; i++)
+                snapshot = null;
+            else
             {
-                if (Passes[i].Slot != slot)
-                    continue;
-                snapshot[w++] = Passes[i];
+                snapshot = new Registration[n];
+                var w = 0;
+                for (var i = 0; i < Passes.Count; i++)
+                {
+                    if (Passes[i].Slot != slot)
+                        continue;
+                    snapshot[w++] = Passes[i];
+                }
             }
+        }
+
+        if (snapshot == null)
+        {
+            if (IsHdrSlot(slot))
+                OwnedBuffersPass.ExecuteLitMips(rc);
+            return;
         }
 
         FrameTemporal.EnsureSnapshot();
         var output = outputResolution ?? (slot == OwnedPassSlot.AfterUpscale);
+        InvokeSnapshot(snapshot, OwnedPassPhase.BeforeFullscreen, slot, rc, output);
+        if (IsHdrSlot(slot))
+            OwnedBuffersPass.ExecuteLitMips(rc);
         try
         {
-            FullscreenPassRegistry.Run(slot, rc, dest, output);
+            FullscreenPassRegistry.Run(slot, rc, dest, output, scene);
         }
         catch (Exception e)
         {
+            RenderTrace.DumpIfLost(SlotLabel(slot), e);
+            if (RenderTrace.IsLostDevice(e))
+                throw;
             Warn("fullscreen at " + slot + " threw " + e.GetType().Name + ": " + e.Message);
         }
 
-        for (var i = 0; i < snapshot.Length; i++)
-        {
-            var reg = snapshot[i];
-            try
-            {
-                if ((reg.Policy & TemporalPolicy.Reactive) != 0)
-                    TemporalParticipation.EnsureReactive();
-                var ctx = new OwnedPassContext(slot, rc, reg.Policy, output);
-                reg.Draw(ctx);
-            }
-            catch (Exception e)
-            {
-                Warn("pass '" + reg.Id + "' at " + slot + " threw " + e.GetType().Name + ": " + e.Message);
-            }
-        }
+        InvokeSnapshot(snapshot, OwnedPassPhase.AfterFullscreen, slot, rc, output);
 
         try
         {
@@ -401,6 +528,35 @@ public static class OwnedPassRegistry
         {
             // Best-effort unbind so a broken tenant cannot leak into Rich HUD.
         }
+    }
+
+    static string SlotLabel(OwnedPassSlot slot)
+    {
+        switch (slot)
+        {
+            case OwnedPassSlot.AfterLighting:
+                return "AfterLighting";
+            case OwnedPassSlot.AfterAtmosphere:
+                return "AfterAtmosphere";
+            case OwnedPassSlot.AfterTransparent:
+                return "AfterTransparent";
+            case OwnedPassSlot.BeforeTonemap:
+                return "BeforeTonemap";
+            case OwnedPassSlot.AfterTonemap:
+                return "AfterTonemap";
+            case OwnedPassSlot.AfterUpscale:
+                return "AfterUpscale";
+            default:
+                return "OwnedPass";
+        }
+    }
+
+    static bool IsHdrSlot(OwnedPassSlot slot)
+    {
+        return slot == OwnedPassSlot.AfterLighting ||
+               slot == OwnedPassSlot.AfterAtmosphere ||
+               slot == OwnedPassSlot.AfterTransparent ||
+               slot == OwnedPassSlot.BeforeTonemap;
     }
 
     internal static void OnResolutionChanged()
@@ -474,6 +630,8 @@ public static class OwnedPassRegistry
                 else
                     sb.Append(',');
                 sb.Append(Passes[i].Id);
+                if (Passes[i].Phase == OwnedPassPhase.BeforeFullscreen)
+                    sb.Append('<');
                 if ((Passes[i].Policy & TemporalPolicy.Display) != 0)
                     sb.Append('*');
             }
@@ -508,11 +666,51 @@ public static class OwnedPassRegistry
         if (!display)
             display = FullscreenPassRegistry.HasPolicy(OwnedPassSlot.AfterUpscale, TemporalPolicy.Display);
         sb.Append(display ? "yes" : "no");
+        sb.Append(" dest=");
+        sb.Append(DisplayDest.StatusLine);
         return sb.ToString();
+    }
+
+    static void InvokeSnapshot(Registration[] snapshot, OwnedPassPhase phase, OwnedPassSlot slot,
+        MyRenderContext rc, bool output)
+    {
+        if (snapshot == null)
+            return;
+        for (var i = 0; i < snapshot.Length; i++)
+        {
+            var reg = snapshot[i];
+            if (reg.Phase != phase)
+                continue;
+            RenderTrace.Begin(reg.Id);
+            try
+            {
+                if ((reg.Policy & TemporalPolicy.Reactive) != 0)
+                    TemporalParticipation.EnsureReactive(rc);
+                var ctx = new OwnedPassContext(slot, rc, reg.Policy, output);
+                reg.Draw(ctx);
+            }
+            catch (Exception e)
+            {
+                RenderTrace.DumpIfLost(reg.Id, e);
+                if (RenderTrace.IsLostDevice(e))
+                    throw;
+                Warn("pass '" + reg.Id + "' at " + slot + " threw " + e.GetType().Name + ": " + e.Message);
+            }
+            finally
+            {
+                RenderTrace.End(reg.Id);
+            }
+        }
     }
 
     static void Warn(string message)
     {
+        lock (Gate)
+        {
+            if (!LoggedWarnings.Add(message))
+                return;
+        }
+
         MyLog.Default.WriteLine("Anomaly owned pass: " + message);
         DebugLog.Write("OwnedPassRegistry WARN " + message);
     }
@@ -523,6 +721,7 @@ public static class OwnedPassRegistry
         public OwnedPassSlot Slot;
         public int Priority;
         public TemporalPolicy Policy;
+        public OwnedPassPhase Phase;
         public Action<OwnedPassContext> Draw;
     }
 }

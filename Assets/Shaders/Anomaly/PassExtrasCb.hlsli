@@ -17,9 +17,15 @@ cbuffer AnomalyLightingExtras : register(MERGE(b, ANOMALY_EXTRAS_CB_SLOT))
     uint AnomalyLightingAttachCount;
     uint AnomalyLightingFrameIndex;
     float2 AnomalyLightingJitter;
-    float2 AnomalyLightingPad1;
+    // Host 0–1 from this-frame camera move / look. 1 = calm.
+    // March packs: steps *= AnomalySafetyScale.
+    float AnomalySafetyScale;
+    float AnomalySafetyPad;
     row_major float4x4 AnomalyUnjitteredViewProj;
     row_major float4x4 AnomalyPrevViewProj;
+    row_major float3x4 AnomalyCameraToWorld;
+    float2 AnomalyProjScale;
+    float2 AnomalyCameraToWorldPad;
 };
 
 #endif

@@ -17,7 +17,11 @@ public enum TemporalPolicy
     /// <summary>After draw, the pass may call <see cref="OwnedPassContext.ContributeVelocity"/> to composite extra MVs.</summary>
     ContributeVelocity = 2,
 
-    /// <summary>The pass may write <c>reactiveMask</c> (cleared to 0 at frame start). High = do not trust history.</summary>
+    /// <summary>
+    /// IsolatedAdd / IsolatedMix / DirectAdd / PublishOnly with this flag
+    /// stamp dilated isolated luma into <c>reactiveMask</c>. C# owned passes
+    /// may still write the RTV. High = do not trust history.
+    /// </summary>
     Reactive = 4,
 
     /// <summary>

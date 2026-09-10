@@ -7,7 +7,8 @@ Anomaly owns extra GBuffer color targets. Request a slot. Do not splice `SV_Targ
 | SV_Target0–2 | Keen. Do not repack unless exclusive GBuffer. |
 | GBuffer1.a | Unused Keen channel — cheap packed extra (id / flags). |
 | SV_Target3 | Velocity. Packs cannot claim it. |
-| SV_Target4+ | Next full attachments (object id, …). Max 8 color targets. |
+| SV_Target4–6 | Pack-owned full attachments (object id, …). |
+| SV_Target7 | Reserved internal sideband for `VelocityPipelineAudit`. |
 
 ## Request (C# or json)
 

@@ -21,6 +21,13 @@ static const float2 kClosestOff[8] =
     float2(1, 1), float2(-1, 1), float2(1, -1), float2(-1, -1)
 };
 
+float2 SanitizeMv(float2 mv)
+{
+    if (!all(isfinite(mv)))
+        return float2(0, 0);
+    return clamp(mv, -RenderSize, RenderSize);
+}
+
 float2 CameraVelocity(float2 uv, float depth)
 {
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
@@ -34,7 +41,7 @@ float2 CameraVelocity(float2 uv, float depth)
     float2 currUv = float2(currClip.x * 0.5 + 0.5, 0.5 - currClip.y * 0.5);
     float2 prevUv = float2(prevClip.x * 0.5 + 0.5, 0.5 - prevClip.y * 0.5);
     // Same backward-reprojection convention as the geometry producer.
-    return (prevUv - currUv) * RenderSize;
+    return SanitizeMv((prevUv - currUv) * RenderSize);
 }
 
 // Complementary depth: larger raw depth is closer (nd > closest).
@@ -59,7 +66,7 @@ float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Targ
     // (sky at complementary 0, particles / foliage that never bound Target3)
     // stay at the clear-zero — fill those from depth. Testing closest > 0
     // kept the zeros and left geometry mid-gray in the debug overlay.
-    float2 gb = GBufferVelocityTex.SampleLevel(PointSamp, bestUv, 0).rg;
+    float2 gb = SanitizeMv(GBufferVelocityTex.SampleLevel(PointSamp, bestUv, 0).rg);
     if (dot(gb, gb) > 0)
         return float4(gb, 0, 1);
 #endif

@@ -22,8 +22,14 @@ public static class FrameTemporal
     static int renderHeight;
     static Matrix unjitteredViewProj;
     static Matrix prevViewProj;
+    static Matrix cameraToWorld = Matrix.Identity;
+    static Vector2 projScale = new Vector2(1f, 1f);
     static Matrix storedPrev;
     static bool hasPrev;
+    static Vector3D prevCameraPos;
+    static Vector3 prevForward = new Vector3(0f, 0f, -1f);
+    static bool hasCameraPrev;
+    static float safetyScale = 1f;
 
     public static uint FrameIndex
     {
@@ -65,6 +71,53 @@ public static class FrameTemporal
         get { lock (Gate) return prevViewProj; }
     }
 
+    /// <summary>
+    /// Camera-at-origin inverse view (<c>InvViewAt0</c>). First three rows
+    /// are published on extras as <c>AnomalyCameraToWorld</c>.
+    /// </summary>
+    public static Matrix CameraToWorld
+    {
+        get { lock (Gate) return cameraToWorld; }
+    }
+
+    /// <summary>
+    /// Unjittered projection <c>M11</c> / <c>M22</c> for screen-ray reconstruct.
+    /// </summary>
+    public static Vector2 ProjScale
+    {
+        get { lock (Gate) return projScale; }
+    }
+
+    /// <summary>
+    /// This-frame camera translation / look, 1 = calm, 0 = cut or slam.
+    /// Written to extras as <c>AnomalySafetyScale</c>. First frame is 1.
+    /// </summary>
+    public static float SafetyScale
+    {
+        get { lock (Gate) return safetyScale; }
+    }
+
+    public const float SafetyMoveStartMeters = 4f;
+    public const float SafetyMoveZeroMeters = 80f;
+    public const float SafetyTurnStart = 0.02f;
+    public const float SafetyTurnZero = 0.45f;
+
+    internal static Vector4 CameraToWorldRow(int row)
+    {
+        lock (Gate)
+        {
+            switch (row)
+            {
+                case 0:
+                    return new Vector4(cameraToWorld.M11, cameraToWorld.M12, cameraToWorld.M13, cameraToWorld.M14);
+                case 1:
+                    return new Vector4(cameraToWorld.M21, cameraToWorld.M22, cameraToWorld.M23, cameraToWorld.M24);
+                default:
+                    return new Vector4(cameraToWorld.M31, cameraToWorld.M32, cameraToWorld.M33, cameraToWorld.M34);
+            }
+        }
+    }
+
     internal static void BeginFrame()
     {
         lock (Gate)
@@ -96,6 +149,9 @@ public static class FrameTemporal
             historyValid = hasPrev;
             unjitteredViewProj = unjittered;
             prevViewProj = hasPrev ? storedPrev : unjittered;
+            cameraToWorld = env.InvViewAt0;
+            projScale = new Vector2(env.Projection.M11, env.Projection.M22);
+            safetyScale = ComputeSafetyScale(env.CameraPosition, ForwardFromInvView(cameraToWorld));
             storedPrev = unjittered;
             hasPrev = true;
             snapshotted = true;
@@ -112,6 +168,8 @@ public static class FrameTemporal
         {
             hasPrev = false;
             historyValid = false;
+            hasCameraPrev = false;
+            safetyScale = 1f;
         }
     }
 
@@ -122,8 +180,49 @@ public static class FrameTemporal
             snapshotted = false;
             hasPrev = false;
             historyValid = false;
+            hasCameraPrev = false;
+            safetyScale = 1f;
             jitterX = jitterY = 0;
         }
+    }
+
+    static float ComputeSafetyScale(Vector3D cameraPos, Vector3 forward)
+    {
+        if (!hasCameraPrev)
+        {
+            prevCameraPos = cameraPos;
+            prevForward = forward;
+            hasCameraPrev = true;
+            return 1f;
+        }
+
+        var move = (float)Vector3D.Distance(cameraPos, prevCameraPos);
+        var turn = 1f - Vector3.Dot(prevForward, forward);
+        if (turn < 0f)
+            turn = 0f;
+        prevCameraPos = cameraPos;
+        prevForward = forward;
+        var moveScale = Ramp(move, SafetyMoveStartMeters, SafetyMoveZeroMeters);
+        var turnScale = Ramp(turn, SafetyTurnStart, SafetyTurnZero);
+        return moveScale < turnScale ? moveScale : turnScale;
+    }
+
+    static float Ramp(float value, float start, float zero)
+    {
+        if (value <= start)
+            return 1f;
+        if (value >= zero)
+            return 0f;
+        return 1f - (value - start) / (zero - start);
+    }
+
+    static Vector3 ForwardFromInvView(Matrix invViewAt0)
+    {
+        var fwd = new Vector3(-invViewAt0.M31, -invViewAt0.M32, -invViewAt0.M33);
+        if (fwd.LengthSquared() < 1e-8f)
+            return new Vector3(0f, 0f, -1f);
+        fwd.Normalize();
+        return fwd;
     }
 
     static Matrix UnjitteredViewProjection(MyEnvironmentMatrices env)

@@ -9,7 +9,11 @@ namespace ClientPlugin.Shaders;
 /// <summary>
 /// Per-invocation state for an owned-pass draw. Resolve by name:
 /// <c>ClientPlugin.Shaders.OwnedPassContext</c>. <see cref="Rc"/> is the
-/// context the slot is recording on (may be deferred). Unbind before return.
+/// context the slot is recording on (AfterLighting / AfterAtmosphere /
+/// AfterTransparent are Keen's transparent deferred worker). Use only
+/// <see cref="Rc"/>. Anomaly redirects <c>MyRender11.RC</c> and
+/// <c>Device.ImmediateContext</c> to <see cref="Rc"/> during those
+/// callbacks (logs once). Unbind before return.
 /// </summary>
 public sealed class OwnedPassContext
 {

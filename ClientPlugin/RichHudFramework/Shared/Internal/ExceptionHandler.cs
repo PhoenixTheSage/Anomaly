@@ -72,6 +72,13 @@ namespace RichHudFramework.Internal
 		/// </summary>
 		public static bool DebugLogging { get; set; }
 
+		/// <summary>
+		/// Optional sink for each reported exception. Anomaly uses this to
+		/// write <c>Anomaly.debug.log</c> before HandleExceptions reloads.
+		/// Must not throw.
+		/// </summary>
+		public static Action<Exception> ExceptionReported { get; set; }
+
 		private static ExceptionHandler instance;
 		private const long exceptionReportInterval = 100, exceptionLoopTime = 50;
 		private const int exceptionLoopCount = 10;
@@ -218,6 +225,19 @@ namespace RichHudFramework.Internal
 		{
 			if (e == null)
 				e = new Exception("Null exception reported.");
+
+			var reported = ExceptionReported;
+			if (reported != null)
+			{
+				try
+				{
+					reported(e);
+				}
+				catch
+				{
+					// Sink must not break reporting.
+				}
+			}
 
 			lock (exceptionMessages)
 			{

@@ -1,6 +1,7 @@
 using RichHudFramework.Internal;
 using Sandbox.ModAPI;
 using System;
+using System.Reflection;
 using VRage;
 using VRageMath;
 using ApiMemberAccessor = System.Func<object, int, object>;
@@ -37,6 +38,7 @@ namespace RichHudFramework.Client
 		private readonly Action InitAction, ResetAction;
 
 		private bool regFail, registered, inQueue;
+		private int nextPulseTick;
 		private Func<int, object> GetApiDataFunc;
 		private Action UnregisterAction;
 
@@ -93,6 +95,24 @@ namespace RichHudFramework.Client
 		}
 
 		/// <summary>
+		/// Re-sends the registration request if this client is still waiting on Master.
+		/// Safe to call every tick. Pulsar .NET 10 can drop the queue ping or tear the
+		/// client down without a world unload; this recovers without a reload.
+		/// </summary>
+		public static void Pulse()
+		{
+			RichHudClient inst = Instance;
+			if (inst == null || inst.registered || inst.regFail)
+				return;
+
+			int now = Environment.TickCount;
+			if (inst.nextPulseTick != 0 && unchecked(now - inst.nextPulseTick) < 2000)
+				return;
+
+			inst.RequestRegistration();
+		}
+
+		/// <summary>
 		/// Handles registration response.
 		/// </summary>
 		private void MessageHandler(int typeValue, object message)
@@ -103,25 +123,40 @@ namespace RichHudFramework.Client
 			{
 				if (!Registered)
 				{
-					if ((msgType == MsgTypes.RegistrationSuccessful) && message is ServerData)
+					Action unregister;
+					Func<int, object> getApi;
+					if (msgType == MsgTypes.RegistrationSuccessful && TryBindServerData(message, out unregister, out getApi))
 					{
-						var data = (ServerData)message;
-						UnregisterAction = data.Item1;
-						GetApiDataFunc = data.Item2;
+						UnregisterAction = unregister;
+						GetApiDataFunc = getApi;
 
 						registered = true;
 
 						ExceptionHandler.Run(InitAction);
 						ExceptionHandler.WriteToLog($"[RHF] Successfully registered with Rich HUD Master.");
 					}
+					else if (msgType == MsgTypes.RegistrationSuccessful)
+					{
+						ExceptionHandler.WriteToLog($"[RHF] RegistrationSuccessful payload was not ServerData (type: {message?.GetType().FullName ?? "null"}). Retrying.");
+					}
 					else if (msgType == MsgTypes.RegistrationFailed)
 					{
-						if (message is string)
-							ExceptionHandler.WriteToLog($"[RHF] Failed to register with Rich HUD Master. Message: {message as string}");
+						string text = message as string;
+						if (text != null && text.IndexOf("already registered", StringComparison.OrdinalIgnoreCase) >= 0)
+						{
+							// Master accepted an earlier send that this ALC could not bind.
+							// Do not latch regFail — Pulse will retry after Master recycles the slot.
+							ExceptionHandler.WriteToLog($"[RHF] Master already has this client. Waiting to bind API data.");
+						}
 						else
-							ExceptionHandler.WriteToLog($"[RHF] Failed to register with Rich HUD Master.");
+						{
+							if (text != null)
+								ExceptionHandler.WriteToLog($"[RHF] Failed to register with Rich HUD Master. Message: {text}");
+							else
+								ExceptionHandler.WriteToLog($"[RHF] Failed to register with Rich HUD Master.");
 
-						regFail = true;
+							regFail = true;
+						}
 					}
 				}
 			}
@@ -145,10 +180,17 @@ namespace RichHudFramework.Client
 		}
 
 		/// <summary>
-		/// Attempts to register the client with the API
+		/// Attempts to register the client with the API.
+		/// ExtendedClientData is a nested MyTuple; on CoreCLR / plugin ALCs Master's
+		/// <c>is ExtendedClientData</c> can fail. Fall back to flat ClientData.
 		/// </summary>
-		private void RequestRegistration() =>
+		private void RequestRegistration()
+		{
+			nextPulseTick = Environment.TickCount;
 			MyAPIUtilities.Static.SendModMessage(modID, regMessage);
+			if (!registered && !regFail)
+				MyAPIUtilities.Static.SendModMessage(modID, regMessage.Item1);
+		}
 
 		/// <summary>
 		/// Enters queue to await client registration.
@@ -185,6 +227,10 @@ namespace RichHudFramework.Client
 				ExitQueue();
 				inQueue = false;
 			}
+			else if (!registered && !regFail)
+			{
+				Pulse();
+			}
 		}
 
 		/// <summary>
@@ -220,6 +266,68 @@ namespace RichHudFramework.Client
 				registered = false;
 				UnregisterAction();
 			}
+		}
+
+		/// <summary>
+		/// Master's ServerData is a VRage.MyTuple created in the workshop-mod load
+		/// context. Pulsar .NET 10 plugin ALCs can make <c>is ServerData</c> fail even
+		/// though Item1/Item2 are the unregister / GetApi delegates.
+		/// </summary>
+		private static bool TryBindServerData(object message, out Action unregister, out Func<int, object> getApi)
+		{
+			unregister = null;
+			getApi = null;
+			if (message == null)
+				return false;
+
+			if (message is ServerData)
+			{
+				var data = (ServerData)message;
+				unregister = data.Item1;
+				getApi = data.Item2;
+				return unregister != null && getApi != null;
+			}
+
+			Type type = message.GetType();
+			if (!type.IsValueType || !type.IsGenericType || type.Name != "MyTuple`3")
+				return false;
+
+			object item1 = GetTupleItem(type, message, "Item1");
+			object item2 = GetTupleItem(type, message, "Item2");
+			unregister = AsAction(item1);
+			getApi = AsFuncIntObject(item2);
+			return unregister != null && getApi != null;
+		}
+
+		private static object GetTupleItem(Type type, object tuple, string name)
+		{
+			FieldInfo field = type.GetField(name, BindingFlags.Public | BindingFlags.Instance);
+			if (field != null)
+				return field.GetValue(tuple);
+			PropertyInfo prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+			return prop != null ? prop.GetValue(tuple, null) : null;
+		}
+
+		private static Action AsAction(object value)
+		{
+			Action action = value as Action;
+			if (action != null)
+				return action;
+			Delegate d = value as Delegate;
+			if (d == null)
+				return null;
+			return () => d.DynamicInvoke();
+		}
+
+		private static Func<int, object> AsFuncIntObject(object value)
+		{
+			Func<int, object> func = value as Func<int, object>;
+			if (func != null)
+				return func;
+			Delegate d = value as Delegate;
+			if (d == null)
+				return null;
+			return id => d.DynamicInvoke(id);
 		}
 
 		/// <summary>

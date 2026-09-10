@@ -6,7 +6,7 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 
 **Next (velocity proof):** Use the debug overlay in-game (PLAN test plan: moving grid vs camera pan, Depth still compiles) and, when ready, PluginHub pin.
 
-**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–Z**, **AA–AF**, and **AG** are in this repo (owned-pass scheduler, `FullscreenPassRegistry`, temporal policy, Atmosphere wrap at t6, catalog publish, color bus). Next code is **K** (sample pack) when a pack needs to demonstrate `Fullscreen/AfterAtmosphere`, inject, or a named-stage overlay.
+**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–Z** and **AA–AH** are in this repo (owned-pass scheduler, `FullscreenPassRegistry`, temporal policy, Atmosphere wrap at t6, catalog publish, color bus, 256 B uniforms). Next code is **K** (sample pack) when a pack needs to demonstrate `Fullscreen/AfterAtmosphere`, inject, or a named-stage overlay.
 
 ---
 
@@ -18,7 +18,7 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 | [ShaderAPI.md](ShaderAPI.md) | Hook / inject / replace / owned-pass layers; Iris comparison |
 | [ShaderPacks.md](ShaderPacks.md) | Pulsar named assets; pack plugins register HLSL with Anomaly |
 | [KeenShaders.md](KeenShaders.md) | All Keen HLSL files and GBuffer layout |
-| [Extensibility.md](Extensibility.md) | Post-velocity slices M–Z and AA–AF (inject, slots, bind, catalog, owned passes, fullscreen programs) |
+| [Extensibility.md](Extensibility.md) | Post-velocity slices M–Z and AA–AH (inject, slots, bind, catalog, owned passes, fullscreen programs, 256 B uniforms) |
 | This file | Velocity + hook slices A–L |
 
 ---
@@ -71,6 +71,7 @@ Need to know:
 - [x] Append Anomaly’s shader folder: `LoadAssets` + `Assets/Shaders`, with `assemblyDir/Shaders` fallback (Deploy copies the folder next to the DLL).
 - [x] Define `ANOMALY=1` always once the hook is live; `ANOMALY_VELOCITY` only when velocity inject is on (later). This slice is a no-op define.
 - [x] Log compile failures (null/empty bytecode) with descriptor + macros to `SpaceEngineers.log` + Anomaly debug log.
+- [x] Compile / load: Release skips DXBC reflect/disassemble/repair. `ReloadEffects` arms only when the pack fingerprint or Keen patch status changes. Stage probes `Parallel.For` without holding pack `Gate`. Harmony prefixes fill `ShaderCache2` in parallel before Keen's serial Recompile create loop. `ShaderWarmup` creates Anomaly and pack programs on the render thread before first present.
 
 Do **not** rewrite Keen files on disk. Do **not** `#include` Anomaly from Keen files in this slice (would bust the shader cache).
 
@@ -262,7 +263,7 @@ Leftover holes: **transparent, glass / holo / shield, foliage, and deferred deca
 Goal: prove GBuffer vs CameraOnly without PIX. Anomaly-owned fullscreen, not a Keen overlay.
 
 - [x] Settings: `Debug velocity` (off) + integer `Debug scale (px)` (8–128, default 32)
-- [x] `Assets/Shaders/VelocityDebug.hlsl` + `Fullscreen.hlsl` VS; lazy compile
+- [x] `Assets/Shaders/VelocityDebug.hlsl` + `Fullscreen.hlsl` VS; `ShaderWarmup` compiles bytecode in parallel then creates programs on the render thread before first present
 - [x] `DrawGameScene` postfix (`Priority.Last`): sample `IVelocityBuffer`, stretch to `Backbuffer` (DRS), `BlendReplace`, `ClearState`
 - [x] Mid-gray = no motion; R/G = signed X/Y pixel delta; B = speed; magenta = `HistoryValid` false
 - [x] Status: `Velocity debug: on/off`

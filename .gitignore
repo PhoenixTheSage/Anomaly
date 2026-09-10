@@ -367,6 +367,9 @@ MigrationBackup/
 # Plugin specific
 *.il
 
+# Local knowledge-graph cache (not part of the plugin)
+/graphify-out/
+
 # Leftover SE-DLSS sources (Anomaly must never ship NGX)
 /ClientPlugin/Dlss/
 /Native/SeDlssNgx/

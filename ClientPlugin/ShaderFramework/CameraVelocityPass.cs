@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -22,7 +23,8 @@ namespace ClientPlugin.ShaderFramework;
 /// Runs after <c>MyRenderScheduler.Done</c> (GBuffer + resolve finished, before post).
 /// When GBuffer velocity is live, a second PS (<c>ANOMALY_COMPOSITE</c>) keeps
 /// GBuffer MVs that were actually written and camera-fills clear-zero pixels
-/// (sky / particles / foliage) from depth.
+/// (sky / particles / foliage) from depth. Writes alternate ping-pong RTs so
+/// DLSS / catalog can keep sampling last frame while this frame draws.
 /// </summary>
 public static class CameraVelocityPass
 {
@@ -78,7 +80,8 @@ public static class CameraVelocityPass
     static PixelShader pixelShader;
     static PixelShader compositeShader;
     static IConstantBuffer constants;
-    static IRtvTexture target;
+    static readonly IRtvTexture[] targets = new IRtvTexture[2];
+    static int writeIndex;
     static int targetWidth;
     static int targetHeight;
     static bool hasPrev;
@@ -108,12 +111,17 @@ public static class CameraVelocityPass
                 return;
             try
             {
+                RenderTrace.Begin("CameraVelocity");
                 ExecuteCore();
             }
             catch (Exception e)
             {
                 Fail("execute: " + e.GetType().Name + ": " + e.Message, e);
                 VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
+            }
+            finally
+            {
+                RenderTrace.End("CameraVelocity");
             }
         }
     }
@@ -161,9 +169,6 @@ public static class CameraVelocityPass
             var src = GBufferVelocity.PrepareCompositeSource();
             if (src != null && ExecuteDraw(composite: true, src))
                 return;
-
-            GBufferVelocity.PublishAndAdvanceHistory();
-            return;
         }
 
         ExecuteDraw(composite: false, null);
@@ -180,7 +185,7 @@ public static class CameraVelocityPass
         EnsureShaders();
         EnsureTarget();
         EnsureConstants();
-        if (!ShadersReady || target == null || constants == null)
+        if (!ShadersReady || targets[0] == null || targets[1] == null || constants == null)
             return false;
         if (composite && (compositeShader == null || gbufferVelocity == null))
             return false;
@@ -211,11 +216,22 @@ public static class CameraVelocityPass
         mapping.WriteAndPosition(ref cb);
         mapping.Unmap();
 
+        var dest = NextWriteTarget();
+        if (dest == null)
+            return false;
+
         rc.SetScreenViewport();
         rc.SetRasterizerState(MyRasterizerStateManager.NocullRasterizerState);
         rc.SetDepthStencilState(MyDepthStencilStateManager.IgnoreDepthStencil);
         rc.SetBlendState(MyBlendStateManager.BlendReplace);
-        rc.SetRtv(target);
+        // Lighting/HBAO bind catalog velocity as t5 and may leave leftover OM
+        // RTVs. Unbind before this draw so dest is never SRV+RTV, and so DLSS
+        // can keep reading last frame's ping while we write the other.
+        rc.SetRtvNull();
+        rc.PixelShader.SetSrv(0, null);
+        rc.PixelShader.SetSrv(1, null);
+        rc.AllShaderStages.SetSrv(ShaderBindRegistry.LightingVelocitySlot, null);
+        rc.SetRtv(dest);
         rc.SetInputLayout(null);
         rc.SetPrimitiveTopology(PrimitiveTopology.TriangleList);
         rc.SetVertexBuffer(0, null);
@@ -229,8 +245,8 @@ public static class CameraVelocityPass
         rc.Draw(3, 0);
         rc.ClearState();
 
-        var native = target.Resource != null ? target.Resource.NativePointer : IntPtr.Zero;
-        CameraVelocityBuffer.Instance.Publish(target, native, size.X, size.Y, historyValid);
+        var native = dest.Resource != null ? dest.Resource.NativePointer : IntPtr.Zero;
+        CameraVelocityBuffer.Instance.Publish(dest, native, size.X, size.Y, historyValid);
         VelocityRegistry.SetActive(CameraVelocityBuffer.Instance);
 
         prevViewProj = unjittered;
@@ -248,6 +264,22 @@ public static class CameraVelocityPass
         proj.M31 = 0f;
         proj.M32 = 0f;
         return env.ViewAt0 * proj;
+    }
+
+    internal static void CollectWarmupJobs(List<ShaderWarmup.Job> jobs)
+    {
+        if (vertexShader != null && pixelShader != null && compositeShader != null)
+            return;
+        var psPath = FindHlsl(PsFile);
+        ShaderWarmup.Add(jobs, FindHlsl(VsFile), MyShaderProfile.vs_5_0, "Anomaly.Fullscreen");
+        ShaderWarmup.Add(jobs, psPath, MyShaderProfile.ps_5_0, "Anomaly.CameraVelocity");
+        ShaderWarmup.Add(jobs, psPath, MyShaderProfile.ps_5_0, "Anomaly.CameraVelocity.Composite",
+            new ShaderMacro("ANOMALY_COMPOSITE", "1"));
+    }
+
+    internal static void Prewarm()
+    {
+        EnsureShaders();
     }
 
     static void EnsureShaders()
@@ -290,22 +322,30 @@ public static class CameraVelocityPass
         DebugLog.Write("CameraVelocityPass shaders ok vs=" + vsPath + " ps=" + psPath);
     }
 
+    static IRtvTexture NextWriteTarget()
+    {
+        writeIndex ^= 1;
+        return targets[writeIndex];
+    }
+
     static void EnsureTarget()
     {
         var size = MyRender11.ResolutionI;
         if (size.X <= 0 || size.Y <= 0)
             return;
-        if (target != null && targetWidth == size.X && targetHeight == size.Y)
+        if (targets[0] != null && targets[1] != null && targetWidth == size.X && targetHeight == size.Y)
             return;
 
         DisposeTarget();
-        target = MyManagers.RwTextures.CreateRtv("Anomaly.CameraVelocity", size.X, size.Y, Format.R16G16_Float);
+        targets[0] = MyManagers.RwTextures.CreateRtv("Anomaly.CameraVelocity.A", size.X, size.Y, Format.R16G16_Float);
+        targets[1] = MyManagers.RwTextures.CreateRtv("Anomaly.CameraVelocity.B", size.X, size.Y, Format.R16G16_Float);
+        writeIndex = 1;
         targetWidth = size.X;
         targetHeight = size.Y;
         hasPrev = false;
         justResized = true;
         CameraVelocityBuffer.Instance.Clear();
-        DebugLog.Write("CameraVelocityPass RT " + size.X + "x" + size.Y);
+        DebugLog.Write("CameraVelocityPass RT " + size.X + "x" + size.Y + " ping-pong");
     }
 
     static void EnsureConstants()
@@ -341,10 +381,15 @@ public static class CameraVelocityPass
 
     static void DisposeTarget()
     {
-        if (target == null)
-            return;
-        MyManagers.RwTextures.DisposeTex(ref target);
-        target = null;
+        for (var i = 0; i < targets.Length; i++)
+        {
+            if (targets[i] == null)
+                continue;
+            MyManagers.RwTextures.DisposeTex(ref targets[i]);
+            targets[i] = null;
+        }
+
+        writeIndex = 1;
         targetWidth = 0;
         targetHeight = 0;
         CameraVelocityBuffer.Instance.Clear();
@@ -370,6 +415,7 @@ public static class CameraVelocityPass
     static void Fail(string message, Exception e)
     {
         LastError = message;
+        RenderTrace.DumpIfLost("CameraVelocity", e);
         if (loggedError)
             return;
         loggedError = true;

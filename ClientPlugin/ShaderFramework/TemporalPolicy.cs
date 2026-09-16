@@ -14,13 +14,18 @@ public enum TemporalPolicy
     /// <summary>Writes into HDR <c>LBuffer</c> (or LDR at AfterTonemap). Temporal consumers will see the color.</summary>
     InColor = 1,
 
-    /// <summary>After draw, the pass may call <see cref="OwnedPassContext.ContributeVelocity"/> to composite extra MVs.</summary>
+    /// <summary>
+    /// IsolatedAdd / IsolatedMix / DirectAdd / PublishOnly reconstruct camera
+    /// MVs from isolated.a (view-space hit distance, meters) and composite
+    /// them over catalog velocity. C# owned passes may still call
+    /// <see cref="OwnedPassContext.ContributeVelocity"/>.
+    /// </summary>
     ContributeVelocity = 2,
 
     /// <summary>
-    /// IsolatedAdd / IsolatedMix / DirectAdd / PublishOnly with this flag
-    /// stamp dilated isolated luma into <c>reactiveMask</c>. C# owned passes
-    /// may still write the RTV. High = do not trust history.
+    /// IsolatedAdd / IsolatedMix / IsolatedSub / DirectAdd / PublishOnly with this flag
+    /// stamp dilated isolated luma into <c>reactiveMask</c>. IsolatedSub umbra
+    /// must use this (not ContributeVelocity) so DLSS / FRS reject history.
     /// </summary>
     Reactive = 4,
 

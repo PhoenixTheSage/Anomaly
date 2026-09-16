@@ -73,6 +73,6 @@ Reserved titles `Anomaly`, `Settings`, and `Velocity Debug` fail closed. Persist
 
 ## 6. Prove it
 
-Load a world. Anomaly → Show Status: shader packs listed, Depth still compiles, `stages=` names any live overlays, `Fullscreen:` lists data-driven programs, `Rich HUD:` lists `pages=` when Master is registered. A pack that breaks a sentinel is rolled back and named in the log as `pack=id`.
+Load a world. Anomaly → Show Status: shader packs listed, Depth still compiles, `stages=` names any live overlays, `Fullscreen:` lists data-driven programs, `Rich HUD:` lists `pages=` and `overlays=` when Master is registered. A pack that breaks a sentinel is rolled back and named in the log as `pack=id`.
 
 → [[Overlay-vs-inject|Choose inject or overlay]] · [[Fullscreen-programs|Fullscreen programs]] · [[Troubleshooting|If Status looks wrong]]

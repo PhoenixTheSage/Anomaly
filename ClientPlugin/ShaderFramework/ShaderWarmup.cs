@@ -53,6 +53,7 @@ static class ShaderWarmup
             var jobs = new List<Job>(24);
             FullscreenPassRegistry.CollectWarmupJobs(jobs);
             OwnedBuffersPass.CollectWarmupJobs(jobs);
+            PointShadowPass.CollectWarmupJobs(jobs);
             CameraVelocityPass.CollectWarmupJobs(jobs);
             TemporalParticipation.CollectWarmupJobs(jobs);
             if (WantDebugShaders())
@@ -75,6 +76,7 @@ static class ShaderWarmup
 
             FullscreenPassRegistry.Prewarm();
             OwnedBuffersPass.Prewarm();
+            PointShadowPass.Prewarm();
             CameraVelocityPass.Prewarm();
             TemporalParticipation.Prewarm();
             if (WantDebugShaders())

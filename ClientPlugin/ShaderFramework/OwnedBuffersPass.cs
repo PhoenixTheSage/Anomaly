@@ -42,6 +42,7 @@ public static class OwnedBuffersPass
     public static bool ShadersReady { get; private set; }
 
     static readonly CatalogTexture LinearPublished = new();
+    static readonly CatalogTexture HistoryDepthPublished = new();
     static readonly CatalogTexture HiZPublished = new();
     static readonly CatalogTexture HistoryPublished = new();
     static readonly CatalogTexture LitMipsPublished = new();
@@ -53,6 +54,7 @@ public static class OwnedBuffersPass
     static IConstantBuffer linearCb;
     static readonly IRtvTexture[] linearTargets = new IRtvTexture[2];
     static int linearWriteIndex = 1;
+    static bool linearHistoryReady;
     static IRtvTexture hiZTarget;
     static IRtvTexture historyTarget;
     static IRtvTexture litMipsTarget;
@@ -95,6 +97,7 @@ public static class OwnedBuffersPass
                 if (!ShadersReady)
                     return "shaders not ready";
                 return "linearDepth " + FormatTex(LinearPublished)
+                    + "; historyDepth " + FormatTex(HistoryDepthPublished)
                     + "; hiZ " + FormatTex(HiZPublished)
                     + "; historyColor " + FormatTex(HistoryPublished)
                     + "; litMips " + FormatTex(LitMipsPublished);
@@ -322,11 +325,11 @@ public static class OwnedBuffersPass
         BindFullscreen(rc, linearShader);
         rc.SetScreenViewport();
         // AfterAtmosphere IsolatedAdd may still be sampling last frame's
-        // published ping. Write the other.
-        rc.SetRtvNull();
+        // published ping. Write the other. Lighting's leftover LBuffer MRT
+        // must not stay bound when we sample depth / later LBuffer.
         rc.PixelShader.SetSrv(0, null);
         rc.PixelShader.SetSrv(1, null);
-        rc.SetRtv(dest);
+        BindOwnedRtv(rc, dest);
         rc.PixelShader.SetConstantBuffer(0, linearCb);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
         rc.PixelShader.SetSrv(0, depth);
@@ -336,9 +339,8 @@ public static class OwnedBuffersPass
         {
             BindFullscreen(rc, hiZShader);
             rc.SetViewport(0f, 0f, hiZWidth, hiZHeight, 0f, 1f);
-            rc.SetRtvNull();
             rc.PixelShader.SetSrv(0, null);
-            rc.SetRtv(hiZTarget);
+            BindOwnedRtv(rc, hiZTarget);
             rc.PixelShader.SetConstantBuffer(0, null);
             rc.PixelShader.SetSampler(0, null);
             rc.PixelShader.SetSrv(0, dest);
@@ -354,6 +356,16 @@ public static class OwnedBuffersPass
         rc.ClearState();
 
         Publish(LinearPublished, BufferCatalog.LinearDepth, dest, linearWidth, linearHeight);
+        var hist = linearTargets[linearWriteIndex ^ 1];
+        if (linearHistoryReady && hist != null)
+            Publish(HistoryDepthPublished, BufferCatalog.HistoryDepth, hist, linearWidth, linearHeight);
+        else
+        {
+            HistoryDepthPublished.Clear();
+            BufferCatalog.Set(BufferCatalog.HistoryDepth, null);
+        }
+
+        linearHistoryReady = true;
         LastError = null;
         loggedError = false;
     }
@@ -385,7 +397,7 @@ public static class OwnedBuffersPass
 
         BindFullscreen(rc, historyShader);
         rc.SetScreenViewport();
-        rc.SetRtv(historyTarget);
+        BindOwnedRtv(rc, historyTarget);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
         rc.PixelShader.SetSrv(0, src);
         rc.Draw(3, 0);
@@ -423,7 +435,7 @@ public static class OwnedBuffersPass
 
         BindFullscreen(rc, historyShader);
         rc.SetScreenViewport();
-        rc.SetRtv(litMipsTarget);
+        BindOwnedRtv(rc, litMipsTarget);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Linear);
         rc.PixelShader.SetSrv(0, src);
         rc.Draw(3, 0);
@@ -448,6 +460,20 @@ public static class OwnedBuffersPass
         rc.GeometryShader.Set(null);
         rc.VertexShader.Set(vertexShader);
         rc.PixelShader.Set(ps);
+    }
+
+    /// <summary>
+    /// Keen <c>SetRtv</c> on lighting's deferred list leaves LBuffer / GBuffer
+    /// MRT slots live. Sampling those as SRVs is the AfterLighting TDR.
+    /// </summary>
+    static void BindOwnedRtv(MyRenderContext rc, IRtvBindable rtv)
+    {
+        rc.ResetTargets();
+        if (rtv?.Rtv == null)
+            return;
+        if (rc.DeviceContext != null)
+            rc.DeviceContext.OutputMerger.SetTargets(null, 1, new[] { rtv.Rtv });
+        rc.SetRtv(rtv);
     }
 
     internal static void CollectWarmupJobs(List<ShaderWarmup.Job> jobs)
@@ -619,8 +645,10 @@ public static class OwnedBuffersPass
     static void ClearDepthCatalog()
     {
         LinearPublished.Clear();
+        HistoryDepthPublished.Clear();
         HiZPublished.Clear();
         BufferCatalog.Set(BufferCatalog.LinearDepth, null);
+        BufferCatalog.Set(BufferCatalog.HistoryDepth, null);
         BufferCatalog.Set(BufferCatalog.HiZ, null);
     }
 
@@ -695,6 +723,7 @@ public static class OwnedBuffersPass
             MyManagers.RwTextures.DisposeTex(ref hiZTarget);
         hiZTarget = null;
         linearWriteIndex = 1;
+        linearHistoryReady = false;
         linearWidth = 0;
         linearHeight = 0;
         hiZWidth = 0;

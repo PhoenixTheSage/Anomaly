@@ -432,11 +432,9 @@ public static class TerminalConfigRegistry
         {
             if (enumType == null || !enumType.IsEnum || get == null || set == null)
                 return this;
-            AddControl(new ControlSpec
-            {
-                Weight = TileWeight.Standard,
-                Build = () => BuildDropdown(label, enumType, get, set, description),
-            });
+            var spec = new ControlSpec { Weight = TileWeight.Standard };
+            spec.Build = () => BuildDropdown(spec, label, enumType, get, set, description);
+            AddControl(spec);
             return this;
         }
 
@@ -862,8 +860,9 @@ public static class TerminalConfigRegistry
             return picker;
         }
 
-        TerminalDropdown<object> BuildDropdown(string label, Type enumType, Func<object> get, Action<object> set, string description)
+        TerminalDropdown<object> BuildDropdown(ControlSpec spec, string label, Type enumType, Func<object> get, Action<object> set, string description)
         {
+            var pulling = false;
             var dropdown = new TerminalDropdown<object>
             {
                 Name = label,
@@ -879,6 +878,8 @@ public static class TerminalConfigRegistry
             // reloads, and the terminal closes. Selection is push-only.
             dropdown.ControlChangedHandler = (sender, _) =>
             {
+                if (pulling)
+                    return;
                 var control = sender as TerminalDropdown<object>;
                 object selected = null;
                 if (!TryRun(() => { selected = control?.Value?.AssocObject; }, "dropdown Value"))
@@ -890,6 +891,18 @@ public static class TerminalConfigRegistry
                 if (persistHostConfig)
                     ConfigStorage.Save(Config.Current);
                 PullMounted();
+            };
+            spec.Pull = () =>
+            {
+                pulling = true;
+                try
+                {
+                    dropdown.List.SetSelection(get());
+                }
+                finally
+                {
+                    pulling = false;
+                }
             };
             ApplyTip(dropdown, description);
             return dropdown;

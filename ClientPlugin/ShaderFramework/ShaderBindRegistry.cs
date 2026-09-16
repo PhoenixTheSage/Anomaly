@@ -35,7 +35,7 @@ public static class ShaderBindRegistry
     public const int FirstExtraSrv = 5;
     public const int LastExtraSrv = 9;
 
-    const int ConstantBufferBytes = 256;
+    const int ConstantBufferBytes = 304;
     const string VelocityName = BufferCatalog.Velocity;
 
     static readonly object Gate = new();
@@ -67,6 +67,14 @@ public static class ShaderBindRegistry
         public Vector4 CameraToWorldR2;
         public Vector2 ProjScale;
         public Vector2 CameraToWorldPad;
+        public Vector2 SceneSize;
+        public Vector2 InvSceneSize;
+        public Vector3 SunColor;
+        public float SunDiffuse;
+        public Vector3 SunToward;
+        public float SkyLuma;
+        public Vector3 SkyAmbient;
+        public float SkyAmbientPad;
     }
 
     public static string StatusLine
@@ -319,7 +327,15 @@ public static class ShaderBindRegistry
             CameraToWorldR1 = FrameTemporal.CameraToWorldRow(1),
             CameraToWorldR2 = FrameTemporal.CameraToWorldRow(2),
             ProjScale = FrameTemporal.ProjScale,
-            CameraToWorldPad = Vector2.Zero
+            CameraToWorldPad = Vector2.Zero,
+            SceneSize = new Vector2(w, h),
+            InvSceneSize = new Vector2(1f / w, 1f / h),
+            SunColor = FrameTemporal.SunColor,
+            SunDiffuse = FrameTemporal.SunDiffuse,
+            SunToward = FrameTemporal.SunToward,
+            SkyLuma = FrameTemporal.SkyLuma,
+            SkyAmbient = FrameTemporal.SkyAmbient,
+            SkyAmbientPad = 0f
         };
         var mapping = MyMapping.MapDiscard(rc, extrasCb);
         mapping.WriteAndPosition(ref cb);

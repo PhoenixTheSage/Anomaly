@@ -4,7 +4,7 @@ Pulsar client plugin that intercepts Space Engineers 1’s DX11 GBuffer and publ
 
 This is not a graphics preset. It does not change the picture by itself. Other plugins bind `IVelocityBuffer` by well-known type name; see [ClientPlugin/Velocity/README.md](ClientPlugin/Velocity/README.md).
 
-Architecture supports [Rich HUD Framework](https://github.com/ZachHembree/RichHudFramework.Client) coexistence (Anomaly must not leave RT/SRV bound). The [client + Shared modules](ClientPlugin/RichHudFramework/VENDOR.md) are vendored; [Rich HUD Master](https://steamcommunity.com/sharedfiles/filedetails/?id=1965654081) is an optional world mod, not a Pulsar `DependencyId`. Pulsar MyGui settings stay available. When Master is in the world, the same options appear under **Anomaly Shaders → Anomaly**, and hooked plugins add sibling pages there (`ClientPlugin.RichHud.TerminalConfigRegistry`).
+Architecture supports [Rich HUD Framework](https://github.com/ZachHembree/RichHudFramework.Client) coexistence (Anomaly must not leave RT/SRV bound). The [client + Shared modules](ClientPlugin/RichHudFramework/VENDOR.md) are vendored; [Rich HUD Master](https://steamcommunity.com/sharedfiles/filedetails/?id=1965654081) is an optional world mod, not a Pulsar `DependencyId`. Pulsar MyGui settings stay available. When Master is in the world, the same options appear under **Anomaly Shaders → Anomaly**, hooked plugins add sibling pages there (`ClientPlugin.RichHud.TerminalConfigRegistry`), and optional corner status uses `ClientPlugin.RichHud.HudOverlayRegistry`.
 
 ## Install
 

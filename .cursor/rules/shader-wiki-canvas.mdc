@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Shader wiki canvas
 
-When this workspace’s public shader API, pack contract, named stages, catalog buffers, binds, owned passes, or onboarding docs change, update the wiki canvas in the **same turn**. Do not leave the canvas describing a previous slice.
+When this workspace’s public shader API, pack contract, named stages, catalog buffers, binds, owned passes, onboarding docs, or **framework gaps** (Slice AI / pack workarounds Anomaly should own) change, update the wiki canvas in the **same turn**. Do not leave the canvas describing a previous slice.
 
 The canvas is not in git. Write it at the Cursor canvases path for this workspace:
 

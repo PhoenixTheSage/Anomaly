@@ -56,7 +56,8 @@ public interface ITerminalConfigPage
     /// use <c>CustomValueGetter</c> (Master assigns it every HandleInput tick;
     /// dropdown getters return client <c>EntryData</c> that cannot be Master's
     /// <c>ListBoxEntry</c>). Call after a dropdown or button writes several
-    /// fields. Dropdown setters already pull sibling controls on this page.
+    /// fields. Dropdown setters already pull sibling controls on this page,
+    /// including other dropdowns.
     /// </summary>
     ITerminalConfigPage Refresh();
 }

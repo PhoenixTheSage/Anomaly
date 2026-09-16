@@ -2,11 +2,43 @@ using System.Reflection;
 using ClientPlugin.ShaderFramework;
 using ClientPlugin.Shaders;
 using HarmonyLib;
+using VRage.Library.Collections;
 using VRage.Render11.LightingStage;
 using VRage.Render11.RenderContext;
+using VRage.Render11.Scene.Components;
 using VRageRender;
 
 namespace ClientPlugin.Patches;
+
+[HarmonyPatch]
+static class LightingPreparePointLightsPatch
+{
+    static bool Prepare() => TargetMethod() != null;
+
+    static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(MyLightsRendering), "PreparePointLights");
+
+    static void Postfix(MyList<MyLightComponent> visibleLights)
+    {
+        PointLightCatalog.PublishFromKeen();
+        PointShadowPass.CaptureLights(visibleLights);
+    }
+}
+
+[HarmonyPatch]
+static class LightingRenderCatalogPatch
+{
+    static bool Prepare() => TargetMethod() != null;
+
+    static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(MyLightsRendering), "Render");
+
+    static void Postfix()
+    {
+        if (!MyRender11.DebugOverrides.PointLights)
+            PointLightCatalog.Clear();
+    }
+}
 
 [HarmonyPatch]
 static class LightingPointBindPatch

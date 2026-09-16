@@ -14,7 +14,9 @@ namespace ClientPlugin.Buffers;
 /// (<c>velocity</c>, <c>linearDepth</c>, <c>hiZ</c>, <c>historyColor</c>,
 /// <c>reactiveMask</c>, <c>fullscreenIsolated</c>, <c>hdrColor</c>,
 /// <c>upscaledColor</c>, <c>avgLuminance</c>, <c>bloom</c>, <c>dirt</c>,
-/// <c>litMips</c>). <c>velocity</c> aliases
+    /// <c>litMips</c>, <c>pointLights</c>, <c>tileIndices</c>,
+    /// <c>historyDepth</c>, <c>occupancy</c>, <c>pointShadowAtlas</c>).
+/// <c>velocity</c> aliases
 /// <see cref="VelocityRegistry.Active"/>. <c>hdrColor</c> aliases Keen
 /// <c>LBuffer</c>. Packs publish extras with <see cref="Publish"/>;
 /// reserved names fail closed.
@@ -34,6 +36,11 @@ public static class BufferCatalog
     public const string Bloom = "bloom";
     public const string Dirt = "dirt";
     public const string LitMips = "litMips";
+    public const string PointLights = "pointLights";
+    public const string TileIndices = "tileIndices";
+    public const string HistoryDepth = "historyDepth";
+    public const string Occupancy = "occupancy";
+    public const string PointShadowAtlas = "pointShadowAtlas";
 
     static readonly object Gate = new();
     static readonly Dictionary<string, ISharedBuffer> ByName =
@@ -43,7 +50,8 @@ public static class BufferCatalog
     static readonly string[] Reserved =
     {
         Velocity, LinearDepth, HiZ, HistoryColor, ReactiveMask, FullscreenIsolated,
-        HdrColor, UpscaledColor, AvgLuminance, Bloom, Dirt, LitMips
+        HdrColor, UpscaledColor, AvgLuminance, Bloom, Dirt, LitMips, PointLights,
+        TileIndices, HistoryDepth, Occupancy, PointShadowAtlas
     };
 
     /// <summary>
@@ -95,7 +103,9 @@ public static class BufferCatalog
     /// (<c>velocity</c>, <c>linearDepth</c>, <c>hiZ</c>, <c>historyColor</c>,
     /// <c>reactiveMask</c>, <c>fullscreenIsolated</c>, <c>hdrColor</c>,
     /// <c>upscaledColor</c>, <c>avgLuminance</c>, <c>bloom</c>, <c>dirt</c>,
-    /// <c>litMips</c>) fail closed. Same name from two pack ids fails closed.
+    /// <c>litMips</c>, <c>pointLights</c>, <c>tileIndices</c>,
+    /// <c>historyDepth</c>, <c>occupancy</c>, <c>pointShadowAtlas</c>) fail closed.
+    /// Same name from two pack ids fails closed.
     /// </summary>
     public static bool Publish(string packId, string name, ISharedBuffer buffer)
     {
@@ -174,6 +184,25 @@ public static class BufferCatalog
     public static void RequestLitMips(int mipLevels = 5)
     {
         ClientPlugin.ShaderFramework.OwnedBuffersPass.RequestLitMips(mipLevels);
+    }
+
+    /// <summary>
+    /// Request catalog <c>pointShadowAtlas</c> (AABB light-view depth for
+    /// the closest N point lights). <paramref name="maxLights"/> <c>&lt;= 0</c>
+    /// skips the cube pass. Default 4, max 64. VRAM grows with the request.
+    /// </summary>
+    public static void RequestPointShadows(int maxLights = 4, int faceResolution = 64)
+    {
+        ClientPlugin.ShaderFramework.PointShadowPass.RequestPointShadows(maxLights, faceResolution);
+    }
+
+    /// <summary>
+    /// Request catalog <c>occupancy</c> (64³ camera-relative clipmap atlas).
+    /// Pass false to clear the request.
+    /// </summary>
+    public static void RequestOccupancy(bool enabled = true)
+    {
+        ClientPlugin.ShaderFramework.PointShadowPass.RequestOccupancy(enabled);
     }
 
     public static bool IsReservedName(string name)

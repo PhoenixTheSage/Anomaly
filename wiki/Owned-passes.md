@@ -9,8 +9,9 @@ On a GPU hang, search `SpaceEngineers.log` for `Anomaly RenderTrace dump at`. Th
 | Pass | Hook | Publishes |
 |------|------|-----------|
 | Camera velocity | `MyRenderScheduler.Done` | `velocity` (RG16F). Composite keeps GBuffer MVs and camera-fills clear-zero pixels (sky / particles / foliage). |
-| Linear depth + Hi-Z | Same Done, after velocity | `linearDepth`, `hiZ` — frozen for the rest of the frame |
+| Linear depth + Hi-Z | Same Done, after velocity | `linearDepth`, `historyDepth` (unread ping-pong), `hiZ` — frozen for the rest of the frame |
 | Scene mip chain | AfterLighting, before Fullscreen programs | `litMips` — request-driven GenerateMips of this-frame `LBuffer` |
+| Point-light shadows | AfterLighting, after BeforeFullscreen / `litMips` | `occupancy` + `pointShadowAtlas` when `RequestOccupancy` / `RequestPointShadows`. Default cube cap 4, max 64. |
 | History color | `DrawGameScene` postfix, after debug overlay | `historyColor` (previous during this frame’s post) |
 | Catalog debug | `DrawGameScene` postfix, `Priority.Last` | Nothing — overlay at `ViewportResolution` on the backbuffer, then `ClearState`. Velocity mode samples GBuffer depth (t1) so sky is dark grey. |
 
@@ -23,7 +24,7 @@ On a GPU hang, search `SpaceEngineers.log` for `Anomaly RenderTrace dump at`. Th
 | AfterTransparent | Postfix `Transparent.Render` | After OIT + top billboards. Skipped on those hijacked views. |
 | BeforeTonemap | Prefix `ToneMapping.Run` (Last) | HDR grade, internal res. Skipped on those hijacked views. |
 | AfterTonemap | Postfix `Run` (First) | Internal LDR, before SE-DLSS evaluate |
-| AfterUpscale | `NotifyUpscaleComplete(rc, color)` or `DrawGameScene` fallback | Output res. Read `upscaledColor` / `ctx.SceneColor`, not raw `LBuffer` |
+| AfterUpscale | `NotifyUpscaleComplete(rc, color)` or `DrawGameScene` fallback | Output res after an upscaler. Display-without-upscale grades `LBuffer` into the dest at `ResolutionI`. Read `upscaledColor` / `ctx.SceneColor`, not raw `LBuffer` at output size |
 
 ```csharp
 // ClientPlugin.Shaders.OwnedPassRegistry
@@ -47,7 +48,7 @@ Upscalers call `ClaimUpscale("se-dlss")` at init and `NotifyUpscaleComplete(rc, 
 | Flag | Meaning |
 |------|---------|
 | InColor | Writes LBuffer (HDR) or LDR after tonemap |
-| ContributeVelocity | Call `ctx.ContributeVelocity(overlay, mask)` — republishes velocity |
+| ContributeVelocity | IsolatedAdd reconstructs MVs from isolated.a (hit meters). C# may still call `ctx.ContributeVelocity(overlay, mask)` |
 | Reactive | IsolatedAdd (and IsolatedMix / DirectAdd / PublishOnly) stamp dilated luma into `reactiveMask` on the slot’s `rc`. C# may still write the RTV via `ctx.Rc`. High = reject history |
 | Display | AfterUpscale display-referred grade. Sample `ctx.SceneColor` / `upscaledColor`; t4–t6 are Keen bloom / avgLum / dirt |
 
@@ -56,5 +57,7 @@ Upscalers call `ClaimUpscale("se-dlss")` at init and `NotifyUpscaleComplete(rc, 
 > **Warning — Transparent slots are a deferred worker.** `MyTransparentRendering.DoWork` records AfterLighting / AfterAtmosphere / AfterTransparent on `AcquireRC("MyTransparentRendering")`, then `ConsumeWork` executes that list on the immediate context. Draw, clear, and stamp only on `ctx.Rc`. During those callbacks Anomaly redirects `MyRender11.RC` and `Device.ImmediateContext` to the slot `rc` and logs once — do not rely on that. Touching the real immediate context from that worker is a later `DEVICE_HUNG` at Present (Aurora IsolatedAdd + Reactive was the first tenant).
 
 > **Warning — Do not copy with `MyCopyToRT.Run`.** Other plugins may intercept that blit. History uses Anomaly’s `HistoryCopy.hlsl`. MSAA LBuffer is `ResolveSubresource`’d first.
+
+> **Warning — Keen `DrawFullscreenQuad()` resets the viewport.** With no `customViewport` it calls `SetScreenViewport()`. A half/quarter AfterFullscreen RT then stores only the top-left of UV 0–1, so screen-space lighting stretches with quality. Use `FullscreenPassRegistry.DrawFullscreen(rc, width, height)` (or `new MyViewport(rtWidth, rtHeight)`). Composite into `LBuffer` keeps dest size.
 
 → [[Fullscreen-programs|Fullscreen programs]] · [[Frame-graph|Frame graph]] · [[Buffer-catalog|Catalog names]]

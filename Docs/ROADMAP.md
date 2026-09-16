@@ -6,7 +6,7 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 
 **Next (velocity proof):** Use the debug overlay in-game (PLAN test plan: moving grid vs camera pan, Depth still compiles) and, when ready, PluginHub pin.
 
-**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–Z** and **AA–AH** are in this repo (owned-pass scheduler, `FullscreenPassRegistry`, temporal policy, Atmosphere wrap at t6, catalog publish, color bus, 256 B uniforms). Next code is **K** (sample pack) when a pack needs to demonstrate `Fullscreen/AfterAtmosphere`, inject, or a named-stage overlay.
+**Next (framework):** [Extensibility.md](Extensibility.md) slices **M–Z** and **AA–AI** are in this repo (owned-pass scheduler, `FullscreenPassRegistry`, temporal policy, Atmosphere wrap at t6, catalog publish, color bus, 256 B uniforms, extras-CB sun / `AnomalyMarchSteps`). Next code is **K** (sample pack) when a pack needs to demonstrate `Fullscreen/AfterAtmosphere`, inject, or a named-stage overlay.
 
 ---
 
@@ -18,7 +18,7 @@ Ordered work to turn the compile-and-load stub into a living shader framework. A
 | [ShaderAPI.md](ShaderAPI.md) | Hook / inject / replace / owned-pass layers; Iris comparison |
 | [ShaderPacks.md](ShaderPacks.md) | Pulsar named assets; pack plugins register HLSL with Anomaly |
 | [KeenShaders.md](KeenShaders.md) | All Keen HLSL files and GBuffer layout |
-| [Extensibility.md](Extensibility.md) | Post-velocity slices M–Z and AA–AH (inject, slots, bind, catalog, owned passes, fullscreen programs, 256 B uniforms) |
+| [Extensibility.md](Extensibility.md) | Post-velocity slices M–Z and AA–AI (inject, slots, bind, catalog, owned passes, fullscreen programs, 256 B uniforms, extras-CB sun) |
 | This file | Velocity + hook slices A–L |
 
 ---

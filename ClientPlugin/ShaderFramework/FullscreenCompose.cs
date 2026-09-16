@@ -12,5 +12,13 @@ public enum FullscreenCompose
     Chain = 2,
     PublishOnly = 3,
     Replace = 4,
-    DirectAdd = 5
+    DirectAdd = 5,
+    /// <summary>
+    /// Scratch then blend occupancy onto dest: <c>dest.rgb * (1 - saturate(src.rgb))</c>.
+    /// Pack writes a 0–1 dest fraction (<c>AnomalyIsolatedSub</c>). IsolatedSub
+    /// draws the pack to scratch, stamps Reactive from <c>.a</c>, then merges
+    /// with dest*(1-src) blend onto dest (same dest RTV as Replace). IsolatedSub
+    /// does not blit dest for t0 — the pack does not composite dest.
+    /// </summary>
+    IsolatedSub = 6
 }

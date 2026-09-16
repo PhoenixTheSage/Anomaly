@@ -10,11 +10,16 @@ Resolve `ClientPlugin.Buffers.BufferCatalog` by type name. `Active(name)` never 
 | `historyColor` | After DrawGameScene postfix, only if a pack is live or Debug buffer is History color | RGBA16F HDR LBuffer copy; unpublished until one copy |
 | `reactiveMask` | When an owned pass or IsolatedAdd program sets `TemporalPolicy.Reactive` | R8, full res; IsolatedAdd auto-stamps dilated luma **on the slot `rc`** (transparent deferred worker for AfterAtmosphere). Anomaly redirects `MyRender11.RC` during those callbacks. White = do not trust history |
 | `objectId` (or any attachment name) | If a pack requested it | Pack format; also `GBufferAttachments.TryGet` |
-| `fullscreenIsolated` | After a `Fullscreen/` program runs | Last isolated RT; reserved |
+| `fullscreenIsolated` | After a `Fullscreen/` program runs | Last isolated RT (slot res, or 1/2 / 1/4 when that program set `scale`); reserved |
 | `hdrColor` | When GBuffer exists | Aliases Keen `LBuffer` (internal HDR) |
+| `pointLights` | After `PreparePointLights` when point lights are on and last-frame visible | Structured 48-byte `AnomalyPointLight`; `Width` = element count, `Height` = 1. Wrap, no copy. Dummy 1-element SRV on HDR t10 when empty |
+| `tileIndices` | Same as `pointLights` | Structured `uint`; 16×16 tiles then per-tile light indices. Dummy 1-element SRV on HDR t11 when empty |
 | `litMips` | AfterLighting, only if a live fullscreen program bound `litMips`, `RequestLitMips` was called, or Debug buffer is LitMips | RGBA16F, full res, default 5 mips of this-frame `LBuffer` (before atmosphere). Reserved |
+| `historyDepth` | After scheduler Done, once two linear frames exist | R32_Float unread linear ping-pong (last frame’s view Z). Reserved |
+| `occupancy` | AfterLighting after BeforeFullscreen, if `RequestOccupancy` | R8 512×512 atlas of a 64³ camera-relative clipmap (2 m voxels). Depth splat + actor AABB stamps. Reserved |
+| `pointShadowAtlas` | AfterLighting after BeforeFullscreen, if `RequestPointShadows(cap > 0)` | RGBA32F light-view AABB depth. Width = faceRes×6, height = 1 + faceRes×cap. Row 0 is viewPos.xyz + range. Default cap 4, max 64. VRAM grows with the request. Reserved |
 | `upscaledColor` | After `NotifyUpscaleComplete(rc, color)` | Unique upscale dest at output res. Cleared next frame. Reserved |
-| `pass.<id>` | Same draw | That program’s isolated output |
+| `pass.<id>` | Same draw | That program’s isolated output (scaled when `passes[].scale` is 0.5 or 0.25) |
 
 ```csharp
 foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -26,6 +31,8 @@ foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
     break;
 }
 ```
+
+`RequestLitMips` / `RequestOccupancy` / `RequestPointShadows(maxLights, faceResolution)` are C# asks on `BufferCatalog` (also forwarded from `FullscreenPassRegistry`). Cube cap default **4**, max **64**; VRAM grows with the request. `historyDepth` needs no request — it is the unread linear ping-pong after the second frame.
 
 ## Publish (pack-owned names)
 

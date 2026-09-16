@@ -13,4 +13,4 @@ Also patched: `ListBoxData` reads `SelectionIndex` without a hard `(int)` cast (
 
 Runtime Master is the Steam Workshop mod [Rich HUD Master](https://steamcommunity.com/sharedfiles/filedetails/?id=1965654081) (`1965654081`). It is **optional**. Anomaly does not list it in Pulsar `DependencyIds`. Without Master, `RichHudClient.Registered` stays false and the Pulsar MyGui dialog remains the settings UI.
 
-Handshake: `ClientPlugin.RichHud.RichHudSupport`. Init name / terminal root: **Anomaly Shaders**. Packs add pages through `ClientPlugin.RichHud.TerminalConfigRegistry` — do not vendor a second client in a pack plugin.
+Handshake: `ClientPlugin.RichHud.RichHudSupport`. Init name / terminal root: **Anomaly Shaders**. Packs add pages through `ClientPlugin.RichHud.TerminalConfigRegistry` and corner status through `ClientPlugin.RichHud.HudOverlayRegistry` — do not vendor a second client in a pack plugin.

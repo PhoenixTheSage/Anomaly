@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using ClientPlugin.Buffers;
 using ClientPlugin.Shaders;
 using ClientPlugin.Velocity;
@@ -12,16 +13,20 @@ using VRage.Render11.Common;
 using VRage.Render11.RenderContext;
 using VRage.Render11.Resources;
 using VRage.Utils;
+using VRageMath;
 using VRageRender;
 
 namespace ClientPlugin.ShaderFramework;
 
 /// <summary>
 /// Anomaly-owned <c>reactiveMask</c> and velocity overlay composite.
-/// IsolatedAdd (and IsolatedMix / DirectAdd / PublishOnly) with
+/// IsolatedAdd / IsolatedMix / IsolatedSub / DirectAdd / PublishOnly with
 /// <see cref="TemporalPolicy.Reactive"/> stamps dilated isolated luma.
-/// C# owned passes may still write the mask / call
-/// <see cref="OwnedPassContext.ContributeVelocity"/>.
+/// IsolatedSub stamps <c>.a</c> (0–1 occlusion) because rgb is the composited
+/// dest. IsolatedSub umbra uses Reactive, not ContributeVelocity.
+/// The same composes with <see cref="TemporalPolicy.ContributeVelocity"/>
+/// reconstruct camera MVs from isolated.a. C# owned passes may still write
+/// the mask / call <see cref="OwnedPassContext.ContributeVelocity"/>.
 /// </summary>
 public static class TemporalParticipation
 {
@@ -29,23 +34,44 @@ public static class TemporalParticipation
     const string ClearPsFile = "ReactiveClear.hlsl";
     const string StampPsFile = "ReactiveStamp.hlsl";
     const string ContributePsFile = "VelocityContribute.hlsl";
+    const string IsolatedVelocityPsFile = "IsolatedVelocity.hlsl";
+    const int IsolatedVelocityCbBytes = 256;
 
     static readonly object Gate = new();
     static readonly CatalogTexture ReactivePublished = new();
+    static readonly IRtvTexture[] ContributeTargets = new IRtvTexture[2];
 
     static VertexShader vertexShader;
     static PixelShader clearShader;
     static PixelShader stampShader;
+    static PixelShader stampAlphaShader;
     static PixelShader contributeShader;
+    static PixelShader isolatedVelocityShader;
+    static IConstantBuffer isolatedVelocityCb;
     static IRtvTexture reactiveTarget;
     static IRtvTexture stampScratch;
-    static IRtvTexture contributeTarget;
+    static int contributeWrite;
     static int width;
     static int height;
     static bool shadersReady;
     static bool clearedThisFrame;
     static bool stampedThisFrame;
     static bool loggedError;
+
+    [StructLayout(LayoutKind.Sequential, Size = IsolatedVelocityCbBytes)]
+    struct IsolatedVelocityConstants
+    {
+        public Matrix UnjitteredViewProj;
+        public Matrix PrevViewProj;
+        public Vector4 CamToWorldR0;
+        public Vector4 CamToWorldR1;
+        public Vector4 CamToWorldR2;
+        public Vector2 RenderSize;
+        public Vector2 ProjScale;
+        public uint HistoryValid;
+        public uint Pad0;
+        public Vector2 Pad1;
+    }
 
     public static object ReactiveRtv
     {
@@ -108,7 +134,12 @@ public static class TemporalParticipation
         }
     }
 
-    internal static void StampFromIsolated(MyRenderContext rc, ISrvBindable isolated)
+    /// <summary>
+    /// IsolatedAdd with <see cref="TemporalPolicy.ContributeVelocity"/>:
+    /// reconstruct camera MVs from isolated.a (meters along the unjittered
+    /// camera ray) and composite over catalog velocity.
+    /// </summary>
+    internal static void ContributeFromIsolated(MyRenderContext rc, ISrvBindable isolated)
     {
         if (rc == null || !rc.IsInitialized || isolated == null)
             return;
@@ -116,7 +147,25 @@ public static class TemporalParticipation
         {
             try
             {
-                StampUnlocked(rc, isolated);
+                ContributeFromIsolatedUnlocked(rc, isolated);
+            }
+            catch (Exception e)
+            {
+                Fail("isolated-velocity: " + e.GetType().Name + ": " + e.Message);
+            }
+        }
+    }
+
+    internal static void StampFromIsolated(MyRenderContext rc, ISrvBindable isolated,
+        bool occlusionAlpha = false)
+    {
+        if (rc == null || !rc.IsInitialized || isolated == null)
+            return;
+        lock (Gate)
+        {
+            try
+            {
+                StampUnlocked(rc, isolated, occlusionAlpha);
             }
             catch (Exception e)
             {
@@ -225,18 +274,15 @@ public static class TemporalParticipation
         rc.SetRtvNull();
     }
 
-    static void StampUnlocked(MyRenderContext rc, ISrvBindable isolated)
+    static void StampUnlocked(MyRenderContext rc, ISrvBindable isolated, bool occlusionAlpha)
     {
         EnsureReactiveUnlocked(rc);
         EnsureStampShaderUnlocked();
         var size = MyRender11.ResolutionI;
-        if (!shadersReady || vertexShader == null || stampShader == null || reactiveTarget == null)
+        var ps = occlusionAlpha ? stampAlphaShader : stampShader;
+        if (!shadersReady || vertexShader == null || ps == null || reactiveTarget == null)
             return;
         if (size.X <= 0 || size.Y <= 0)
-            return;
-
-        var isoRt = isolated as IRtvTexture;
-        if (isoRt != null && (isoRt.Size.X != size.X || isoRt.Size.Y != size.Y))
             return;
 
         EnsureStampScratchUnlocked(size.X, size.Y);
@@ -253,7 +299,7 @@ public static class TemporalParticipation
         rc.SetVertexBuffer(0, null);
         rc.GeometryShader.Set(null);
         rc.VertexShader.Set(vertexShader);
-        rc.PixelShader.Set(stampShader);
+        rc.PixelShader.Set(ps);
         rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
         rc.PixelShader.SetSrv(0, isolated);
         // First IsolatedAdd this frame writes the cleared unpublished ping.
@@ -290,24 +336,15 @@ public static class TemporalParticipation
         if (currentSrv == null)
             return;
 
-        if (contributeTarget == null || width != size.X || height != size.Y)
-        {
-            if (contributeTarget != null)
-                MyManagers.RwTextures.DisposeTex(ref contributeTarget);
-            contributeTarget = MyManagers.RwTextures.CreateRtv("Anomaly.VelocityContribute", size.X, size.Y,
-                Format.R16G16_Float);
-            width = size.X;
-            height = size.Y;
-        }
-
-        if (contributeTarget == null)
+        var dest = NextContributeTarget(size.X, size.Y);
+        if (dest == null)
             return;
 
         rc.SetScreenViewport();
         rc.SetRasterizerState(MyRasterizerStateManager.NocullRasterizerState);
         rc.SetDepthStencilState(MyDepthStencilStateManager.IgnoreDepthStencil);
         rc.SetBlendState(MyBlendStateManager.BlendReplace);
-        BindRtv(rc, contributeTarget);
+        BindRtv(rc, dest);
         rc.SetInputLayout(null);
         rc.SetPrimitiveTopology(PrimitiveTopology.TriangleList);
         rc.SetVertexBuffer(0, null);
@@ -324,11 +361,101 @@ public static class TemporalParticipation
         rc.PixelShader.SetSrv(2, null);
         rc.SetRtvNull();
 
-        var native = contributeTarget.Resource != null
-            ? contributeTarget.Resource.NativePointer
-            : IntPtr.Zero;
-        CameraVelocityBuffer.Instance.Publish(contributeTarget, native, size.X, size.Y,
-            FrameTemporal.HistoryValid);
+        PublishContribute(dest, size.X, size.Y);
+    }
+
+    static void ContributeFromIsolatedUnlocked(MyRenderContext rc, ISrvBindable isolated)
+    {
+        EnsureShadersUnlocked();
+        EnsureIsolatedVelocityUnlocked();
+        var size = MyRender11.ResolutionI;
+        if (!shadersReady || vertexShader == null || isolatedVelocityShader == null ||
+            isolatedVelocityCb == null)
+            return;
+        if (size.X <= 0 || size.Y <= 0)
+            return;
+
+        var current = BufferCatalog.Active(BufferCatalog.Velocity);
+        var currentSrv = current != null && current.IsAvailable ? current.Srv as ISrvBindable : null;
+        if (currentSrv == null)
+            return;
+
+        var dest = NextContributeTarget(size.X, size.Y);
+        if (dest == null)
+            return;
+
+        FrameTemporal.EnsureSnapshot();
+        var prev = FrameTemporal.PrevViewProj;
+        if (FrameTemporal.HistoryValid)
+            prev = Matrix.CreateTranslation(FrameTemporal.CameraDelta) * prev;
+        var cb = new IsolatedVelocityConstants
+        {
+            UnjitteredViewProj = FrameTemporal.UnjitteredViewProj,
+            PrevViewProj = prev,
+            CamToWorldR0 = FrameTemporal.CameraToWorldRow(0),
+            CamToWorldR1 = FrameTemporal.CameraToWorldRow(1),
+            CamToWorldR2 = FrameTemporal.CameraToWorldRow(2),
+            RenderSize = new Vector2(size.X, size.Y),
+            ProjScale = FrameTemporal.ProjScale,
+            HistoryValid = FrameTemporal.HistoryValid ? 1u : 0u
+        };
+        var mapping = MyMapping.MapDiscard(rc, isolatedVelocityCb);
+        mapping.WriteAndPosition(ref cb);
+        mapping.Unmap();
+
+        rc.SetScreenViewport();
+        rc.SetRasterizerState(MyRasterizerStateManager.NocullRasterizerState);
+        rc.SetDepthStencilState(MyDepthStencilStateManager.IgnoreDepthStencil);
+        rc.SetBlendState(MyBlendStateManager.BlendReplace);
+        BindRtv(rc, dest);
+        rc.SetInputLayout(null);
+        rc.SetPrimitiveTopology(PrimitiveTopology.TriangleList);
+        rc.SetVertexBuffer(0, null);
+        rc.GeometryShader.Set(null);
+        rc.VertexShader.Set(vertexShader);
+        rc.PixelShader.Set(isolatedVelocityShader);
+        rc.PixelShader.SetConstantBuffer(0, isolatedVelocityCb);
+        rc.PixelShader.SetSampler(0, MySamplerStateManager.Point);
+        rc.PixelShader.SetSrv(0, isolated);
+        rc.PixelShader.SetSrv(1, currentSrv);
+        rc.Draw(3, 0);
+        rc.PixelShader.SetSrv(0, null);
+        rc.PixelShader.SetSrv(1, null);
+        rc.PixelShader.SetConstantBuffer(0, null);
+        rc.SetRtvNull();
+
+        PublishContribute(dest, size.X, size.Y);
+    }
+
+    static IRtvTexture NextContributeTarget(int w, int h)
+    {
+        if (w <= 0 || h <= 0)
+            return null;
+        if (ContributeTargets[0] == null || ContributeTargets[0].Size.X != w ||
+            ContributeTargets[0].Size.Y != h)
+        {
+            DisposeContributeTargets();
+            ContributeTargets[0] = MyManagers.RwTextures.CreateRtv("Anomaly.VelocityContribute.A", w, h,
+                Format.R16G16_Float);
+            ContributeTargets[1] = MyManagers.RwTextures.CreateRtv("Anomaly.VelocityContribute.B", w, h,
+                Format.R16G16_Float);
+            contributeWrite = 1;
+            width = w;
+            height = h;
+        }
+
+        if (ContributeTargets[0] == null || ContributeTargets[1] == null)
+            return null;
+        contributeWrite ^= 1;
+        return ContributeTargets[contributeWrite];
+    }
+
+    static void PublishContribute(IRtvTexture dest, int w, int h)
+    {
+        if (dest == null)
+            return;
+        var native = dest.Resource != null ? dest.Resource.NativePointer : IntPtr.Zero;
+        CameraVelocityBuffer.Instance.Publish(dest, native, w, h, FrameTemporal.HistoryValid);
         VelocityRegistry.SetActive(CameraVelocityBuffer.Instance);
     }
 
@@ -346,6 +473,12 @@ public static class TemporalParticipation
 
             if (stampShader == null)
                 ShaderWarmup.Add(jobs, FindHlsl(StampPsFile), MyShaderProfile.ps_5_0, "Anomaly.ReactiveStamp");
+            if (stampAlphaShader == null)
+                ShaderWarmup.Add(jobs, FindHlsl(StampPsFile), MyShaderProfile.ps_5_0,
+                    "Anomaly.ReactiveStampAlpha", new ShaderMacro("STAMP_ALPHA", "1"));
+            if (isolatedVelocityShader == null)
+                ShaderWarmup.Add(jobs, FindHlsl(IsolatedVelocityPsFile), MyShaderProfile.ps_5_0,
+                    "Anomaly.IsolatedVelocity");
         }
     }
 
@@ -355,6 +488,7 @@ public static class TemporalParticipation
         {
             EnsureShadersUnlocked();
             EnsureStampShaderUnlocked();
+            EnsureIsolatedVelocityUnlocked();
         }
     }
 
@@ -390,12 +524,39 @@ public static class TemporalParticipation
         contributeShader = new PixelShader(device, contribBc) { DebugName = "Anomaly.VelocityContribute" };
         shadersReady = true;
         EnsureStampShaderUnlocked();
+        EnsureIsolatedVelocityUnlocked();
+    }
+
+    static void EnsureIsolatedVelocityUnlocked()
+    {
+        if (isolatedVelocityShader != null && isolatedVelocityCb != null)
+            return;
+        var path = FindHlsl(IsolatedVelocityPsFile);
+        if (path == null)
+        {
+            Fail("HLSL not found (IsolatedVelocity)");
+            return;
+        }
+
+        var bc = MyShaderCompiler.Compile(path, Array.Empty<ShaderMacro>(), MyShaderProfile.ps_5_0,
+            "Anomaly.IsolatedVelocity", invalidateCache: false);
+        if (bc == null || bc.Length == 0)
+        {
+            Fail("IsolatedVelocity compile returned empty bytecode");
+            return;
+        }
+
+        isolatedVelocityShader = new PixelShader(MyRender11.DeviceInstance, bc)
+        {
+            DebugName = "Anomaly.IsolatedVelocity"
+        };
+        if (isolatedVelocityCb == null)
+            isolatedVelocityCb = MyManagers.Buffers.CreateConstantBuffer("Anomaly.IsolatedVelocityCB",
+                IsolatedVelocityCbBytes, usage: ResourceUsage.Dynamic);
     }
 
     static void EnsureStampShaderUnlocked()
     {
-        if (stampShader != null)
-            return;
         var stampPath = FindHlsl(StampPsFile);
         if (stampPath == null)
         {
@@ -403,18 +564,38 @@ public static class TemporalParticipation
             return;
         }
 
-        var stampBc = MyShaderCompiler.Compile(stampPath, Array.Empty<ShaderMacro>(), MyShaderProfile.ps_5_0,
-            "Anomaly.ReactiveStamp", invalidateCache: false);
-        if (stampBc == null || stampBc.Length == 0)
+        if (stampShader == null)
         {
-            Fail("ReactiveStamp compile returned empty bytecode");
-            return;
+            var stampBc = MyShaderCompiler.Compile(stampPath, Array.Empty<ShaderMacro>(),
+                MyShaderProfile.ps_5_0, "Anomaly.ReactiveStamp", invalidateCache: false);
+            if (stampBc == null || stampBc.Length == 0)
+            {
+                Fail("ReactiveStamp compile returned empty bytecode");
+                return;
+            }
+
+            stampShader = new PixelShader(MyRender11.DeviceInstance, stampBc)
+            {
+                DebugName = "Anomaly.ReactiveStamp"
+            };
         }
 
-        stampShader = new PixelShader(MyRender11.DeviceInstance, stampBc)
+        if (stampAlphaShader == null)
         {
-            DebugName = "Anomaly.ReactiveStamp"
-        };
+            var alphaBc = MyShaderCompiler.Compile(stampPath,
+                new[] { new ShaderMacro("STAMP_ALPHA", "1") }, MyShaderProfile.ps_5_0,
+                "Anomaly.ReactiveStampAlpha", invalidateCache: false);
+            if (alphaBc == null || alphaBc.Length == 0)
+            {
+                Fail("ReactiveStampAlpha compile returned empty bytecode");
+                return;
+            }
+
+            stampAlphaShader = new PixelShader(MyRender11.DeviceInstance, alphaBc)
+            {
+                DebugName = "Anomaly.ReactiveStampAlpha"
+            };
+        }
     }
 
     static string FindHlsl(string fileName)
@@ -455,27 +636,48 @@ public static class TemporalParticipation
             MyManagers.RwTextures.DisposeTex(ref reactiveTarget);
         if (stampScratch != null)
             MyManagers.RwTextures.DisposeTex(ref stampScratch);
-        if (contributeTarget != null)
-            MyManagers.RwTextures.DisposeTex(ref contributeTarget);
+        DisposeContributeTargets();
         reactiveTarget = null;
         stampScratch = null;
-        contributeTarget = null;
         width = 0;
         height = 0;
         clearedThisFrame = false;
         stampedThisFrame = false;
     }
 
+    static void DisposeContributeTargets()
+    {
+        for (var i = 0; i < ContributeTargets.Length; i++)
+        {
+            if (ContributeTargets[i] == null)
+                continue;
+            MyManagers.RwTextures.DisposeTex(ref ContributeTargets[i]);
+            ContributeTargets[i] = null;
+        }
+
+        contributeWrite = 0;
+    }
+
     static void DisposeShaders()
     {
+        if (isolatedVelocityCb != null)
+        {
+            MyManagers.Buffers.Dispose(new[] { isolatedVelocityCb });
+            isolatedVelocityCb = null;
+        }
+
         vertexShader?.Dispose();
         clearShader?.Dispose();
         stampShader?.Dispose();
+        stampAlphaShader?.Dispose();
         contributeShader?.Dispose();
+        isolatedVelocityShader?.Dispose();
         vertexShader = null;
         clearShader = null;
         stampShader = null;
+        stampAlphaShader = null;
         contributeShader = null;
+        isolatedVelocityShader = null;
     }
 
     static void Fail(string message)

@@ -9,7 +9,7 @@ Default to inject. Overlay is exclusive per file. Two packs claiming the same Ke
 | Intent | Add helpers / sample extras | Replace a program | Anomaly-drawn composite |
 | Folder | `Inject/<Stage>.hlsli` | `Overlay/<Stage>/<file>` | `Fullscreen/<Slot>/<file>.hlsl` |
 | Lands in | `Anomaly/Extras/<Stage>.hlsli` | That Keen (or Anomaly) compile key | `FullscreenPassRegistry` |
-| Conflict | Concatenated (additive) | One owner; fail closed | IsolatedAdd stacks; Replace fail closed |
+| Conflict | Concatenated (additive) | One owner; fail closed | IsolatedAdd / IsolatedSub stack; a live Replace is the only compose that frame |
 | Who draws | Keen | Keen | Anomaly `Draw(3)` |
 
 ## Inject mapping

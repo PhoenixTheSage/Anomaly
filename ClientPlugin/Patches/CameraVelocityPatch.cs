@@ -58,5 +58,7 @@ static class CameraVelocityDeviceEndPatch
         VelocityDebugPass.Release();
         ShaderBindRegistry.Release();
         OwnedPassRegistry.Release();
+        PointLightCatalog.Release();
+        PointShadowPass.Release();
     }
 }

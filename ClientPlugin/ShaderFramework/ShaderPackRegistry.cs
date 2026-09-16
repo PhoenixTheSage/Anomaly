@@ -993,6 +993,7 @@ public static class ShaderPackRegistry
             existing.File = full;
             existing.OutputName = output;
             existing.Binds = spec.Binds;
+            existing.Scale = spec.Scale > 0 ? spec.Scale : 1f;
         }
     }
 
@@ -1049,7 +1050,8 @@ public static class ShaderPackRegistry
                 Priority = priority,
                 Temporal = ReadJsonStringArray(obj, "temporal"),
                 Output = ReadJsonString(obj, "output"),
-                Binds = ReadJsonBinds(obj)
+                Binds = ReadJsonBinds(obj),
+                Scale = ReadJsonFloat(obj, "scale", 1f)
             });
         }
 
@@ -2069,8 +2071,19 @@ public static class ShaderPackRegistry
 
     static string ReadJsonNumber(string json, string key)
     {
-        var m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(-?\\d+)");
+        var m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)");
         return m.Success ? m.Groups[1].Value : null;
+    }
+
+    static float ReadJsonFloat(string json, string key, float fallback)
+    {
+        var text = ReadJsonNumber(json, key);
+        if (text == null)
+            return fallback;
+        return float.TryParse(text, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var value)
+            ? value
+            : fallback;
     }
 
     static string[] ReadJsonStringArray(string json, string key)
@@ -2290,5 +2303,6 @@ public static class ShaderPackRegistry
         public string[] Temporal;
         public string Output;
         public SrvBind[] Binds;
+        public float Scale = 1f;
     }
 }

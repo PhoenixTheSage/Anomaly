@@ -1,0 +1,23 @@
+---
+description: Pack workarounds that other shaders will need belong in Anomaly, not as a one-off hack
+alwaysApply: true
+---
+
+# Anomaly owns shared rendering gaps
+
+When a pack (clouds, aurora, SSGI, shadows, HDR, …) needs a render capability that the next fullscreen shader will also need, **file it on Anomaly** in the same turn: `Docs/Extensibility.md` (open slice), `wiki/Framework-gaps.md`, and the shader-developer wiki canvas. Ship a temporary pack workaround only if the game must run today.
+
+Do **not** leave Keen `frame_` layout, IsolatedMix energy, march LOD, or bus types as undocumented pack-private knowledge.
+
+```text
+# BAD — pack-private framework
+Each AfterAtmosphere volume reads frame_.Light, multiplies IsolatedMix
+by a guessed HDR scale, and invents its own step LOD.
+
+# GOOD
+Pack ships with a labeled workaround (// GAP: Slice AI — …).
+Anomaly extras CB / compose / helper is the destination. Append-only.
+Do not Harmony-patch Keen pass methods to “fix” it in the pack.
+```
+
+Compatibility-safe Anomaly changes: append extras CB fields; add compose modes; helpers in `AnomalyFullscreen.hlsli`; catalog names. Do not steal Keen slots, widen Depth MRTs, or add a second compile hook.

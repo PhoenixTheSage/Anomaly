@@ -432,6 +432,8 @@ public static class OwnedPassRegistry
         if (!run)
             return;
 
+        // ResolutionI (internal). ViewportResolution is only for Notify after
+        // an upscaler; grading native LBuffer at output size is wasted ALU.
         Run(OwnedPassSlot.AfterUpscale, MyRender11.RC, dest: dest, outputResolution: false,
             scene: MyGBuffer.Main?.LBuffer);
     }
@@ -496,7 +498,11 @@ public static class OwnedPassRegistry
         if (snapshot == null)
         {
             if (IsHdrSlot(slot))
+            {
                 OwnedBuffersPass.ExecuteLitMips(rc);
+                if (slot == OwnedPassSlot.AfterLighting)
+                    PointShadowPass.Execute(rc);
+            }
             return;
         }
 
@@ -504,7 +510,11 @@ public static class OwnedPassRegistry
         var output = outputResolution ?? (slot == OwnedPassSlot.AfterUpscale);
         InvokeSnapshot(snapshot, OwnedPassPhase.BeforeFullscreen, slot, rc, output);
         if (IsHdrSlot(slot))
+        {
             OwnedBuffersPass.ExecuteLitMips(rc);
+            if (slot == OwnedPassSlot.AfterLighting)
+                PointShadowPass.Execute(rc);
+        }
         try
         {
             FullscreenPassRegistry.Run(slot, rc, dest, output, scene);

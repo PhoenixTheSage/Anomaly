@@ -2,9 +2,9 @@
 
 What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.md](ShaderAPI.md). Velocity / hook slices: [ROADMAP.md](ROADMAP.md). Pack contract: [ShaderPacks.md](ShaderPacks.md). Keen inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Layers 0–3 exist. Velocity is the first tenant. Slices **M–T**, **U–Z**, **AA–AH** are in this repo: stage-scoped inject, pack defines, GBuffer attachments, lighting/GBuffer-read/atmosphere wraps, pass-begin bind registry, owned-pass scheduler, temporal policy, `FrameTemporal`, buffer catalog publish/lifetime, owned linear depth / Hi-Z / history / reactive mask, extra named stages, **data-driven `Fullscreen/<Slot>` programs** (`FullscreenPassRegistry`), the **color bus** (`hdrColor` / `upscaledColor` / `Display` / `ClaimUpscale`), and the **256 B uniform bus** (`AnomalyPassUniform0–15`).
+**Now:** Layers 0–3 exist. Velocity is the first tenant. Slices **M–T**, **U–Z**, **AA–AJ** are in this repo: stage-scoped inject, pack defines, GBuffer attachments, lighting/GBuffer-read/atmosphere wraps, pass-begin bind registry, owned-pass scheduler, temporal policy, `FrameTemporal` (including extras-CB sun and sky ambient), buffer catalog publish/lifetime, owned linear depth / Hi-Z / history / reactive mask, extra named stages, **data-driven `Fullscreen/<Slot>` programs** (`FullscreenPassRegistry`), the **color bus** (`hdrColor` / `upscaledColor` / `Display` / `ClaimUpscale`), the **256 B uniform bus** (`AnomalyPassUniform0–15`), **Slice AI** (`AnomalySunColor` / `AnomalyMarchSteps`), and **Slice AJ** (`AnomalySkyAmbient` / `AnomalyVolumeAmbient`).
 
-**Next:** Slice **K** (sample pack) can demonstrate `Fullscreen/AfterAtmosphere/*.hlsl` + `passes[]`, lighting inject + velocity SRV, a C# AfterAtmosphere owned pass, or overlay `Decals` / `Shadows`. Slice **AG** (color bus) is in this repo so HdrRender-class display tenants and SE-DLSS can share AfterUpscale without fighting Keen SDR tonemap.
+**Next:** Slice **K** (sample pack) stays deferred. Pack workarounds that the next shader will also need are filed in [wiki/Framework-gaps.md](../wiki/Framework-gaps.md) in the same turn.
 
 ---
 
@@ -14,7 +14,7 @@ What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.m
 |-----|------|
 | [ROADMAP.md](ROADMAP.md) | Velocity + hook slices A–L (done except Hub pin / sample pack) |
 | [ShaderAPI.md](ShaderAPI.md) | Four layers; Iris comparison; composition rules |
-| This file | Ordered work to generalize those layers beyond motion vectors (M–Z, AA–AH) |
+| This file | Ordered work to generalize those layers beyond motion vectors (M–Z, AA–AJ) |
 | [ShaderPacks.md](ShaderPacks.md) | How a pack reaches Anomaly today (assets + terminal pages) |
 | [PLAN.md](PLAN.md) | Why velocity; TAA / SSR named as later buffer products |
 | [KeenShaders.md](KeenShaders.md) | Shared files worth wrapping vs 215 replace slots |
@@ -31,7 +31,7 @@ Same as [ROADMAP.md](ROADMAP.md), plus:
 - Anomaly owns extra GBuffer attachments. Plugins **request a slot**; they do not splice `SV_Target3`.
 - Defines are merged by Anomaly, not by each pack’s Harmony prefix.
 - Consumers bind registry textures by well-known type name. No compile-time reference to Anomaly.
-- Player-facing options go on `ClientPlugin.RichHud.TerminalConfigRegistry` under **Anomaly Shaders** (sibling of the **Anomaly** folder). Packs do not vendor Rich HUD.
+- Player-facing options go on `ClientPlugin.RichHud.TerminalConfigRegistry` under **Anomaly Shaders** (sibling of the **Anomaly** folder). Corner status goes on `HudOverlayRegistry`. Packs do not vendor Rich HUD.
 - Unbind extra RT/SRV before returning to Keen (Rich HUD). Extra RTs follow `ResolutionI` / DRS / device reset.
 - SmoothFrames may also patch the render thread; do not assume exclusive `DrawGameScene`.
 - Do not clone Keen’s renderer (Iris-style full pipeline swap). Atmosphere, CSM, particles stay Keen unless a pack **exclusively** overlays those named stages.
@@ -50,7 +50,7 @@ Every Keen permutation already goes through `MyShaderCompiler` (`ShaderCompileIn
 | Generated includes | `Anomaly/Extras/<Stage>.hlsli`; GBuffer alias; attachment fields; lighting/atmosphere extras | Lighting from Light wrap; Atmosphere from AtmosphereCommon wrap (`Keen/` prefix) |
 | Pass-begin bind | GBuffer: velocity + extra attachment RTVs; Lighting/post: catalog SRVs + extras CB; Atmosphere: velocity **t6** (t5 is DensityLut) | — |
 | Owned-pass slots | AfterLighting / AfterAtmosphere / AfterTransparent / BeforeTonemap / AfterTonemap / AfterUpscale | Unique upscaler `ClaimUpscale` + `NotifyUpscaleComplete(rc, color)` |
-| Fullscreen programs | `Fullscreen/<Slot>/*.hlsl` + `passes[]` → `FullscreenPassRegistry` | Anomaly compiles, binds t0–t3, HDR GBuffer t4–t6 or tonemap t4–t6, pack SRVs t7–t9 / b6 / b7 (64 floats, `AnomalyPassUniform0–15`), merges, unbinds. `SetEnabled` skips the draw. HDR slots skip LCD/TargetView. AfterUpscale t0 is `upscaledColor` when published |
+| Fullscreen programs | `Fullscreen/<Slot>/*.hlsl` + `passes[]` → `FullscreenPassRegistry` | Anomaly compiles, binds t0–t3, HDR GBuffer t4–t6 or tonemap t4–t6, pack SRVs t7–t9 / b6 / b7 (64 floats, `AnomalyPassUniform0–15`), merges, unbinds. `SetEnabled` skips the draw. `SetScale` / `passes[].scale` sizes isolated RTs to 1 / 0.5 / 0.25. HDR slots skip LCD/TargetView. AfterUpscale t0 is `upscaledColor` when published |
 | Published buffer | `VelocityRegistry.Active`; `BufferCatalog.Active("velocity"|"linearDepth"|"hiZ"|"historyColor"|"reactiveMask"|"fullscreenIsolated"|"hdrColor"|"litMips"|"upscaledColor")`; `Publish` / `RegisterLifetime`; `GBufferAttachments.TryGet` | Reserved names fail closed. Isolated outputs also publish `pass.<id>` |
 | Stage probes | Sentinel compile per live named stage (overlays + injects) | Safety for overlays; not a product |
 
@@ -264,7 +264,7 @@ Goal: color-in / motion-out is explicit. Animated emission after scheduler Done 
 
 - [x] `TemporalPolicy` flags: `InColor`, `ContributeVelocity`, `Reactive`, `Display`
 - [x] Catalog `reactiveMask` (R8, cleared each frame when a Reactive pass runs). IsolatedAdd / IsolatedMix / DirectAdd / PublishOnly with `Reactive` stamp dilated isolated luma.
-- [x] `ContributeVelocity` composites extra MVs (mask &gt; 0.5) and republishes `velocity`
+- [x] IsolatedAdd `ContributeVelocity` reconstructs MVs from isolated.a; C# `ContributeVelocity` composites extra MVs (mask &gt; 0.5) and republishes `velocity`
 - [x] Debug buffer mode for the mask
 
 SE-DLSS binding `reactiveMask` / calling `NotifyUpscaleComplete` lives in that repo. Anomaly only publishes the contract.
@@ -335,7 +335,8 @@ Goal: pack HLSL under `Fullscreen/` becomes a program spec. Overlay/Inject stay 
 
 - [x] Scan `Fullscreen/<Slot>/<name>.hlsl` (skip `.hlsli`). Unknown slot fail closed
 - [x] Defaults: `IsolatedAdd`, id `{packId}.{name}`, output `pass.{id}`, temporal `InColor`, priority from the pack
-- [x] Parse `anomaly.json` `passes[]` (`id`, `slot`, `file`, `compose`, `priority`, `temporal`, `output`). Json overrides folder defaults
+- [x] Parse `anomaly.json` `passes[]` (`id`, `slot`, `file`, `compose`, `priority`, `temporal`, `output`, `scale`). Json overrides folder defaults
+- [x] `SetScale(id, scale)` / `TryGetOutputSize` — isolated RT at 1 / 0.5 / 0.25 (Replace ignores scale). Screen-space pixel radii use `AnomalySceneUvOffset` / `AnomalyInvSceneSize`, not pass size.
 - [x] Hash fullscreen files into the pack fingerprint
 - [x] `Apply` calls `FullscreenPassRegistry.ReplaceAll` for live packs only (rollback drops them)
 
@@ -348,7 +349,7 @@ Goal: pack HLSL under `Fullscreen/` becomes a program spec. Overlay/Inject stay 
 Goal: Anomaly owns the draw. Packs do not create RTs or call `Draw`.
 
 - [x] IsolatedAdd: pack PS → HDR scratch → additive merge into the slot dest
-- [x] Replace: one owner per slot; two Replace claims fail closed; one Replace disables other compose on that slot
+- [x] Replace: one owner per slot; two live Replace claims fail closed; a live Replace is the only compose drawn that frame (pack-disabled Replace does not fail-close Isolated siblings)
 - [x] Dual scratch pairs (`ResolutionI` vs `ViewportResolution`) so AfterUpscale does not thrash HDR scratches
 - [x] Data-driven programs run **before** C# `OwnedPassRegistry` callbacks
 - [x] AfterTonemap postfix passes Keen’s `__result` as dest; HDR slots default to `LBuffer`
@@ -453,6 +454,36 @@ Goal: Aurora-class packs stop packing scalars into derived constants. Still no p
 
 ---
 
+## Slice AI — HDR illuminant + IsolatedMix energy + march helper
+
+Goal: AfterAtmosphere volumes (clouds, future fog / godrays) light and cheapen without each pack inventing Keen `frame_` field layout, IsolatedMix multipliers, or step LOD. Compatibility-safe: append extras CB fields; helper in `AnomalyFullscreen.hlsli`. Do not steal atmosphere t5. Do not Harmony-patch `MyAtmosphereRenderer` for lighting. IsolatedMix stays over (`src + dest*(1-src.a)`); packs write **LBuffer energy**. No `IsolatedMixLit`.
+
+Notation: [wiki/Framework-gaps.md](../wiki/Framework-gaps.md).
+
+- [x] `AnomalySunColor` / `AnomalySunDiffuse` / `AnomalySunToward` / `AnomalySkyLuma` on b6 extras from `EnvironmentLight` (`PassExtrasCb.hlsli`, 288 B). `FrameTemporal.SunColor` / `SunToward` / `SunDiffuse` / `SkyLuma`. Fail closed when Environment is missing.
+- [x] IsolatedMix `src.rgb` is **LBuffer energy**. Light with `AnomalySunColor * AnomalySunDiffuse`. `passes[].scale` is pixel cost, not lighting. No `IsolatedMixLit`.
+- [x] `AnomalyMarchSteps(budget, minSteps, maxSteps, camToVolumeMeters, nearMeters, farMeters)` in `AnomalyFullscreen.hlsli` — camera-to-volume × `AnomalySafetyScale`. Never per-ray `tMin`.
+- [x] `AnomalySunVisibility(posCamRel, occluderCenterCamRel, occluderRadius, lightWrapMeters)` — local-up × `AnomalySunToward` with atmosphere-thickness wrap, **capped at 12% of occluder radius** (3-arg uses that 12% directly). Geometric AtmosphereRadius can be O(radius) and must not sun-light IsolatedMix night. Keen CSM is camera-local and does not cover a planet disk from orbit.
+- [x] Pack SRV types: `#define ANOMALY_PACK_SRVn_TYPE Texture3D` before `#include <AnomalyFullscreen.hlsli>` (Volumetric Clouds).
+- [x] AfterLighting LightPoint reconstruct: `AnomalyLightingUv` / `AnomalyLightingViewPos` / `AnomalyLightingN` / `AnomalyScreenUvToTexel` (HDR slots). IsolatedSub of tiled lights must not use interpolator `TEXCOORD` or skip `NdotL ≤ 0`. `maxTileLights` is the global stride.
+- [x] IsolatedSub dest units: `src.rgb` is a 0–1 dest fraction (`dest * (1-src)`). AfterLighting t0 is a dest copy when dest aliases LBuffer. IsolatedSub umbra `temporal` InColor+Reactive (not ContributeVelocity).
+- [x] IsolatedSub dest-write: pack writes a 0–1 dest fraction (`AnomalyIsolatedSub`); Anomaly blends `dest*(1-src)` onto dest (Replace dest RTV). IsolatedSub does not blit dest for t0. destHistory Dest[p] merge never reached Present. Reactive stamps IsolatedSub `.a`.
+- [x] AfterLighting dest-alias t0 blit binds mergeCopy. DrawOne blits **before** the pack PixelShader and `DrawIsolated` rebinds `prog.Shader`. IsolatedSub with mergeCopy still bound copied dest onto dest (debug Replace skips the blit).
+- [x] Scaled AfterFullscreen draw: `FullscreenPassRegistry.DrawFullscreen(rc, width, height)`. Keen `DrawFullscreenQuad()` with no viewport calls `SetScreenViewport()` and clips a half/quarter RT to the top-left of UV 0–1 (Prism.SSGI SVGF).
+
+**Slice AI done when:** a new IsolatedMix volume can light from extras CB and cap steps with the helper without reading `frame_.Light` or guessing an HDR multiply. **Shipped.** Volumetric Clouds and Aurora are the first tenants. Screen Space Shadows is the IsolatedSub tenant.
+
+## Slice AJ — night / sky illuminant
+
+Keen `MyEnvironmentLightData` has no night-sky RGB. `AnomalySkyLuma` is Rec.709(`SunColorRaw`)×`AmbientDiffuseFactor` — a daylight proxy. Packs that hdr-lift it paint IsolatedMix night white.
+
+- [x] `AnomalySkyAmbient` float3 on b6 extras (**304 B**). `FrameTemporal.SkyAmbient`. Unlifted `SunColorRaw * 0.028` only. Never `AmbientForwardPass` (Keen adds probe `LastAmbient` into that field, up to AmbientMaxClamp ≈ 0.3). Never AmbientDiffuse or pack HdrLift. Fail closed to zero when Environment is missing.
+- [x] `AnomalyVolumeAmbient()` in `AnomalyFullscreen.hlsli` — returns extras ambient, capped at `AnomalySunColor * 0.028`. Independent of `AnomalySunVisibility`.
+
+**Slice AJ done when:** IsolatedMix night volumes light from extras ambient without hdr-lifting SkyLuma. **Shipped.** Volumetric Clouds is the first tenant.
+
+---
+
 ## What not to add
 
 | Idea | Why not |
@@ -469,12 +500,20 @@ Goal: Aurora-class packs stop packing scalars into derived constants. Still no p
 | Last-writer-wins Replace on a slot | Same as silent Overlay overwrite — fail closed |
 | Pack-chosen CB slot for uniforms | Anomaly allocates b7; `SetUniforms` is 64 floats / 256 B |
 | Steal atmosphere t5 for AfterAtmosphere programs | `DensityLut` is Keen’s and already unbound |
+| Pack-private IsolatedMix HDR scale / Keen `frame_.Light` lighting | Slice AI extras illuminant. `Frame.hlsli` layout is not a public contract |
+| Per-pack march LOD that floors `AnomalySafetyScale` or uses per-ray `tMin` | Slice AI helper. Grazing chords and spectator slams TDR otherwise |
+| AfterLighting IsolatedSub reconstruct from interpolator UV / first-N tile lights | LightPoint uses `screen_to_uv(SV_Position)`. Tile lists are unsorted; `maxTileLights` is the global stride. |
+| AfterLighting IsolatedSub dest-write via destHistory Dest[p] merge | IsolatedSub blends occupancy onto dest (same dest RTV as Replace). Pack writes `AnomalyIsolatedSub`. destHistory merge never reached Present. |
+| AfterLighting dest-alias t0 blit leaving mergeCopy bound | Blit before the pack PixelShader. IsolatedSub with mergeCopy bound copies dest onto dest. |
+| Sample Keen shadow cascades from AfterAtmosphere for a planet disk | Cascades are camera-local. `AnomalySunVisibility` uses local-up × sun with atmosphere light wrap |
+| Use `AnomalySkyLuma * HdrLift` as night / ambient illuminant | Use `AnomalyVolumeAmbient()` / `AnomalySkyAmbient`. SkyLuma is sun luma × AmbientDiffuse |
+| Scale `AnomalySkyAmbient` by `AmbientForwardPass` | Keen adds probe ambient into that field. Night IsolatedMix becomes sun-scale. Use `SunColor * 0.028`. |
 
 ---
 
 ## Suggested order
 
-Do M before N if time is short: extras on PS unblocks additive work even with only `ANOMALY_VELOCITY`. **M–Z and AA–AH are implemented.**
+Do M before N if time is short: extras on PS unblocks additive work even with only `ANOMALY_VELOCITY`. **M–Z and AA–AJ are implemented.**
 
 | Order | Slice | Layer ([ShaderAPI.md](ShaderAPI.md)) | Depends on |
 |------:|-------|--------------------------------------|------------|
@@ -500,6 +539,7 @@ Do M before N if time is short: extras on PS unblocks additive work even with on
 | 20 | AF Chain / IsolatedMix / DirectAdd | 3 | AB |
 | 21 | AG color bus (upscaledColor / Display) | 3 | U, R |
 | 22 | AH uniform bus 256 B | 3 | AE |
+| 23 | AI HDR illuminant / IsolatedMix energy / march helper | 3 | AC, AF, W |
 
 Slice K (sample pack) stays deferred. It can now demonstrate `Fullscreen/AfterAtmosphere` + `SetUniforms`, not only overlay.
 
@@ -507,4 +547,4 @@ Slice K (sample pack) stays deferred. It can now demonstrate `Fullscreen/AfterAt
 
 ## First implementation session
 
-M–Z and AA–AH are in this repo. Next code slice is **K** (sample pack that ships `Fullscreen/AfterAtmosphere/*.hlsl`, injects Lighting extras, registers a C# AfterAtmosphere callback, or overlays `Decals`).
+M–Z and AA–AJ are in this repo. Slice **K** (sample pack) stays deferred. When a pack invents a workaround the next shader will also need, file it on this page and [wiki/Framework-gaps.md](../wiki/Framework-gaps.md) in the same turn — do not wait for a dedicated roadmap pass.

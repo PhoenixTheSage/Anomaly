@@ -12,7 +12,7 @@
 | Catalog | Named `ISharedBuffer` lookup. No compile-time Anomaly reference. |
 | Owned pass | Anomaly HLSL + Anomaly draw, then publish — or a pack draw at an `OwnedPassSlot`. |
 | Fullscreen program | Pack PS under `Fullscreen/<Slot>/`. Anomaly compiles and draws (`FullscreenPassRegistry`). |
-| FullscreenCompose | IsolatedAdd, IsolatedMix, Chain, PublishOnly, Replace, DirectAdd. |
+| FullscreenCompose | IsolatedAdd, IsolatedMix, IsolatedSub, Chain, PublishOnly, Replace, DirectAdd. |
 | OwnedPassSlot | AfterLighting, AfterAtmosphere, AfterTransparent, BeforeTonemap, AfterTonemap, AfterUpscale. |
 | TemporalPolicy | `InColor` \| `ContributeVelocity` \| `Reactive` \| `Display`. |
 | Color bus | Catalog `hdrColor` (LBuffer) + `upscaledColor` (notify dest). AfterUpscale is the clock; Display tenants sample `ctx.SceneColor`. |
@@ -22,4 +22,8 @@
 | DRS | Dynamic resolution. Extra RTs follow `MyRender11.ResolutionI`. |
 | Complementary depth | Hardware depth; `compute_depth` turns it into positive view Z. |
 | Fail closed | On conflict, keep Keen/Anomaly default; do not last-writer-wins. |
+| Framework gap | Pack workaround the next shader will also need. File on Anomaly (`Docs/Extensibility.md` Slice AI, [[Framework-gaps]]) in the same turn. |
+| Slice AI | Extras-CB sun (`AnomalySunColor`) / IsolatedMix `LBuffer` units / `AnomalyMarchSteps` / `AnomalySunVisibility`. Shipped. |
+| Slice AJ | Extras-CB night fill (`AnomalySkyAmbient` = `SunColor * 0.028` / `AnomalyVolumeAmbient`). Shipped. Do not hdr-lift `AnomalySkyLuma`. Do not scale by `AmbientForwardPass`. |
 | Anomaly Shaders | Rich HUD terminal root. Framework pages live under **Anomaly**; packs add sibling titles. Master optional. |
+| Hud overlay | Corner status via `HudOverlayRegistry`. Master optional; getter is a cached string, not a config write. |

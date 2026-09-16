@@ -30,7 +30,7 @@ A Pulsar plugin that depends on Anomaly drops `Overlay/`, `Inject/`, and `Fullsc
 
 ### Terminal config
 
-When Rich HUD Master is in the world, Pulsar options appear under **Anomaly Shaders → Anomaly**. Packs request their own page titles beside that folder. MyGui still works without Master. Slider setters mark the pack config dirty; they do not write a `.cfg` on the HUD or Update thread. Host pages must not use Master `CustomValueGetter`.
+When Rich HUD Master is in the world, Pulsar options appear under **Anomaly Shaders → Anomaly**. Packs request their own page titles beside that folder. `HudOverlayRegistry` draws optional corner status (game / displayed FPS, pack lines) without a second Rich HUD client. MyGui still works without Master. Slider setters mark the pack config dirty; they do not write a `.cfg` on the HUD or Update thread. Host pages must not use Master `CustomValueGetter`. Overlay getters return a cached string only.
 
 → [[Terminal-config|Terminal config]]
 
@@ -78,6 +78,7 @@ Windows Space Engineers with [Pulsar](https://github.com/SpaceGT/Pulsar). Enable
 - [[GBuffer-attachments|GBuffer attachments]]
 - [[Pass-begin-binds|Pass-begin binds]]
 - [[Composition-rules|Composition rules]]
+- [[Framework-gaps|Framework gaps]]
 
 **Reference**
 

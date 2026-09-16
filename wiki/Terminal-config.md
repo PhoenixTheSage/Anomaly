@@ -9,7 +9,8 @@ Anomaly Shaders
   │     └── Velocity Debug      Visualization / probe page
   ├── <your title>              One page per RequestPage(title)
   └── <your folder>             RequestFolderPage(folder, page)
-        └── Settings            Typical consumer page name
+        ├── Settings            Typical consumer page name
+        └── Status              Optional pack debug dialog (Show Status)
 ```
 
 > **Note — Reserved titles fail closed on `RequestPage`.** `Anomaly`, `Settings`, and `Velocity Debug` belong to the framework. Pick your pack or plugin display name so it sits beside **Anomaly**. `RequestFolderPage` may use `Settings` as the page name inside a consumer folder. Folder titles cannot be reserved. The same title (or folder + page) is idempotent (append more controls). Two packs should not share a title.
@@ -58,6 +59,27 @@ Use the non-generic `Dropdown(label, enumType, get, set, description)` from refl
 
 If Anomaly is missing, `GetType` is null and the pack is inert. If Master is not in the world, the page stays queued until the handshake succeeds.
 
+## HUD overlay
+
+Well-known type: `ClientPlugin.RichHud.HudOverlayRegistry`. Corner text when Master is registered. Packs do not vendor a HUD client.
+
+```csharp
+var overlay = assembly.GetType("ClientPlugin.RichHud.HudOverlayRegistry");
+overlay?.GetMethod("Register")?.Invoke(null, new object[]
+{
+    "my.pack",
+    (Func<string>)(() => enabled ? "My pack  72 fps" : null),
+});
+```
+
+| Call | Role |
+|------|------|
+| `Register(id, get)` | Add or replace one overlay line. Empty id fails closed. Null/empty getter hides that line for the frame. The host panel stays in the layout tree so a later non-empty getter can show again. |
+| `Unregister(id)` | Drop a line. |
+| `StatusLine` | `overlays=N (id, …)` |
+
+The getter runs on the HUD draw thread. Return a cached string. Do not serialize or write a `.cfg` from it. Without Master the registration stays queued until the handshake.
+
 ## Builder
 
 Well-known type: `ClientPlugin.RichHud.TerminalConfigRegistry`.
@@ -73,7 +95,7 @@ Well-known type: `ClientPlugin.RichHud.TerminalConfigRegistry`.
 
 `ITerminalConfigPage`: `Category`, `Label` (`text` plus optional `Func<string> get`), `Checkbox` (optional `Func<bool> enabled` — visible but not settable when false), `Slider`, `IntSlider`, `Dropdown` / `Dropdown<T>`, `Button`, `Color` (`Func<Color>` / `Action<Color>`, Rich HUD RGB picker), `Refresh()`. Optional arguments are explicit overloads so reflection can match arity. Tiles pack horizontally: color pickers occupy a tile alone, sliders and dropdowns pair, checkboxes and buttons stack up to three. Master’s category is one horizontal scroller (300×250 tiles); extra tiles wrap onto new category rows from the terminal width (two columns at 1080p, more on a wide display). Prefer a short category header; put detail in control tooltips.
 
-Host pages never set `CustomValueGetter`. After a dropdown setter returns, Anomaly pulls sibling controls from their getters once (preset dropdowns update the displayed values). A button that writes several fields should call `Refresh()` the same way.
+Host pages never set `CustomValueGetter`. After a dropdown setter returns, Anomaly pulls sibling controls from their getters once (preset dropdowns update the displayed values). `Refresh()` also pushes dropdown selections, not only sliders/checkboxes. A button that writes several fields should call `Refresh()` the same way.
 
 ## Do not
 

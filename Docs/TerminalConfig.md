@@ -15,7 +15,7 @@ Master’s `TerminalValue<T>.Update` also assigns `CustomValueGetter()` every `H
 - `FlushPending()` waits ~400 ms of quiet, then serializes on a worker. Call it from `Plugin.Update` (cheap; do not `File.CreateText` there).
 - `FlushPending(true)` waits for an in-flight worker, then writes immediately. Call it from `Plugin.Dispose`.
 
-`TerminalConfigRegistry` writes Anomaly.cfg only for reserved host pages (`Anomaly` folder → `Settings` / `Velocity Debug`). `RequestPage` / `RequestFolderPage` pack controls persist nothing for Anomaly. The pack setter owns the pack file. Host `Slider` / `IntSlider` / `Checkbox` / `Dropdown` / `Color` never set `CustomValueGetter`. After a dropdown on that page changes, Anomaly pulls sibling controls from their getters once so preset widgets catch up without a per-tick getter. Packs that apply several fields from a button can call `Refresh()`.
+`TerminalConfigRegistry` writes Anomaly.cfg only for reserved host pages (`Anomaly` folder → `Settings` / `Velocity Debug`). `RequestPage` / `RequestFolderPage` pack controls persist nothing for Anomaly. The pack setter owns the pack file. Host `Slider` / `IntSlider` / `Checkbox` / `Dropdown` / `Color` never set `CustomValueGetter`. After a dropdown on that page changes, Anomaly pulls sibling controls from their getters once so preset widgets catch up without a per-tick getter. `Refresh()` pulls dropdowns as well as sliders. Packs that apply several fields from a button can call `Refresh()`.
 
 ## Packs
 

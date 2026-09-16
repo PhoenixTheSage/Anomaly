@@ -33,7 +33,7 @@ public static class RichHudSupport
             if (initFailed)
                 return "unavailable (init failed)";
             if (Available)
-                return "registered  " + TerminalConfigRegistry.StatusLine;
+                return "registered  " + TerminalConfigRegistry.StatusLine + "  " + HudOverlayRegistry.StatusLine;
             if (initAttempted)
             {
                 if (TerminalConfigRegistry.PageCount > 0)
@@ -53,6 +53,7 @@ public static class RichHudSupport
         if (!ReferenceEquals(session, sessionToken))
         {
             TerminalConfigRegistry.Unmount();
+            HudOverlayRegistry.Unmount();
             sessionToken = session;
             initAttempted = false;
             ready = false;
@@ -89,6 +90,7 @@ public static class RichHudSupport
         {
             ready = false;
             TerminalConfigRegistry.Unmount();
+            HudOverlayRegistry.Unmount();
             DebugLog.Write("RichHudClient lost Master; will re-handshake");
         }
 
@@ -128,6 +130,7 @@ public static class RichHudSupport
     public static void Shutdown()
     {
         TerminalConfigRegistry.Unmount();
+        HudOverlayRegistry.Unmount();
         try
         {
             RichHudClient.Reset();
@@ -155,6 +158,7 @@ public static class RichHudSupport
     {
         ready = false;
         TerminalConfigRegistry.Unmount();
+        HudOverlayRegistry.Unmount();
         DebugLog.Write("RichHudClient reset");
     }
 
@@ -162,5 +166,6 @@ public static class RichHudSupport
     {
         AnomalyTerminalPages.Install();
         TerminalConfigRegistry.Mount();
+        HudOverlayRegistry.Mount();
     }
 }

@@ -21,6 +21,7 @@
 * [[GBuffer-attachments|GBuffer attachments]]
 * [[Pass-begin-binds|Pass-begin binds]]
 * [[Composition-rules|Composition rules]]
+* [[Framework-gaps|Framework gaps]]
 
 **Reference**
 * [[Compatibility]]

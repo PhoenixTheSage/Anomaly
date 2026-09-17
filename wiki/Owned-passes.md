@@ -11,7 +11,7 @@ On a GPU hang, search `SpaceEngineers.log` for `Anomaly RenderTrace dump at`. Th
 | Camera velocity | `MyRenderScheduler.Done` | `velocity` (RG16F). Composite keeps GBuffer MVs and camera-fills clear-zero pixels (sky / particles / foliage). |
 | Linear depth + Hi-Z | Same Done, after velocity | `linearDepth`, `historyDepth` (unread ping-pong), `hiZ` — frozen for the rest of the frame |
 | Scene mip chain | AfterLighting, before Fullscreen programs | `litMips` — request-driven GenerateMips of this-frame `LBuffer` |
-| Point-light shadows | AfterLighting, after BeforeFullscreen / `litMips` | `occupancy` + `pointShadowAtlas` when `RequestOccupancy` / `RequestPointShadows`. Default cube cap 4, max 64. |
+| Point-light shadows | AfterLighting, after BeforeFullscreen / `litMips` | `occupancy` + `pointShadowAtlas` when `RequestOccupancy` / `RequestPointShadows`. Skinned local-character mesh always; AABB boxes when `RequestWorldBoxes`. Default cube cap 4, face 128; max 64 / 256. |
 | History color | `DrawGameScene` postfix, after debug overlay | `historyColor` (previous during this frame’s post) |
 | Catalog debug | `DrawGameScene` postfix, `Priority.Last` | Nothing — overlay at `ViewportResolution` on the backbuffer, then `ClearState`. Velocity mode samples GBuffer depth (t1) so sky is dark grey. |
 

@@ -95,6 +95,68 @@ float3 AnomalyLightingViewPos(float2 pixel, float linearDepth)
     return linearDepth * compute_screen_ray(AnomalyLightingUv(pixel));
 }
 
+// compute_screen_ray with M31=M32=0. Light.positionView is unjittered view;
+// pair this with AnomalyViewToDepthUv for contact. Keep AnomalyLightingViewPos
+// (live Halton) for LightPoint BRDF / IsolatedSub energy.
+float3 AnomalyLightingViewPosUnjittered(float2 pixel, float linearDepth)
+{
+    float2 uv = AnomalyLightingUv(pixel);
+    float ray_x = rcp(max(frame_.Environment.projection_matrix._11, 1e-6));
+    float ray_y = rcp(max(frame_.Environment.projection_matrix._22, 1e-6));
+    float3 ray = float3(lerp(-ray_x, ray_x, uv.x), -lerp(-ray_y, ray_y, uv.y), -1);
+    return linearDepth * ray;
+}
+
+// Inverse of compute_screen_ray (same live projection as LightPoint / AnomalyLightingViewPos).
+// BRDF / dest match. Contact marches in unjittered view and sample with
+// AnomalyViewToDepthUv — this UV jitters the umbra on a static floor (Halton).
+float2 AnomalyViewToLightingUv(float3 viewPos)
+{
+    float z = max(-viewPos.z, 1e-4);
+    float3 ray = viewPos / z;
+    float ray_x = rcp(max(frame_.Environment.projection_matrix._11, 1e-6));
+    float ray_y = rcp(max(frame_.Environment.projection_matrix._22, 1e-6));
+    float2 projOffset = float2(
+        frame_.Environment.projection_matrix._31 * ray_x,
+        frame_.Environment.projection_matrix._32 * ray_y);
+    return float2(
+        ((ray.x - projOffset.x) / ray_x + 1) * 0.5,
+        (1 - (ray.y - projOffset.y) / ray_y) * 0.5);
+}
+
+float2 AnomalyViewToUnjitteredUv(float3 viewPos)
+{
+    float z = max(-viewPos.z, 1e-4);
+    float3 ray = viewPos / z;
+    float ray_x = rcp(max(frame_.Environment.projection_matrix._11, 1e-6));
+    float ray_y = rcp(max(frame_.Environment.projection_matrix._22, 1e-6));
+    return float2(
+        (ray.x / ray_x + 1) * 0.5,
+        (1 - ray.y / ray_y) * 0.5);
+}
+
+// AnomalyLightingJitter is Projection M31/M32 (SE-DLSS Halton).
+// unjittered UV + this = this-frame GBuffer / linearDepth texel.
+float2 AnomalyLightingJitterUv()
+{
+    return float2(-AnomalyLightingJitter.x, AnomalyLightingJitter.y) * 0.5;
+}
+
+// Unjittered view → this-frame depth texel. Do not sample jittered
+// linearDepth at unjittered UV (umbra swims). Do not use
+// AnomalyUnjitteredViewProj as a substitute.
+float2 AnomalyViewToDepthUv(float3 viewPos)
+{
+    return AnomalyScreenUvToTexel(AnomalyViewToUnjitteredUv(viewPos) + AnomalyLightingJitterUv());
+}
+
+// Camera-relative world AABB. Contact packs skip the local suit so
+// GBuffer copies do not stack on pointShadowAtlas.
+bool AnomalyInsideAabb(float3 p, float3 center, float3 halfExt)
+{
+    return all(abs(p - center) <= max(halfExt, 1e-4));
+}
+
 // LightPoint N: world_to_view(view_to_world(NView)). Do not skip NdotL ≤ 0;
 // MaterialRadiance already saturates ln.
 float3 AnomalyLightingN(float3 nView)
@@ -168,17 +230,211 @@ float3 AnomalyVolumeAmbient()
     return (a2 > c2 && c2 > 1e-12) ? cap : a;
 }
 
-// IsolatedSub src is a 0–1 dest fraction. Anomaly merges dest*(1-src).
-// .a is occlusion for Reactive. AfterLighting t0 is a dest copy; blit
-// runs before the pack PixelShader. Packs do not composite dest.
+float2 AnomalyRaySphere(float3 origin, float3 dir, float3 center, float radius)
+{
+    float3 oc = origin - center;
+    float b = dot(oc, dir);
+    float c = dot(oc, oc) - radius * radius;
+    float disc = b * b - c;
+    if (disc < 0.0)
+        return float2(-1.0, -1.0);
+    float s = sqrt(disc);
+    return float2(-b - s, -b + s);
+}
+
+// Night IsolatedMix inscatter as a fraction of AJ in-cloud day fill.
+// 1.0 × VolumeAmbient over dest≈0 is headlights. 0.30 was a grey deck
+// on a black night disk from orbit. Match Keen night ambient.
+// Dest luma is not an illuminant. Extras stay 320 B.
+float AnomalyVolumeNightScale()
+{
+    return 0.05;
+}
+
+float3 AnomalyVolumeNight(float3 albedo, float sunVis)
+{
+    float vis = saturate(sunVis);
+    float3 dayFill = AnomalyVolumeAmbient() * albedo;
+    return lerp(dayFill * AnomalyVolumeNightScale(), dayFill, vis);
+}
+
+// destRgb kept so existing packs compile. Ignored — do not pass dest.
+float3 AnomalyVolumeNight(float3 albedo, float3 destRgb, float sunVis)
+{
+    return AnomalyVolumeNight(albedo, sunVis);
+}
+
+float AnomalyVolumeCeil();
+
+// Optical sun transmittance. Deep night is solid 0. Twilight is a
+// monotonic limb: sample-height horizon dip sqrt(2h/r), symmetric
+// smoothstep, then squared so IsolatedMix HDR does not turn the S-curve
+// into a white wall. Do not return raw geo when μ≤0 and geo*exp(-OD)
+// when μ>0 — that peaked vis on the night side of μ=0 (bright band)
+// and zeroed vis on the grazing day side (hard cut). Do not use
+// twilight*0.45 as the day edge (vis=1 ~5° into day while Keen is still
+// yellow twilight). Do not sphere-hit tNear>1 (HashIgn fireflies).
+// Daytime 6-step OD only after geo is ~1. Do not bind Keen CSM.
+// Fixed 6 steps — not AnomalySafetyScale. 12% Lambert wrap is not used.
+float AnomalySunTransmittance(float3 posCamRel, float3 centerCamRel,
+    float planetR, float airTop)
+{
+    float rPlanet = max(planetR, 1.0);
+    float3 oc = posCamRel - centerCamRel;
+    float occ2 = dot(oc, oc);
+    if (occ2 < rPlanet * rPlanet)
+        return 0.0;
+
+    float3 sun = AnomalySunToward;
+    float sun2 = dot(sun, sun);
+    if (sun2 < 1e-8)
+        return 0.0;
+    sun *= rsqrt(sun2);
+
+    float rSample = sqrt(max(occ2, 1e-6));
+    float mu = dot(oc, sun) / rSample;
+
+    float air = airTop;
+    if (air < rPlanet + 40.0)
+        air = AnomalyVolumeCeil();
+    float column = air > rPlanet + 40.0 ? (air - rPlanet) : (rPlanet * 0.026);
+    column = max(column, 80.0);
+    float h = max(rSample - rPlanet, 80.0);
+    // Pertam h/r is large; 0.18 capped inside the geometric sunset.
+    // 0.40 still cannot Lambert-wrap the night cap.
+    float twilight = sqrt(saturate(2.0 * max(h, column) / rPlanet));
+    twilight = min(max(twilight, 0.08), 0.40);
+    float geo = smoothstep(-twilight, twilight, mu);
+    if (geo <= 1e-4)
+        return 0.0;
+
+    float vis = geo * geo;
+    if (air < rPlanet + 40.0 || mu < twilight)
+        return vis;
+
+    float2 aHit = AnomalyRaySphere(posCamRel, sun, centerCamRel, air);
+    if (aHit.y < 0.0)
+        return vis;
+
+    float t0 = max(aHit.x, 0.0);
+    float t1 = aHit.y;
+    if (t1 <= t0 + 1.0)
+        return vis;
+
+    float sigma = 0.25 / column;
+    float dtOd = (t1 - t0) / 6.0;
+    float od = 0.0;
+    [unroll]
+    for (int i = 0; i < 6; i++)
+    {
+        float3 p = posCamRel + sun * (t0 + (float(i) + 0.5) * dtOd);
+        float rad = length(p - centerCamRel);
+        float h01 = saturate((rad - rPlanet) / column);
+        float rho = exp(-h01 * 4.0);
+        if (rad > air || rad < rPlanet)
+            rho = 0.0;
+        od += rho * dtOd * sigma;
+    }
+    float day = smoothstep(twilight, twilight + 0.08, mu);
+    return saturate(vis * lerp(1.0, exp(-od), day));
+}
+
+float AnomalySunTransmittance(float3 posCamRel, float3 centerCamRel, float planetR)
+{
+    return AnomalySunTransmittance(posCamRel, centerCamRel, planetR, AnomalyVolumeCeil());
+}
+
+// Radii from the planet center, meters. 0 = fail closed (no eligible
+// planet this frame). Not camera-relative. Packs compare extras to
+// their own planet; Anomaly publishes the nearest HasAtmosphere /
+// CloudLayers body.
+float AnomalyVolumeCeil()
+{
+    float v = AnomalyVisualAtmoCeil;
+    if (v > 1.0)
+        return v;
+    float a = AnomalyPlanetAirTop;
+    if (a > 1.0)
+        return a;
+    return 0.0;
+}
+
+float AnomalyClampRadialToCeil(float radialFromCenter)
+{
+    float ceil = AnomalyVolumeCeil();
+    if (ceil < 1.0)
+        return radialFromCenter;
+    return min(radialFromCenter, ceil);
+}
+
+// 1 inside the ceiling, 0 at/above it. Fail closed (no extras)
+// returns 1 so a missing snapshot does not erase pack uniforms.
+float AnomalyVolumeCeilFade(float radialFromCenter)
+{
+    float ceil = AnomalyVolumeCeil();
+    if (ceil < 1.0)
+        return 1.0;
+    float soft = max(ceil * 0.02, 80.0);
+    return 1.0 - saturate((radialFromCenter - (ceil - soft)) / soft);
+}
+
+// Interleaved gradient noise in pixel coordinates. Stable under SafetyScale
+// (do not xor with frame index). Contact / SSGI dither.
+float AnomalyIgn(float2 pixel)
+{
+    return frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))));
+}
+
+// Same IGN on a world-stable 2D seed so a contact / SSGI step phase does
+// not crawl when the camera moves and the light has not. Pass
+// InvViewAt0(receiver - light).xz (camera look and translate cancel).
+// Do not scale the seed (high-frequency IGN flips when viewPos jitters 1 cm).
+// pixel IGN follows the raster.
+float AnomalyIgnWorld(float2 worldXz)
+{
+    return AnomalyIgn(worldXz);
+}
+
+// IsolatedSub src is a 0–1 dest fraction (per channel). Anomaly merges
+// dest*(1-src). .a is occlusion for Reactive. AfterLighting t0 is a dest
+// copy when dest aliases LBuffer; blit runs before the pack PixelShader.
+// Packs do not composite dest. Prefer AnomalyIsolatedSubEnergy so occ is
+// photometric shadowed energy / dest — minVis OR of many lights, or a
+// longer-range BRDF tail at the falloff, punches dest to black.
 float4 AnomalyIsolatedSub(float occ)
 {
     occ = saturate(occ);
     return float4(occ, occ, occ, occ);
 }
 
+float4 AnomalyIsolatedSub(float3 occ)
+{
+    occ = saturate(occ);
+    return float4(occ, max(occ.x, max(occ.y, occ.z)));
+}
+
+float4 AnomalyIsolatedSubEnergy(float3 removed, float3 dest)
+{
+    float destLuma = dot(dest, 1.0 / 3.0);
+    if (destLuma < 1e-5)
+        return AnomalyIsolatedSub(0);
+    dest = max(dest, 1e-4);
+    // Clamp to dest so a hotter reconstruct cannot dest-punch. Soft knee
+    // so occ=1 at the photometric falloff cannot zero dest (duplicate
+    // hard silhouettes that do not appear in the bright center).
+    removed = clamp(removed, 0, dest);
+    float3 occ = removed / dest;
+    occ = occ / (1.0 + occ * 0.12);
+    return AnomalyIsolatedSub(occ);
+}
+
+float4 AnomalyIsolatedSubEnergy(float3 removed, float3 dest, float3 unshadowed)
+{
+    return AnomalyIsolatedSubEnergy(min(max(removed, 0), max(unshadowed, 0)), dest);
+}
+
 // Append-only. 0–7 are the original 128 B; 8–15 grow the blob to 256 B.
-// Packs that only read 0–7 stay valid. Extras on b6 are 304 B.
+// Packs that only read 0–7 stay valid. Extras on b6 are 320 B.
 cbuffer AnomalyFullscreenUniforms : register(b7)
 {
     float4 AnomalyPassUniform0;

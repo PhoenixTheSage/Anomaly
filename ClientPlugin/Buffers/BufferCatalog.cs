@@ -187,13 +187,24 @@ public static class BufferCatalog
     }
 
     /// <summary>
-    /// Request catalog <c>pointShadowAtlas</c> (AABB light-view depth for
-    /// the closest N point lights). <paramref name="maxLights"/> <c>&lt;= 0</c>
-    /// skips the cube pass. Default 4, max 64. VRAM grows with the request.
+    /// Request catalog <c>pointShadowAtlas</c> (light-view mesh + optional
+    /// AABB depth for the closest N point lights). <paramref name="maxLights"/>
+    /// <c>&lt;= 0</c> skips the cube pass. Default 4, max 64. Face default
+    /// 128, max 256. VRAM grows with the request. Mesh uses MeshDepth VS.
     /// </summary>
-    public static void RequestPointShadows(int maxLights = 4, int faceResolution = 64)
+    public static void RequestPointShadows(int maxLights = 4, int faceResolution = 128)
     {
         ClientPlugin.ShaderFramework.PointShadowPass.RequestPointShadows(maxLights, faceResolution);
+    }
+
+    /// <summary>
+    /// Stamp world AABB boxes into <c>pointShadowAtlas</c> in addition to
+    /// the local character mesh when that stamp is live. Off = no AABB
+    /// cubes. The local player AABB is never stamped.
+    /// </summary>
+    public static void RequestWorldBoxes(bool enabled = true)
+    {
+        ClientPlugin.ShaderFramework.PointShadowPass.RequestWorldBoxes(enabled);
     }
 
     /// <summary>

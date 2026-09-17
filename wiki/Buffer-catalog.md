@@ -17,7 +17,7 @@ Resolve `ClientPlugin.Buffers.BufferCatalog` by type name. `Active(name)` never 
 | `litMips` | AfterLighting, only if a live fullscreen program bound `litMips`, `RequestLitMips` was called, or Debug buffer is LitMips | RGBA16F, full res, default 5 mips of this-frame `LBuffer` (before atmosphere). Reserved |
 | `historyDepth` | After scheduler Done, once two linear frames exist | R32_Float unread linear ping-pong (last frame’s view Z). Reserved |
 | `occupancy` | AfterLighting after BeforeFullscreen, if `RequestOccupancy` | R8 512×512 atlas of a 64³ camera-relative clipmap (2 m voxels). Depth splat + actor AABB stamps. Reserved |
-| `pointShadowAtlas` | AfterLighting after BeforeFullscreen, if `RequestPointShadows(cap > 0)` | RGBA32F light-view AABB depth. Width = faceRes×6, height = 1 + faceRes×cap. Row 0 is viewPos.xyz + range. Default cap 4, max 64. VRAM grows with the request. Reserved |
+| `pointShadowAtlas` | AfterLighting after BeforeFullscreen, if `RequestPointShadows(cap > 0)` | RGBA32F light-view mesh (skinned MeshDepth) plus optional AABB depth. Width = faceRes×6, height = 1 + faceRes×cap. Row 0 is viewPos.xyz + range. Default cap 4 / face 128, max 64 / 256. VRAM grows with the request. Reserved |
 | `upscaledColor` | After `NotifyUpscaleComplete(rc, color)` | Unique upscale dest at output res. Cleared next frame. Reserved |
 | `pass.<id>` | Same draw | That program’s isolated output (scaled when `passes[].scale` is 0.5 or 0.25) |
 
@@ -32,7 +32,7 @@ foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
 }
 ```
 
-`RequestLitMips` / `RequestOccupancy` / `RequestPointShadows(maxLights, faceResolution)` are C# asks on `BufferCatalog` (also forwarded from `FullscreenPassRegistry`). Cube cap default **4**, max **64**; VRAM grows with the request. `historyDepth` needs no request — it is the unread linear ping-pong after the second frame.
+`RequestLitMips` / `RequestOccupancy` / `RequestPointShadows(maxLights, faceResolution)` / `RequestWorldBoxes` are C# asks on `BufferCatalog` (also forwarded from `FullscreenPassRegistry`). Cube cap default **4**, max **64**; face default **128**, max **256**; VRAM grows with the request. `historyDepth` needs no request — it is the unread linear ping-pong after the second frame.
 
 ## Publish (pack-owned names)
 

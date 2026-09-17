@@ -18,7 +18,8 @@ public enum FullscreenCompose
     /// Pack writes a 0–1 dest fraction (<c>AnomalyIsolatedSub</c>). IsolatedSub
     /// draws the pack to scratch, stamps Reactive from <c>.a</c>, then merges
     /// with dest*(1-src) blend onto dest (same dest RTV as Replace). IsolatedSub
-    /// does not blit dest for t0 — the pack does not composite dest.
+    /// blits dest for t0 when dest aliases LBuffer so the pack can write
+    /// <c>AnomalyIsolatedSubEnergy(removed, dest)</c>. Packs do not composite dest.
     /// </summary>
     IsolatedSub = 6
 }

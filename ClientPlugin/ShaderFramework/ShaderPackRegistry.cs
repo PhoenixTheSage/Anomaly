@@ -970,9 +970,25 @@ public static class ShaderPackRegistry
             for (var p = 0; p < pack.FullscreenPrograms.Count; p++)
             {
                 var cur = pack.FullscreenPrograms[p];
-                if (string.Equals(cur.File, full, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(cur.Id, id, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(cur.Id, id, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                existing = cur;
+                break;
+            }
+
+            // Folder scan auto-ids pack.filename. The first json pass for
+            // that file adopts it. Later json passes with a different id
+            // (IsolatedSub + debug Replace on one hlsl) add a sibling —
+            // matching by file used to overwrite IsolatedSub with Replace.
+            if (existing == null)
+            {
+                for (var p = 0; p < pack.FullscreenPrograms.Count; p++)
                 {
+                    var cur = pack.FullscreenPrograms[p];
+                    if (!string.Equals(cur.File, full, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!IsFolderDefaultId(cur.Id, pack.ManifestId, name, slot))
+                        continue;
                     existing = cur;
                     break;
                 }
@@ -995,6 +1011,16 @@ public static class ShaderPackRegistry
             existing.Binds = spec.Binds;
             existing.Scale = spec.Scale > 0 ? spec.Scale : 1f;
         }
+    }
+
+    static bool IsFolderDefaultId(string id, string packId, string name, OwnedPassSlot slot)
+    {
+        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(packId) ||
+            string.IsNullOrWhiteSpace(name))
+            return false;
+        if (string.Equals(id, packId + "." + name, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return string.Equals(id, packId + "." + slot + "." + name, StringComparison.OrdinalIgnoreCase);
     }
 
     static TemporalPolicy ParseTemporal(string packId, string[] names)

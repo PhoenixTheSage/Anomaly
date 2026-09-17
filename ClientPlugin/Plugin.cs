@@ -87,6 +87,8 @@ public sealed class Plugin : IPlugin
         disposed = true;
         DebugLog.Write("Dispose");
         ConfigStorage.FlushPending(true);
+        PlanetAtmosphere.Clear();
+        LocalCharacter.Clear();
         RichHudSupport.Shutdown();
         CameraVelocityPass.Enabled = false;
         OwnedBuffersPass.Enabled = false;
@@ -110,6 +112,8 @@ public sealed class Plugin : IPlugin
 
         RichHudSupport.TryInitialize();
         ConfigStorage.FlushPending();
+        PlanetAtmosphere.UpdateFromGameThread();
+        LocalCharacter.UpdateFromGameThread();
         ShaderCompileIntercept.RequestResidentShaderRefresh();
     }
 

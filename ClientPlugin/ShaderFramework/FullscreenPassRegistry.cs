@@ -46,7 +46,7 @@ public static class FullscreenPassRegistry
 
     const string VsFile = "Fullscreen.hlsl";
     const string MergeFile = "FullscreenMerge.hlsl";
-    const int ExtrasBytes = 304;
+    const int ExtrasBytes = 320;
 
     static readonly object Gate = new();
     static readonly HashSet<string> LoggedWarnings = new();
@@ -113,6 +113,9 @@ public static class FullscreenPassRegistry
         public float SkyLuma;
         public Vector3 SkyAmbient;
         public float SkyAmbientPad;
+        public float PlanetAirTop;
+        public float VisualAtmoCeil;
+        public Vector2 PlanetAtmospherePad;
     }
 
     [StructLayout(LayoutKind.Sequential, Size = UniformBytes)]
@@ -148,7 +151,7 @@ public static class FullscreenPassRegistry
     /// <summary>
     /// Pack-owned scalars for the next draw of <paramref name="id"/>.
     /// At most <see cref="UniformFloats"/> floats on b7 (16×float4,
-    /// 256 B). Extras on b6 are 304 B. <c>AnomalyPassUniform0–7</c> stay
+    /// 256 B). Extras on b6 are 320 B. <c>AnomalyPassUniform0–7</c> stay
     /// the first 128 bytes. Longer arrays fail closed; Anomaly logs
     /// once per program id.
     /// </summary>
@@ -334,11 +337,22 @@ public static class FullscreenPassRegistry
 
     /// <summary>
     /// Request catalog <c>pointShadowAtlas</c>. <paramref name="maxLights"/>
-    /// <c>&lt;= 0</c> skips cubes. Default 4, max 64.
+    /// <c>&lt;= 0</c> skips cubes. Default 4, max 64. Face default 128, max 256.
+    /// Local character mesh is stamped with MeshDepth (skinned world, no
+    /// Depth z-clamp).
     /// </summary>
-    public static void RequestPointShadows(int maxLights = 4, int faceResolution = 64)
+    public static void RequestPointShadows(int maxLights = 4, int faceResolution = 128)
     {
         PointShadowPass.RequestPointShadows(maxLights, faceResolution);
+    }
+
+    /// <summary>
+    /// Stamp world AABB boxes into <c>pointShadowAtlas</c> in addition to
+    /// the local character mesh.
+    /// </summary>
+    public static void RequestWorldBoxes(bool enabled = true)
+    {
+        PointShadowPass.RequestWorldBoxes(enabled);
     }
 
     /// <summary>
@@ -735,13 +749,12 @@ public static class FullscreenPassRegistry
         // GBuffer1/2) as RTVs. Unbind SRVs first, then force a single RTV
         // before BindBus samples LBuffer / GBuffer / velocity. BindBus-first
         // or Keen SetRtv-only is an RTV+SRV hazard (DEVICE_REMOVED at Present).
-        // AfterLighting dest aliases t0 (LBuffer). IsolatedAdd/Mix that
-        // sample dest blit a copy before the pack PS (Blit binds mergeCopy).
-        // IsolatedSub writes occupancy and blends onto dest — skip that blit.
+        // AfterLighting dest aliases t0 (LBuffer). IsolatedAdd/Mix/Sub that
+        // sample dest blit a copy before the pack PS. IsolatedSub needs that
+        // copy for occ = removed/dest; merge still blends occupancy onto dest.
         var t0Draw = t0;
         if (dest != null && t0 != null && Aliases(dest, t0) &&
-            prog.Compose != FullscreenCompose.Replace &&
-            prog.Compose != FullscreenCompose.IsolatedSub)
+            prog.Compose != FullscreenCompose.Replace)
         {
             var copy = OtherScratch(isolated);
             if (copy != null)
@@ -1390,7 +1403,10 @@ public static class FullscreenPassRegistry
             SunToward = FrameTemporal.SunToward,
             SkyLuma = FrameTemporal.SkyLuma,
             SkyAmbient = FrameTemporal.SkyAmbient,
-            SkyAmbientPad = 0f
+            SkyAmbientPad = 0f,
+            PlanetAirTop = FrameTemporal.PlanetAirTop,
+            VisualAtmoCeil = FrameTemporal.VisualAtmoCeil,
+            PlanetAtmospherePad = Vector2.Zero
         };
         var mapping = MyMapping.MapDiscard(rc, extrasCb);
         mapping.WriteAndPosition(ref cb);

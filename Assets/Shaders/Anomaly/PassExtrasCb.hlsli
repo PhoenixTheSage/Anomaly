@@ -40,6 +40,12 @@ cbuffer AnomalyLightingExtras : register(MERGE(b, ANOMALY_EXTRAS_CB_SLOT))
     // pack HdrLift. Not AnomalySkyLuma (sun luma × AmbientDiffuse).
     float3 AnomalySkyAmbient;
     float AnomalySkyAmbientPad;
+    // Slice AK — radii from planet center, meters. 0 = fail closed.
+    // Not camera-relative. VisualCeil equals AirTop today (optical
+    // IsolatedMix cap). Never 0.90 × AtmosphereRadius.
+    float AnomalyPlanetAirTop;
+    float AnomalyVisualAtmoCeil;
+    float2 AnomalyPlanetAtmospherePad;
 };
 
 #endif

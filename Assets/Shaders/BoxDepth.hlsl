@@ -12,10 +12,13 @@ struct BoxGpu
 cbuffer FaceCb : register(b0)
 {
     row_major float4x4 ViewProj;
+    row_major float4x4 InvViewProj;
     float3 LightPos;
     float Range;
     uint BoxCount;
-    uint3 FacePad;
+    float ViewportX;
+    float ViewportY;
+    float FaceRes;
 };
 
 StructuredBuffer<BoxGpu> Boxes : register(t0);

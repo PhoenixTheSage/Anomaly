@@ -29,7 +29,7 @@ Well-known names:
 | `litMips` | Live at AfterLighting when a live fullscreen program bound `litMips`, `RequestLitMips` was called, or Debug buffer is LitMips | `RGBA16F`, full res, default 5 mips of this-frame `LBuffer` (before atmosphere). Do not `GenerateMips` in pack C# |
 | `historyDepth` | Live after two linear frames (unread ping-pong) | `R32_Float` last-frame linear view Z |
 | `occupancy` | Live at AfterLighting when `RequestOccupancy` | R8 512×512 atlas of a 64³ camera-relative clipmap (2 m voxels) |
-| `pointShadowAtlas` | Live at AfterLighting when `RequestPointShadows(cap > 0)` | RGBA32F light-view AABB depth; default cap 4, max 64 |
+| `pointShadowAtlas` | Live at AfterLighting when `RequestPointShadows(cap > 0)` | RGBA32F light-view mesh (+ optional AABB) depth; default cap 4 / face 128, max 64 / 256 |
 | `upscaledColor` | Live after the unique upscale consumer calls `NotifyUpscaleComplete(rc, color)` | Output-res dest (HDR or LDR — whatever the consumer wrote). Cleared each `DrawGameScene` prefix |
 | `avgLuminance` | Live after Anomaly captures `MyToneMapping.Run` args (even if a later prefix skips Keen SDR) | Keen eye-adaptation target; Display AfterUpscale t4 |
 | `bloom` | Same capture | Keen bloom; Display AfterUpscale t5 |

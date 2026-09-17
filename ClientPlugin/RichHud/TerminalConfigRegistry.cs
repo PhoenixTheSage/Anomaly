@@ -366,20 +366,35 @@ public static class TerminalConfigRegistry
 
         public ITerminalConfigPage Label(string text, Func<string> get)
         {
-            AddControl(new ControlSpec
+            var spec = new ControlSpec { Weight = TileWeight.Compact };
+            TerminalLabel label = null;
+            spec.Build = () =>
             {
-                Weight = TileWeight.Compact,
-                Build = () =>
+                var value = get != null ? get() : text;
+                if (string.IsNullOrEmpty(value))
+                    value = text ?? "";
+                label = new TerminalLabel
                 {
-                    var value = get != null ? get() : text;
+                    Name = value,
+                };
+                return label;
+            };
+            // Pull on Refresh() only. Do not set CustomValueGetter — Master
+            // would assign it every HandleInput tick.
+            if (get != null)
+            {
+                spec.Pull = () =>
+                {
+                    if (label == null)
+                        return;
+                    var value = get();
                     if (string.IsNullOrEmpty(value))
                         value = text ?? "";
-                    return new TerminalLabel
-                    {
-                        Name = value,
-                    };
-                },
-            });
+                    label.Name = value;
+                };
+            }
+
+            AddControl(spec);
             return this;
         }
 

@@ -37,6 +37,8 @@ public static class FrameTemporal
     static float sunDiffuse = 1f;
     static float skyLuma;
     static Vector3 skyAmbient;
+    static float planetAirTop;
+    static float visualAtmoCeil;
 
     public static uint FrameIndex
     {
@@ -167,6 +169,26 @@ public static class FrameTemporal
     }
 
     /// <summary>
+    /// Gameplay air top as a radius from the planet center (meters).
+    /// Written as <c>AnomalyPlanetAirTop</c>. Zero when no eligible
+    /// planet is in session.
+    /// </summary>
+    public static float PlanetAirTop
+    {
+        get { lock (Gate) return planetAirTop; }
+    }
+
+    /// <summary>
+    /// Optical IsolatedMix ceiling as a radius from the planet center
+    /// (meters). Written as <c>AnomalyVisualAtmoCeil</c>. Equals
+    /// <see cref="PlanetAirTop"/> today. Zero when extras fail closed.
+    /// </summary>
+    public static float VisualAtmoCeil
+    {
+        get { lock (Gate) return visualAtmoCeil; }
+    }
+
+    /// <summary>
     /// Floor for <see cref="SkyAmbient"/> as a fraction of unlifted sun
     /// (HZD / planet night fill ≈ 3%).
     /// </summary>
@@ -220,6 +242,7 @@ public static class FrameTemporal
             renderWidth = size.X > 0 ? size.X : 1;
             renderHeight = size.Y > 0 ? size.Y : 1;
             SnapshotEnvironmentLightUnlocked();
+            SnapshotPlanetAtmosphereUnlocked();
             if (env == null)
             {
                 snapshotted = true;
@@ -270,6 +293,7 @@ public static class FrameTemporal
             cameraDelta = default;
             jitterX = jitterY = 0;
             ClearEnvironmentLightUnlocked();
+            ClearPlanetAtmosphereUnlocked();
         }
     }
 
@@ -308,6 +332,25 @@ public static class FrameTemporal
         sunDiffuse = 1f;
         skyLuma = 0f;
         skyAmbient = default;
+    }
+
+    static void SnapshotPlanetAtmosphereUnlocked()
+    {
+        var snap = PlanetAtmosphere.Copy();
+        if (!snap.IsValid || snap.VisualCeil <= 1f)
+        {
+            ClearPlanetAtmosphereUnlocked();
+            return;
+        }
+
+        planetAirTop = snap.AirTop;
+        visualAtmoCeil = snap.VisualCeil;
+    }
+
+    static void ClearPlanetAtmosphereUnlocked()
+    {
+        planetAirTop = 0f;
+        visualAtmoCeil = 0f;
     }
 
     static float ComputeSafetyScale(Vector3D cameraPos, Vector3 forward)

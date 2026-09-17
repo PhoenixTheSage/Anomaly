@@ -21,6 +21,9 @@ Direction revision: `CurrentToPrevious = 8`, combined flags **15** (legacy flags
 - Units: **pixel delta** at internal (DRS) resolution.
 - Y-down D3D (top of the RT is v = 0).
 - Unjittered view-projections. Jitter is a consumer problem.
+- `MatchesRenderResolution` means this buffer's `Width`/`Height`, not the DXGI swapchain. Lighting can `Load` at `svPos.xy`. Post-CopyToRT / swapchain consumers (frame generation) must **UV-sample** and convert `mvUv = mvPx / float2(Width, Height)`. Do not require `Width == Backbuffer`.
+
+A TAA/DLSS plugin is the 1:1 internal-res consumer. A display-sized interpolator that treats pixel delta as output pixels will warp silhouettes.
 
 ## Discovery (C# sketch)
 

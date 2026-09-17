@@ -2,9 +2,9 @@
 
 What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.md](ShaderAPI.md). Velocity / hook slices: [ROADMAP.md](ROADMAP.md). Pack contract: [ShaderPacks.md](ShaderPacks.md). Keen inventory: [KeenShaders.md](KeenShaders.md).
 
-**Now:** Layers 0–3 exist. Velocity is the first tenant. Slices **M–T**, **U–Z**, **AA–AJ** are in this repo: stage-scoped inject, pack defines, GBuffer attachments, lighting/GBuffer-read/atmosphere wraps, pass-begin bind registry, owned-pass scheduler, temporal policy, `FrameTemporal` (including extras-CB sun and sky ambient), buffer catalog publish/lifetime, owned linear depth / Hi-Z / history / reactive mask, extra named stages, **data-driven `Fullscreen/<Slot>` programs** (`FullscreenPassRegistry`), the **color bus** (`hdrColor` / `upscaledColor` / `Display` / `ClaimUpscale`), the **256 B uniform bus** (`AnomalyPassUniform0–15`), **Slice AI** (`AnomalySunColor` / `AnomalyMarchSteps`), and **Slice AJ** (`AnomalySkyAmbient` / `AnomalyVolumeAmbient`).
+**Now:** Layers 0–3 exist. Velocity is the first tenant. Slices **M–T**, **U–Z**, **AA–AM** are in this repo: stage-scoped inject, pack defines, GBuffer attachments, lighting/GBuffer-read/atmosphere wraps, pass-begin bind registry, owned-pass scheduler, temporal policy, `FrameTemporal` (including extras-CB sun, sky ambient, and planet air column), buffer catalog publish/lifetime, owned linear depth / Hi-Z / history / reactive mask, extra named stages, **data-driven `Fullscreen/<Slot>` programs** (`FullscreenPassRegistry`), the **color bus** (`hdrColor` / `upscaledColor` / `Display` / `ClaimUpscale`), the **256 B uniform bus** (`AnomalyPassUniform0–15`), **Slice AI** (`AnomalySunColor` / `AnomalyMarchSteps`), **Slice AJ** (`AnomalySkyAmbient` / `AnomalyVolumeAmbient`), **Slice AK** (`AnomalyPlanetAirTop` / `AnomalyVisualAtmoCeil`), **Slice AL** (local character mesh into `pointShadowAtlas`), and **Slice AM** (`AnomalyVolumeNight` / `AnomalySunTransmittance`).
 
-**Next:** Slice **K** (sample pack) stays deferred. Pack workarounds that the next shader will also need are filed in [wiki/Framework-gaps.md](../wiki/Framework-gaps.md) in the same turn.
+**Next:** Slice **K** (sample pack) stays deferred. Pack workarounds that the next shader will also need are filed in [wiki/Framework-gaps.md](../wiki/Framework-gaps.md) in the same turn. Open: swapchain / post-CopyToRT consumers must UV-sample velocity and convert pixel delta by buffer size (`MatchesRenderResolution` is DRS, not DXGI).
 
 ---
 
@@ -465,9 +465,11 @@ Notation: [wiki/Framework-gaps.md](../wiki/Framework-gaps.md).
 - [x] `AnomalyMarchSteps(budget, minSteps, maxSteps, camToVolumeMeters, nearMeters, farMeters)` in `AnomalyFullscreen.hlsli` — camera-to-volume × `AnomalySafetyScale`. Never per-ray `tMin`.
 - [x] `AnomalySunVisibility(posCamRel, occluderCenterCamRel, occluderRadius, lightWrapMeters)` — local-up × `AnomalySunToward` with atmosphere-thickness wrap, **capped at 12% of occluder radius** (3-arg uses that 12% directly). Geometric AtmosphereRadius can be O(radius) and must not sun-light IsolatedMix night. Keen CSM is camera-local and does not cover a planet disk from orbit.
 - [x] Pack SRV types: `#define ANOMALY_PACK_SRVn_TYPE Texture3D` before `#include <AnomalyFullscreen.hlsli>` (Volumetric Clouds).
-- [x] AfterLighting LightPoint reconstruct: `AnomalyLightingUv` / `AnomalyLightingViewPos` / `AnomalyLightingN` / `AnomalyScreenUvToTexel` (HDR slots). IsolatedSub of tiled lights must not use interpolator `TEXCOORD` or skip `NdotL ≤ 0`. `maxTileLights` is the global stride.
+- [x] AfterLighting LightPoint reconstruct: `AnomalyLightingUv` / `AnomalyLightingViewPos` / `AnomalyLightingN` / `AnomalyScreenUvToTexel` (HDR slots). IsolatedSub of tiled lights must not use interpolator `TEXCOORD` or skip `NdotL ≤ 0`. `maxTileLights` is the global stride. March the brightest N by energy (`sum L_i*(1-vis_i)`); do not clip the march at photometric `light.range`.
+- [x] `AnomalyIgnWorld(world.xz)` for contact / SSGI dither that must not crawl with the camera. Unscaled seed. `AnomalyIgn(pixel)` follows the raster.
+- [x] `AnomalyViewToLightingUv(viewPos)` inverse of live `compute_screen_ray` (BRDF). Contact: `AnomalyLightingViewPosUnjittered` + `AnomalyViewToDepthUv` (unjittered UV + `AnomalyLightingJitterUv`). Must not use `AnomalyUnjitteredViewProj` against jittered depth, must not scale step length with `AnomalySafetyScale`, and must not IsolatedSub a longer-range BRDF tail.
 - [x] IsolatedSub dest units: `src.rgb` is a 0–1 dest fraction (`dest * (1-src)`). AfterLighting t0 is a dest copy when dest aliases LBuffer. IsolatedSub umbra `temporal` InColor+Reactive (not ContributeVelocity).
-- [x] IsolatedSub dest-write: pack writes a 0–1 dest fraction (`AnomalyIsolatedSub`); Anomaly blends `dest*(1-src)` onto dest (Replace dest RTV). IsolatedSub does not blit dest for t0. destHistory Dest[p] merge never reached Present. Reactive stamps IsolatedSub `.a`.
+- [x] IsolatedSub dest-write: pack writes a 0–1 dest fraction (`AnomalyIsolatedSub` / `AnomalyIsolatedSubEnergy`); Anomaly blends `dest*(1-src)` onto dest (Replace dest RTV). IsolatedSub blits dest for t0 when dest aliases LBuffer. destHistory Dest[p] merge never reached Present. Reactive stamps IsolatedSub `.a`.
 - [x] AfterLighting dest-alias t0 blit binds mergeCopy. DrawOne blits **before** the pack PixelShader and `DrawIsolated` rebinds `prog.Shader`. IsolatedSub with mergeCopy still bound copied dest onto dest (debug Replace skips the blit).
 - [x] Scaled AfterFullscreen draw: `FullscreenPassRegistry.DrawFullscreen(rc, width, height)`. Keen `DrawFullscreenQuad()` with no viewport calls `SetScreenViewport()` and clips a half/quarter RT to the top-left of UV 0–1 (Prism.SSGI SVGF).
 
@@ -481,6 +483,36 @@ Keen `MyEnvironmentLightData` has no night-sky RGB. `AnomalySkyLuma` is Rec.709(
 - [x] `AnomalyVolumeAmbient()` in `AnomalyFullscreen.hlsli` — returns extras ambient, capped at `AnomalySunColor * 0.028`. Independent of `AnomalySunVisibility`.
 
 **Slice AJ done when:** IsolatedMix night volumes light from extras ambient without hdr-lifting SkyLuma. **Shipped.** Volumetric Clouds is the first tenant.
+
+## Slice AK — planet air column / visual atmosphere ceiling
+
+Geometric `AtmosphereRadius` (Bruneton mesh, often 1.75× average radius) sits outside Keen’s visual scattering limb. Gameplay air top is `AverageRadius + AtmosphereAltitude` (`LimitAltitude × MaxHillHeight`). AfterAtmosphere IsolatedMix already ignores the proxy’s depth (`DsvRo`). A `0.90 × AtmosphereRadius` deck pokes above the optical edge. Clipping the march at cloud inner / `AtmosphereRadius` is a spherical limb when the camera rises. Volumes may sit on terrain (`MinimumRadius`) if inner/outer are density, not occluders.
+
+- [x] Append-only extras on b6 (**320 B**): `AnomalyPlanetAirTop` / `AnomalyVisualAtmoCeil`. Radii are **meters from the planet center** (not camera-relative). Fail closed to 0. Game-thread `PlanetAtmosphere` samples the nearest `HasAtmosphere` / CloudLayers `MyPlanet`; `FrameTemporal` copies onto extras. Packs resolve `ClientPlugin.Shaders.PlanetAtmosphere.TryGetRadii` by name, or read the extras in HLSL (`AnomalyVolumeCeil` / `AnomalyClampRadialToCeil` / `AnomalyVolumeCeilFade`).
+- [x] Do not Harmony `MyAtmosphereRenderer`. Do not skip `Atmosphere_sphere.mwm`. `m_atmospheres` is private — do not reflect it.
+
+**Slice AK done when:** IsolatedMix volumes clamp height to extras air-top / visual ceil without inventing `0.90 × AtmosphereRadius`. **Shipped.** `VisualCeil` equals `AirTop` today (optical IsolatedMix cap; future refine without changing air top). Volumetric Clouds is the first tenant: `BaseAltitude` 0–1 from `MinimumRadius` to that limb, CloudLayer height bands, GBuffer depth.
+
+## Slice AL — local character mesh map
+
+First-person GBuffer does not contain the body (camera sits in the head; near-plane clips everything but feet/arms when looking down). Contact that only marches `linearDepth` therefore cannot cast a walking-FP umbra. Occupancy is 2 m voxels. Cube AABBs are not a character mesh. Harmony-unhiding the first-person body fights Keen’s 1st-person materials. An extras capsule is a collision proxy, not a suit silhouette.
+
+- [x] Light-space VS that writes world like `BoxDepth` (euclidean to the light). `MeshDepth` VS skins with `VertexTemplateBase` and interpolates camera-rel world; PS is `length(world-LightPos)` on FaceCb b0. Do not bind Keen DEPTH_ONLY VS (`z=max(z,0)`). IL from `DepthShaders`; Anomaly VS uses the same VERTEX_COMPONENTS / USE_SKINNING. Stamp all suit lods; skip decals/glass/holo; FP skips `SkipInMainView` + head/hood/glass/visor. Skip the local actor AABB on `RequestWorldBoxes`. `LocalCharacter` publishes actor id and `TryGetCamRelBox` — packs must not skip GBuffer contact inside that box. Do not Harmony-unhide the FP body.
+- [x] Extras CB stays **320 B** (Slice AK). No capsule fields. Do not Harmony first-person hide. Do not treat occupancy / light-view AABBs as the body.
+
+**Slice AL done when:** AfterLighting contact / SSGI can occlude with the local walking-FP body without inventing a pack-private player proxy. **Shipped.** Screen Space Shadows IsolatedSub mins `pointShadowAtlas` (mesh always when requested; AABB optional). Contact still owns GBuffer third-person. First-person head stays Keen-hidden.
+
+## Slice AM — planet-night IsolatedMix energy + optical sun transmittance
+
+Slice AJ `AnomalySkyAmbient = SunColorRaw * 0.028` is **in-cloud day fill** (multiple-scatter when sun vis is low inside a sunlit deck). It is not the illuminant of the planet night hemisphere. IsolatedMix is `src + dest*(1-src.a)` onto AfterAtmosphere LBuffer; night dest is ~0, so 2.8% of HDR sun with high alpha is opaque headlights on the dark disk.
+
+- [x] Confirm vis with pack-temp `CLOUD_DEBUG_SUN_VIS` (default 0) in Volumetric Clouds. Ships off. `SunLightDirection` is Keen’s direction *from* the sun; extras already store `-SunLightDirection`.
+- [x] Helper `AnomalyVolumeNight(albedo, sunVis)` (3-arg destRgb overload ignored): night inscatter = AJ day fill × `AnomalyVolumeNightScale()` (0.05) so IsolatedMix matches Keen night ambient from orbit. Day fill stays AJ.
+- [x] Helper `AnomalySunTransmittance(posCamRel, centerCamRel, planetR, airTop)`: deep night `geo=0`. Twilight is sample-height `sqrt(2h/r)` (floor air column, cap 0.40), symmetric `smoothstep(-t, t, μ)`, then `geo²` so IsolatedMix HDR does not wall. Do not return raw geo on `μ≤0` vs grazing OD on `μ>0`. Daytime 6-step OD only after geo is ~1. Do not use 12% Lambert wrap. Do not bind Keen CSM. 3-arg uses `AnomalyVolumeCeil()`.
+- [x] No extras `AnomalyNightFloor` — helper scale is the floor. Extras stay **320 B**.
+- [x] Volumetric Clouds rebases `CloudLitRadiance` (sky is pre-scaled). Aurora `NightAt` uses transmittance. Do not Harmony `MyAtmosphereRenderer`. Do not skip `Atmosphere_sphere.mwm`.
+
+**Slice AM done when:** IsolatedMix night volumes match Keen night LBuffer from orbit (AJ × 0.05), not headlights or a grey deck on a black disk, and the terminator is a monotonic limb across Keen's twilight (not a bright band + hard cut at `μ=0`). **Shipped.** Volumetric Clouds is the first tenant.
 
 ---
 
@@ -503,17 +535,28 @@ Keen `MyEnvironmentLightData` has no night-sky RGB. `AnomalySkyLuma` is Rec.709(
 | Pack-private IsolatedMix HDR scale / Keen `frame_.Light` lighting | Slice AI extras illuminant. `Frame.hlsli` layout is not a public contract |
 | Per-pack march LOD that floors `AnomalySafetyScale` or uses per-ray `tMin` | Slice AI helper. Grazing chords and spectator slams TDR otherwise |
 | AfterLighting IsolatedSub reconstruct from interpolator UV / first-N tile lights | LightPoint uses `screen_to_uv(SV_Position)`. Tile lists are unsorted; `maxTileLights` is the global stride. |
+| AfterLighting IsolatedSub project with `AnomalyUnjitteredViewProj` / scale contact stepLen by `AnomalySafetyScale` / jittered reconstruct for the march | Unjittered view + `AnomalyViewToDepthUv`. SafetyScale changing step length jumps umbra when the camera looks. |
+| AfterLighting IsolatedSub clip at photometric `light.range` / 20% lumaFloor / pixel IGN / longer-range BRDF tail | March past the Keen sphere (~1.4×). IsolatedSub photometric `sum L_i*(1-vis_i)` of the brightest N. Dither with `AnomalyIgnWorld`. |
 | AfterLighting IsolatedSub dest-write via destHistory Dest[p] merge | IsolatedSub blends occupancy onto dest (same dest RTV as Replace). Pack writes `AnomalyIsolatedSub`. destHistory merge never reached Present. |
 | AfterLighting dest-alias t0 blit leaving mergeCopy bound | Blit before the pack PixelShader. IsolatedSub with mergeCopy bound copies dest onto dest. |
 | Sample Keen shadow cascades from AfterAtmosphere for a planet disk | Cascades are camera-local. `AnomalySunVisibility` uses local-up × sun with atmosphere light wrap |
 | Use `AnomalySkyLuma * HdrLift` as night / ambient illuminant | Use `AnomalyVolumeAmbient()` / `AnomalySkyAmbient`. SkyLuma is sun luma × AmbientDiffuse |
-| Scale `AnomalySkyAmbient` by `AmbientForwardPass` | Keen adds probe ambient into that field. Night IsolatedMix becomes sun-scale. Use `SunColor * 0.028`. |
+| Scale `AnomalySkyAmbient` by `AmbientForwardPass` | Keen adds probe ambient into that field. Night IsolatedMix becomes sun-scale. Use `SunColor * 0.028` for **in-cloud day fill** only. |
+| Treat `AnomalyVolumeAmbient` / 2.8% sun as planet-night illuminant | IsolatedMix over night dest≈0 is headlights. Slice AM: `AnomalyVolumeNight` = AJ × 0.05 + monotonic squared-limb transmittance. |
+| Hard `μ≤0` / mid-chord vis for IsolatedMix night | Snaps clouds to night while Keen atmosphere is still day-lit. Per-sample `sqrt(2h/r)` twilight. |
+| Return raw `geo` when `μ≤0` and `geo*exp(-OD)` when `μ>0` | Vis peaks on the night side of `μ=0` (bright band) then IsolatedMix HDR walls. Symmetric `smoothstep(-t, t)` then `geo²`; OD only after geo is ~1. |
+| `smoothstep(-t, t*0.45, μ)` / cap twilight at 0.18 | vis=1 ~5° into day while Keen is still yellow twilight; 0.18 sat inside Pertam's geometric sunset. Cap 0.40. |
+| Light IsolatedMix night from AfterAtmosphere dest luma | Night terrain dest≈0 vanishes the volume. Dest is not the grain — grazing vis misses are. |
+| Gate planet night with a sphere-hit `tNear > 1` | Grazing disc noise + HashIgn IsolatedMix HDR sun at low alpha: white grain on dest (terrain included). Air-limb `sqrt(2h/r)` twilight, not a hard `μ≤0` cut. |
+| Clip IsolatedMix at `AtmosphereRadius` / cloud inner sphere | Proxy does not write depth. Inner is density. GBuffer `AnomalyLinearDepth` (voxels/grids); planet body from orbit only. Height uses Slice AK extras. |
+| AfterLighting IsolatedSub `occ = 1-minVis` / longer-range BRDF tail / `vis *= (1-hit)` every step | dest-punch at the falloff; stacked silhouettes (stairs). Photometric `AnomalyIsolatedSubEnergy`; first-hit then break. Softness is gather fraction. |
+| Harmony-unhide first-person body / occupancy 2 m / extras capsule as the suit | GBuffer never contains the FP body. Slice AL mesh map in `pointShadowAtlas`. Occupancy is too coarse. Capsule is a collision proxy. |
 
 ---
 
 ## Suggested order
 
-Do M before N if time is short: extras on PS unblocks additive work even with only `ANOMALY_VELOCITY`. **M–Z and AA–AJ are implemented.**
+Do M before N if time is short: extras on PS unblocks additive work even with only `ANOMALY_VELOCITY`. **M–Z and AA–AM are implemented.**
 
 | Order | Slice | Layer ([ShaderAPI.md](ShaderAPI.md)) | Depends on |
 |------:|-------|--------------------------------------|------------|
@@ -540,6 +583,10 @@ Do M before N if time is short: extras on PS unblocks additive work even with on
 | 21 | AG color bus (upscaledColor / Display) | 3 | U, R |
 | 22 | AH uniform bus 256 B | 3 | AE |
 | 23 | AI HDR illuminant / IsolatedMix energy / march helper | 3 | AC, AF, W |
+| 24 | AJ night / sky illuminant | 3 | AI, W |
+| 25 | AK planet air column / visual atmosphere ceiling | 3 | W, AC |
+| 26 | AL local character mesh map | 3 | W, AC |
+| 27 | AM planet-night IsolatedMix energy / optical sun transmittance | 3 | AJ, AK, AF |
 
 Slice K (sample pack) stays deferred. It can now demonstrate `Fullscreen/AfterAtmosphere` + `SetUniforms`, not only overlay.
 
@@ -547,4 +594,4 @@ Slice K (sample pack) stays deferred. It can now demonstrate `Fullscreen/AfterAt
 
 ## First implementation session
 
-M–Z and AA–AJ are in this repo. Slice **K** (sample pack) stays deferred. When a pack invents a workaround the next shader will also need, file it on this page and [wiki/Framework-gaps.md](../wiki/Framework-gaps.md) in the same turn — do not wait for a dedicated roadmap pass.
+M–Z and AA–AM are in this repo. Slice **K** (sample pack) stays deferred. When a pack invents a workaround the next shader will also need, file it on this page and [wiki/Framework-gaps.md](../wiki/Framework-gaps.md) in the same turn — do not wait for a dedicated roadmap pass.

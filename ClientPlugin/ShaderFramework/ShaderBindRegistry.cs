@@ -35,7 +35,7 @@ public static class ShaderBindRegistry
     public const int FirstExtraSrv = 5;
     public const int LastExtraSrv = 9;
 
-    const int ConstantBufferBytes = 304;
+    const int ConstantBufferBytes = 320;
     const string VelocityName = BufferCatalog.Velocity;
 
     static readonly object Gate = new();
@@ -75,6 +75,9 @@ public static class ShaderBindRegistry
         public float SkyLuma;
         public Vector3 SkyAmbient;
         public float SkyAmbientPad;
+        public float PlanetAirTop;
+        public float VisualAtmoCeil;
+        public Vector2 PlanetAtmospherePad;
     }
 
     public static string StatusLine
@@ -335,7 +338,10 @@ public static class ShaderBindRegistry
             SunToward = FrameTemporal.SunToward,
             SkyLuma = FrameTemporal.SkyLuma,
             SkyAmbient = FrameTemporal.SkyAmbient,
-            SkyAmbientPad = 0f
+            SkyAmbientPad = 0f,
+            PlanetAirTop = FrameTemporal.PlanetAirTop,
+            VisualAtmoCeil = FrameTemporal.VisualAtmoCeil,
+            PlanetAtmospherePad = Vector2.Zero
         };
         var mapping = MyMapping.MapDiscard(rc, extrasCb);
         mapping.WriteAndPosition(ref cb);

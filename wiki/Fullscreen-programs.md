@@ -15,7 +15,7 @@ Folder defaults: compose `IsolatedAdd`, id `{packId}.{name}`, output `pass.{id}`
 
 `passes[].scale` / `FullscreenPassRegistry.SetScale(id, scale)` sizes the isolated RT to **1**, **0.5**, or **0.25** of the slot’s scene size (`ResolutionI`, or `ViewportResolution` at AfterUpscale). Values snap to those three. **Replace ignores scale** (always dest-sized). Merge upsamples by UV. `pass.<id>` publishes the scaled size. GBuffer / `linearDepth` / `velocity` stay full-res — sample them by UV (`AnomalyScenePixel(uv)`), not `SV_Position`, except AfterLighting IsolatedSub of tiled point lights, which must reconstruct like Keen `LightPoint.hlsl` (`AnomalyLightingUv(SV_Position)`, `AnomalyLightingViewPos`, `AnomalyLightingN`). Interpolator `TEXCOORD` ignores `Frame.Screen.offset`. Convert a full-res pixel radius to UV with `AnomalySceneUvOffset` (`AnomalyInvSceneSize`), not `AnomalyInvPassSize`. `AnomalyLightingRenderSize` / `AnomalyPassSize` is the pass RT; `AnomalySceneSize` is full-res. Chain members must share a scale. Status shows `@1/2` or `@1/4` when scaled. AfterFullscreen C# that draws the scaled `pass.<id>` (SSGI SVGF) must call `FullscreenPassRegistry.DrawFullscreen(rc, width, height)` — Keen `DrawFullscreenQuad()` with no viewport calls `SetScreenViewport()`.
 
-`anomaly.json` `passes[]` overrides those defaults:
+`anomaly.json` `passes[]` overrides those defaults. Two json passes may share one hlsl with different ids (IsolatedSub + debug Replace). The first json pass for that file adopts the folder-scan id; later ids add siblings. Matching by file used to overwrite IsolatedSub.
 
 ```json
 {
@@ -39,8 +39,8 @@ Folder defaults: compose `IsolatedAdd`, id `{packId}.{name}`, output `pass.{id}`
 | Mode | Who | Dest |
 |------|-----|------|
 | IsolatedAdd (default) | Many, additive | Scratch then `src.rgb + dest.rgb` (isolated.a is pack data, not merged) |
-| IsolatedMix | Many, over | Scratch then `src + dest * (1 - src.a)`. `src.rgb` is **LBuffer energy**, not 0–1 albedo. High `a` + dim `rgb` replaces HDR sky. Light with `AnomalySunColor * AnomalySunDiffuse`. Night fill is `AnomalyVolumeAmbient()`. `passes[].scale` is pixel cost, not lighting. |
-| IsolatedSub | Many, occlude | Scratch then blend `dest.rgb * (1 - saturate(src.rgb))` onto dest (same dest RTV as Replace). Pack writes a **0–1 dest fraction** (`AnomalyIsolatedSub`). IsolatedSub does not blit dest for t0. `temporal` `InColor`+`Reactive` stamps `.a` — not `ContributeVelocity` |
+| IsolatedMix | Many, over | Scratch then `src + dest * (1 - src.a)`. `src.rgb` is **LBuffer energy**, not 0–1 albedo. High `a` + dim `rgb` replaces HDR sky. High RGB + low `a` is fireflies. Light with `AnomalySunColor * AnomalySunDiffuse`. In-cloud day fill is `AnomalyVolumeAmbient()`. Planet-night is `AnomalyVolumeNight` (AJ × 0.05). Sun vis is `AnomalySunTransmittance` (monotonic squared limb). `passes[].scale` is pixel cost, not lighting. |
+| IsolatedSub | Many, occlude | Scratch then blend `dest.rgb * (1 - saturate(src.rgb))` onto dest (same dest RTV as Replace). Pack writes a **0–1 dest fraction** (`AnomalyIsolatedSub` / `AnomalyIsolatedSubEnergy`). IsolatedSub blits dest for t0 when dest aliases LBuffer. `temporal` `InColor`+`Reactive` stamps `.a` — not `ContributeVelocity` |
 | Chain | Many, ordered | Each samples the previous isolated; last copies to dest |
 | PublishOnly | Producer | Scratch only; catalog `pass.<id>` |
 | Replace | One owner | Dest when t0 is a different resource (optional `__compute_shader` UAV). Scratch+copy only when dest aliases t0 (DLSS in-place). Two live Replaces fail closed. A pack-disabled Replace does not fail-close Isolated siblings; while a Replace is live, only Replace draws that frame |
@@ -63,8 +63,8 @@ HDR slots (AfterLighting / AfterAtmosphere / AfterTransparent / BeforeTonemap) m
 | t10 / t11 (HDR slots only) | Keen tiled point lights: `StructuredBuffer<AnomalyPointLight> AnomalyPointLights` / `StructuredBuffer<uint> AnomalyTileIndices`. Dummy 1-element SRVs when catalog empty. |
 | b0 (HDR slots only) | Keen `MyCommon.FrameConstants` (`frame_` from `Frame.hlsli`, included by `AnomalyFullscreen.hlsli`). `tiles_x` / `tiles_num` / `maxTileLights` / `aoPointLight` match `LightPoint.hlsl`. |
 | s0 / s1 / s2 | Point / Linear (clamp) / `CloudSampler` wrap (`AnomalyWrapSampler`) |
-| b6 | Extras **304 B**: pass size (`AnomalyLightingRenderSize` / `AnomalyPassSize`), full-res `AnomalySceneSize` / `AnomalyInvSceneSize`, jitter, unjittered VP, prev VP, frame, `AnomalyCameraToWorld` (3×4), `AnomalyProjScale` (proj M11/M22), `AnomalySafetyScale` (1 = calm), `AnomalySunColor` / `AnomalySunDiffuse` / `AnomalySunToward` / `AnomalySkyLuma` / `AnomalySkyAmbient` |
-| b7 | `AnomalyPassUniform0–15` from `FullscreenPassRegistry.SetUniforms(id, float[64])`. `0–7` are the original 128 B; `8–15` append to 256 B. Extras on b6 are 304 B. Longer arrays fail closed; Anomaly logs once per id. |
+| b6 | Extras **320 B**: pass size (`AnomalyLightingRenderSize` / `AnomalyPassSize`), full-res `AnomalySceneSize` / `AnomalyInvSceneSize`, jitter, unjittered VP, prev VP, frame, `AnomalyCameraToWorld` (3×4), `AnomalyProjScale` (proj M11/M22), `AnomalySafetyScale` (1 = calm), `AnomalySunColor` / `AnomalySunDiffuse` / `AnomalySunToward` / `AnomalySkyLuma` / `AnomalySkyAmbient` / `AnomalyPlanetAirTop` / `AnomalyVisualAtmoCeil` |
+| b7 | `AnomalyPassUniform0–15` from `FullscreenPassRegistry.SetUniforms(id, float[64])`. `0–7` are the original 128 B; `8–15` append to 256 B. Extras on b6 are 320 B. Longer arrays fail closed; Anomaly logs once per id. |
 
 Do not steal atmosphere t5. AfterAtmosphere runs after Keen unbinds `DensityLut`. Display AfterUpscale programs sample t4–t6 tonemap inputs; HDR slots sample GBuffer there instead. Pack extras always land at t7–t9.
 

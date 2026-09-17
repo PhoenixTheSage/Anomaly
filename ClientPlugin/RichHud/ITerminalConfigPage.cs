@@ -27,6 +27,10 @@ public interface ITerminalConfigPage
 
     ITerminalConfigPage Label(string text);
 
+    /// <summary>
+    /// Status line. <paramref name="get"/> is applied at mount and again on
+    /// <see cref="Refresh"/>. Do not use <c>CustomValueGetter</c>.
+    /// </summary>
     ITerminalConfigPage Label(string text, Func<string> get);
 
     ITerminalConfigPage Checkbox(string label, Func<bool> get, Action<bool> set, string description);

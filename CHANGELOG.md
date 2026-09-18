@@ -4,6 +4,14 @@ Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage belo
 
 ## Unreleased
 
+## 1.9.0 — 2026-09-18
+
+- Shared atmospheric volumes (opt-in): medium registry, inject/integrate/composite shaders, interior upload, directional volume shadows, GPU timers, and pack docs (`Docs/SharedVolumetrics.md`). Final Frontier Atmosphere and Volumetric Clouds consume this path.
+- Slice AN shipped: catalog `volumeSunShadow` (PublishOnly `output`, not reserved). Helper `AnomalyVolumeSunShadow` fail closed to 1 when `.a < 0.5` (unbound SRV samples 0). AfterAtmosphere IsolatedSub dest uses `AnomalyIsolatedSubEnergy`. Extras stay **320 B**. Do not bind Keen CSM. Volumetric Clouds stamps weather OD along `AnomalySunToward`, then IsolatedSub dest, then IsolatedMix.
+- Celestial background registry and main/probe shader contract for Final Frontier: live uniforms, immutable float4 catalogue data, paired compilation, depth masking, and explicit fallback (no foreground-lighting fork). MSAA falls back to vanilla. Solar glare / projected labels remain deferred.
+- Point-shadow atlas: isolate character-shadow projection from Keen pass constants; capture cube-face geometry relative to the light so camera motion does not rewrite transforms; preserve camera-relative `playerDepth`. Contact-shadow helpers and projection acceptance scripts land with the atlas work.
+- Folder settings pages unregister by their full key without treating pack Settings pages as reserved host pages.
+
 ## 1.8.0 — 2026-09-17
 
 - Slice AL shipped: `MeshDepth` VS skins with Keen `VertexTemplateBase` and interpolates camera-rel world (euclidean `length(world-LightPos)`). Do not bind Keen DEPTH_ONLY VS (`z=max(z,0)` striped the atlas). IsolatedSub mins `CubeVisibility` when `RequestPointShadows > 0`. Contact still owns GBuffer hits — do not skip `TryGetCamRelBox`. First-person skips `SkipInMainView` + head/hood/glass/visor (no Harmony `EnableHead`). AABB cubes stay optional (`RequestWorldBoxes`). Extras stay **320 B**.
@@ -62,5 +70,7 @@ Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage belo
 - `1.5` — corrected and visually proven motion-vector output, audit instrumentation, persistence, compatibility guidance, and production-safe debug gating.
 - `1.6` — terminal config registry, Display dest / tonemap inputs, deferred config I/O, compile warmup, reactive stamp, and pack-facing render trace.
 - `1.7` — extras-CB sun/sky/march helpers, IsolatedSub dest-write, compute Display grade, point-light catalog, occupancy/light-view owned passes, IsolatedVelocity, and scaled-pass UV/viewport.
+- `1.8` — MeshDepth atlas skinning, sun transmittance terminator, planet atmosphere ceilings, and lighting UV/jitter helpers.
+- `1.9` — shared atmospheric volumes, celestial background registry, volumeSunShadow catalog, and camera-stable point-shadow atlas.
 
 The intermediate entries describe compatibility epochs, not previously tagged releases.

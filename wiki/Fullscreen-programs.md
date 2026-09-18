@@ -42,7 +42,7 @@ Folder defaults: compose `IsolatedAdd`, id `{packId}.{name}`, output `pass.{id}`
 | IsolatedMix | Many, over | Scratch then `src + dest * (1 - src.a)`. `src.rgb` is **LBuffer energy**, not 0–1 albedo. High `a` + dim `rgb` replaces HDR sky. High RGB + low `a` is fireflies. Light with `AnomalySunColor * AnomalySunDiffuse`. In-cloud day fill is `AnomalyVolumeAmbient()`. Planet-night is `AnomalyVolumeNight` (AJ × 0.05). Sun vis is `AnomalySunTransmittance` (monotonic squared limb). `passes[].scale` is pixel cost, not lighting. |
 | IsolatedSub | Many, occlude | Scratch then blend `dest.rgb * (1 - saturate(src.rgb))` onto dest (same dest RTV as Replace). Pack writes a **0–1 dest fraction** (`AnomalyIsolatedSub` / `AnomalyIsolatedSubEnergy`). IsolatedSub blits dest for t0 when dest aliases LBuffer. `temporal` `InColor`+`Reactive` stamps `.a` — not `ContributeVelocity` |
 | Chain | Many, ordered | Each samples the previous isolated; last copies to dest |
-| PublishOnly | Producer | Scratch only; catalog `pass.<id>` |
+| PublishOnly | Producer | Scratch only; catalog `pass.<id>` or a conventional name such as `volumeSunShadow` (not reserved) |
 | Replace | One owner | Dest when t0 is a different resource (optional `__compute_shader` UAV). Scratch+copy only when dest aliases t0 (DLSS in-place). Two live Replaces fail closed. A pack-disabled Replace does not fail-close Isolated siblings; while a Replace is live, only Replace draws that frame |
 | DirectAdd | Opt-in | Isolated then additive merge |
 

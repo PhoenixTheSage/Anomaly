@@ -20,6 +20,7 @@ Resolve `ClientPlugin.Buffers.BufferCatalog` by type name. `Active(name)` never 
 | `pointShadowAtlas` | AfterLighting after BeforeFullscreen, if `RequestPointShadows(cap > 0)` | RGBA32F light-view mesh (skinned MeshDepth) plus optional AABB depth. Width = faceRes×6, height = 1 + faceRes×cap. Row 0 is viewPos.xyz + range. Default cap 4 / face 128, max 64 / 256. VRAM grows with the request. Reserved |
 | `upscaledColor` | After `NotifyUpscaleComplete(rc, color)` | Unique upscale dest at output res. Cleared next frame. Reserved |
 | `pass.<id>` | Same draw | That program’s isolated output (scaled when `passes[].scale` is 0.5 or 0.25) |
+| `volumeSunShadow` | After a PublishOnly program with `output: volumeSunShadow` | RGBA remaining sun (`.r` = 1 none). `.a < 0.5` is missing. Not reserved. Helper `AnomalyVolumeSunShadow` |
 
 ```csharp
 foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())

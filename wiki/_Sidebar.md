@@ -8,6 +8,7 @@
 * [[Terminal-config|Terminal config]]
 * [[Overlay-vs-inject|Overlay vs inject]]
 * [[Fullscreen-programs|Fullscreen programs]]
+* [[Celestial-backgrounds|Celestial backgrounds]]
 * [[Named-stages|Named stages]]
 * [[HLSL-cookbook|HLSL cookbook]]
 
@@ -28,3 +29,5 @@
 * [[Troubleshooting]]
 * [[Glossary]]
 * [[Source-map|Source map]]
+
+* [Shared volumetrics (in progress)](Shared-volumetrics)

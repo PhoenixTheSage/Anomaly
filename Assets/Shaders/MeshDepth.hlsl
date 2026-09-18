@@ -1,5 +1,6 @@
 // Local-character light-space distance. VS skins with Keen VertexTemplateBase
-// (object CB bones) and interpolates camera-rel world like BoxDepth. Clip is
+// (object CB bones) and interpolates pass-relative world like BoxDepth. Atlas
+// origin is the light; playerDepth origin is the camera. Clip is
 // projection_.view_proj_matrix with no Depth VertexStage z-clamp. PS is
 // length(world - LightPos). Do not reconstruct from SV_Position.
 

@@ -35,6 +35,7 @@ Well-known names:
 | `bloom` | Same capture | Keen bloom; Display AfterUpscale t5 |
 | `dirt` | Same capture (from the dirt texture name on `Run`) | Display AfterUpscale t6 |
 | `pass.<id>` | Named isolated output for a fullscreen program | Same as isolated; not reserved — published by Anomaly for that pack id |
+| `volumeSunShadow` | Conventional pack product (PublishOnly `output`) | Remaining sun in `.r` (1 = none). Not reserved. Helper `AnomalyVolumeSunShadow` |
 
 Reserved names (`velocity`, `linearDepth`, `hiZ`, `historyColor`, `reactiveMask`, `fullscreenIsolated`, `hdrColor`, `upscaledColor`, `avgLuminance`, `bloom`, `dirt`, `litMips`, `pointLights`, `tileIndices`, `historyDepth`, `occupancy`, `pointShadowAtlas`) cannot be `Publish`ed by a pack. Same name from two pack ids fails closed. `UnpublishAll(packId)` on dispose.
 

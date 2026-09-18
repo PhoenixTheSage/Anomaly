@@ -4,6 +4,7 @@ using ClientPlugin.ShaderFramework;
 using ClientPlugin.Shaders;
 using HarmonyLib;
 using VRage.Render11.RenderContext;
+using VRage.Render11.GBufferResolve;
 using VRage.Render11.Resources;
 using VRage.Utils;
 using VRageRender;
@@ -23,6 +24,7 @@ static class OwnedPassDrawGameScenePatch
     {
         RenderTrace.Begin("DrawGameScene");
         OwnedPassRegistry.BeginFrame();
+        SharedVolumetricRenderer.BeginFrame();
     }
 
     [HarmonyPostfix]
@@ -61,15 +63,31 @@ static class OwnedPassAfterLightingPatch
     static bool Prepare() => TargetMethod() != null;
 
     static MethodBase TargetMethod() =>
-        AccessTools.Method(typeof(MyTransparentRendering), "Render");
+        AccessTools.Method(typeof(MyGBufferResolver), "ConsumeWork");
 
-    [HarmonyPrefix]
-    static void Prefix(MyRenderContext rc) =>
-        OwnedPassRegistry.Run(OwnedPassSlot.AfterLighting, rc);
+    // Lighting and transparency RECORD on independent workers. ConsumeWork
+    // is the ordered render-thread boundary after current-frame lighting.
+    [HarmonyPostfix]
+    static void Postfix()
+    {
+        // Current GBuffer depth must be produced before any HDR pack reads it.
+        // Scheduler.Done postfix is later than both HDR stages (one frame late).
+        OwnedBuffersPass.Execute();
+        OwnedPassRegistry.Run(OwnedPassSlot.AfterLighting, MyRender11.RC);
+    }
+}
+
+[HarmonyPatch]
+static class OwnedPassAfterTransparentPatch
+{
+    static bool Prepare() => TargetMethod() != null;
+
+    static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(MyTransparentRendering), "ConsumeWork");
 
     [HarmonyPostfix]
-    static void Postfix(MyRenderContext rc) =>
-        OwnedPassRegistry.Run(OwnedPassSlot.AfterTransparent, rc);
+    static void Postfix() =>
+        OwnedPassRegistry.Run(OwnedPassSlot.AfterTransparent, MyRender11.RC);
 }
 
 [HarmonyPatch]

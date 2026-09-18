@@ -32,7 +32,7 @@ Iris packs are exclusive. Pulsar loads many plugins. These rules are the law so 
 | Last-writer-wins Replace on a slot | Same as silent Overlay overwrite. |
 | Pack-private IsolatedMix HDR scale / Keen `frame_.Light` lighting | Slice AI extras illuminant. `Frame.hlsli` layout is not a public contract. |
 | Per-pack march LOD that floors `AnomalySafetyScale` or uses per-ray `tMin` | Slice AI helper. Grazing chords and spectator slams TDR otherwise. |
-| Sample Keen shadow cascades from AfterAtmosphere for a planet disk | Cascades are camera-local. `AnomalySunTransmittance` (fail closed to Lambert `AnomalySunVisibility`, wrap capped at 12% of radius). |
+| Sample Keen shadow cascades from AfterAtmosphere for a planet disk | Cascades are camera-local. `AnomalySunTransmittance` (fail closed to Lambert `AnomalySunVisibility`, wrap capped at 12% of radius). Dest darken is Slice AN `volumeSunShadow`. |
 | Scale `AnomalySkyAmbient` by `AmbientForwardPass` | Keen adds probe ambient into that field. Night IsolatedMix becomes sun-scale. Use `SunColor * 0.028` for **in-cloud day fill** only. |
 | Treat `AnomalyVolumeAmbient` (2.8% sun) as planet-night illuminant | IsolatedMix over dest≈0 is headlights. `AnomalyVolumeNight` (AJ × 0.05) + monotonic squared-limb `AnomalySunTransmittance`. |
 | Hard `μ≤0` / mid-chord vis for IsolatedMix night | Snaps clouds to night while Keen atmosphere is still day-lit. Per-sample `sqrt(2h/r)` twilight. |

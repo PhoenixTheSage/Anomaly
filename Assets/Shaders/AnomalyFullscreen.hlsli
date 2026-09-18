@@ -95,21 +95,18 @@ float3 AnomalyLightingViewPos(float2 pixel, float linearDepth)
     return linearDepth * compute_screen_ray(AnomalyLightingUv(pixel));
 }
 
-// compute_screen_ray with M31=M32=0. Light.positionView is unjittered view;
-// pair this with AnomalyViewToDepthUv for contact. Keep AnomalyLightingViewPos
-// (live Halton) for LightPoint BRDF / IsolatedSub energy.
+// Compatibility name: the returned point is in camera view coordinates.
+// The depth belongs to a jittered raster pixel, so reconstruction MUST use
+// that pixel's live projection inverse. Dropping M31/M32 here displaces the
+// surface and breaks the ViewToDepthUv round trip by the Halton offset.
 float3 AnomalyLightingViewPosUnjittered(float2 pixel, float linearDepth)
 {
-    float2 uv = AnomalyLightingUv(pixel);
-    float ray_x = rcp(max(frame_.Environment.projection_matrix._11, 1e-6));
-    float ray_y = rcp(max(frame_.Environment.projection_matrix._22, 1e-6));
-    float3 ray = float3(lerp(-ray_x, ray_x, uv.x), -lerp(-ray_y, ray_y, uv.y), -1);
-    return linearDepth * ray;
+    return AnomalyLightingViewPos(pixel, linearDepth);
 }
 
 // Inverse of compute_screen_ray (same live projection as LightPoint / AnomalyLightingViewPos).
-// BRDF / dest match. Contact marches in unjittered view and sample with
-// AnomalyViewToDepthUv — this UV jitters the umbra on a static floor (Halton).
+// BRDF / dest match. Also used for contact depth projection; invert the same
+// raster projection that produced the sampled depth.
 float2 AnomalyViewToLightingUv(float3 viewPos)
 {
     float z = max(-viewPos.z, 1e-4);
@@ -142,12 +139,11 @@ float2 AnomalyLightingJitterUv()
     return float2(-AnomalyLightingJitter.x, AnomalyLightingJitter.y) * 0.5;
 }
 
-// Unjittered view → this-frame depth texel. Do not sample jittered
-// linearDepth at unjittered UV (umbra swims). Do not use
-// AnomalyUnjitteredViewProj as a substitute.
+// View-space point -> this-frame depth texel, using the live raster projection.
+// Do not use AnomalyUnjitteredViewProj as a substitute.
 float2 AnomalyViewToDepthUv(float3 viewPos)
 {
-    return AnomalyScreenUvToTexel(AnomalyViewToUnjitteredUv(viewPos) + AnomalyLightingJitterUv());
+    return AnomalyScreenUvToTexel(AnomalyViewToLightingUv(viewPos));
 }
 
 // Camera-relative world AABB. Contact packs skip the local suit so
@@ -393,6 +389,22 @@ float AnomalyIgn(float2 pixel)
 float AnomalyIgnWorld(float2 worldXz)
 {
     return AnomalyIgn(worldXz);
+}
+
+// Slice AN. Catalog volumeSunShadow.r is remaining sun (1 = none).
+// .a < 0.5 means the stamp is missing or unbound — fail closed to 1
+// (null SRV samples 0). Do not bind Keen CSM. Extras stay 320 B.
+float AnomalyVolumeSunShadow(float remaining, float alpha)
+{
+    if (alpha < 0.5)
+        return 1.0;
+    return saturate(remaining);
+}
+
+float AnomalyVolumeSunShadow(Texture2D tex, SamplerState samp, float2 uv)
+{
+    float4 s = tex.SampleLevel(samp, uv, 0);
+    return AnomalyVolumeSunShadow(s.r, s.a);
 }
 
 // IsolatedSub src is a 0–1 dest fraction (per channel). Anomaly merges

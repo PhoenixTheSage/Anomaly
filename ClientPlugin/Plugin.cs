@@ -72,6 +72,8 @@ public sealed class Plugin : IPlugin
         ShaderWarmup.Request();
         CameraVelocityPass.Enabled = true;
         OwnedBuffersPass.Enabled = true;
+        CelestialBackgroundRegistry.Install();
+        SharedVolumetricRenderer.Install();
         GBufferVelocity.Enabled = true;
         AnomalyTerminalPages.Install();
         MyLog.Default.WriteLine("Anomaly shader framework initialized.");
@@ -89,6 +91,11 @@ public sealed class Plugin : IPlugin
         ConfigStorage.FlushPending(true);
         PlanetAtmosphere.Clear();
         LocalCharacter.Clear();
+        VolumetricInteriorSnapshot.Clear();
+        VolumetricMediumRegistry.Release();
+        DirectionalVolumeShadows.Release();
+        VolumetricIntegrator.Release();
+        SharedVolumetricRenderer.Release();
         RichHudSupport.Shutdown();
         CameraVelocityPass.Enabled = false;
         OwnedBuffersPass.Enabled = false;
@@ -97,6 +104,7 @@ public sealed class Plugin : IPlugin
         BoneHistory.Instance.Clear();
         VelocityRegistry.SetActive(UnavailableVelocityBuffer.Instance);
         ShaderBindRegistry.Release();
+        CelestialBackgroundRegistry.Release();
         OwnedPassRegistry.Release();
         settingsGenerator = null;
         velocityDebugGenerator = null;
@@ -114,6 +122,7 @@ public sealed class Plugin : IPlugin
         ConfigStorage.FlushPending();
         PlanetAtmosphere.UpdateFromGameThread();
         LocalCharacter.UpdateFromGameThread();
+        VolumetricInteriorSnapshot.UpdateFromGameThread();
         ShaderCompileIntercept.RequestResidentShaderRefresh();
     }
 

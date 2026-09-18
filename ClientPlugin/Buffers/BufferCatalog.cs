@@ -15,7 +15,8 @@ namespace ClientPlugin.Buffers;
 /// <c>reactiveMask</c>, <c>fullscreenIsolated</c>, <c>hdrColor</c>,
 /// <c>upscaledColor</c>, <c>avgLuminance</c>, <c>bloom</c>, <c>dirt</c>,
     /// <c>litMips</c>, <c>pointLights</c>, <c>tileIndices</c>,
-    /// <c>historyDepth</c>, <c>occupancy</c>, <c>pointShadowAtlas</c>).
+    /// <c>historyDepth</c>, <c>occupancy</c>, <c>pointShadowAtlas</c>,
+    /// <c>volumeSunShadow</c>).
 /// <c>velocity</c> aliases
 /// <see cref="VelocityRegistry.Active"/>. <c>hdrColor</c> aliases Keen
 /// <c>LBuffer</c>. Packs publish extras with <see cref="Publish"/>;
@@ -41,6 +42,12 @@ public static class BufferCatalog
     public const string HistoryDepth = "historyDepth";
     public const string Occupancy = "occupancy";
     public const string PointShadowAtlas = "pointShadowAtlas";
+    public const string PlayerDepth = "playerDepth";
+    /// <summary>
+    /// Conventional pack product: remaining sun through a volume (1 = none).
+    /// Not reserved — PublishOnly <c>output</c> may use this name.
+    /// </summary>
+    public const string VolumeSunShadow = "volumeSunShadow";
 
     static readonly object Gate = new();
     static readonly Dictionary<string, ISharedBuffer> ByName =
@@ -51,7 +58,7 @@ public static class BufferCatalog
     {
         Velocity, LinearDepth, HiZ, HistoryColor, ReactiveMask, FullscreenIsolated,
         HdrColor, UpscaledColor, AvgLuminance, Bloom, Dirt, LitMips, PointLights,
-        TileIndices, HistoryDepth, Occupancy, PointShadowAtlas
+        TileIndices, HistoryDepth, Occupancy, PointShadowAtlas, PlayerDepth
     };
 
     /// <summary>
@@ -186,11 +193,14 @@ public static class BufferCatalog
         ClientPlugin.ShaderFramework.OwnedBuffersPass.RequestLitMips(mipLevels);
     }
 
+    /// <summary>Last point-shadow pass selection, caster and draw diagnostics.</summary>
+    public static string PointShadowStatus => ShaderFramework.PointShadowPass.Status;
+
     /// <summary>
     /// Request catalog <c>pointShadowAtlas</c> (light-view mesh + optional
     /// AABB depth for the closest N point lights). <paramref name="maxLights"/>
     /// <c>&lt;= 0</c> skips the cube pass. Default 4, max 64. Face default
-    /// 128, max 256. VRAM grows with the request. Mesh uses MeshDepth VS.
+    /// 128, max 1024 (effective light count is memory/dimension bounded). VRAM grows with the request. Mesh uses MeshDepth VS.
     /// </summary>
     public static void RequestPointShadows(int maxLights = 4, int faceResolution = 128)
     {

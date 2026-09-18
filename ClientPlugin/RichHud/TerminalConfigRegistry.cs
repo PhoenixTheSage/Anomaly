@@ -102,14 +102,14 @@ public static class TerminalConfigRegistry
         {
             if (!Pages.TryGetValue(title.Trim(), out var page))
                 return false;
-            if (IsReservedPage(page.Title))
+            if (page.DisplayPath == page.Title && IsReservedPage(page.Title))
             {
                 LastError = "reserved title: " + page.Title;
                 return false;
             }
 
             page.Hide();
-            Pages.Remove(page.Title);
+            Pages.Remove(title.Trim());
             Order.Remove(page);
             return true;
         }

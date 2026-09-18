@@ -23,7 +23,6 @@ static class CameraVelocitySchedulerDonePatch
         GBufferVelocity.CaptureTarget3Checkpoint(Target3Checkpoint.SchedulerEnd);
         GBufferVelocity.ApplySchedulerEndProbe();
         CameraVelocityPass.Execute();
-        OwnedBuffersPass.Execute();
     }
 }
 
@@ -54,6 +53,11 @@ static class CameraVelocityDeviceEndPatch
     static void Prefix()
     {
         CameraVelocityPass.Release();
+        CelestialBackgroundRegistry.Release();
+        VolumetricMediumRegistry.Release();
+        DirectionalVolumeShadows.Release();
+        VolumetricIntegrator.Release();
+        SharedVolumetricRenderer.Release();
         OwnedBuffersPass.Release();
         VelocityDebugPass.Release();
         ShaderBindRegistry.Release();

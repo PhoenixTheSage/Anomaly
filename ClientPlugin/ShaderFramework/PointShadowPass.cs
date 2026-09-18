@@ -39,7 +39,7 @@ public static class PointShadowPass
     public const int MaxLightCap = 64;
     public const int DefaultFaceRes = 128;
     public const int MinFaceRes = 32;
-    public const int MaxFaceRes = 256;
+    public const int MaxFaceRes = 1024;
     public const int OccupancyDim = 64;
     public const float OccupancyVoxel = 2f;
     const int MaxBoxesPerLight = 48;
@@ -57,8 +57,10 @@ public static class PointShadowPass
     static readonly object Gate = new();
     static readonly CatalogTexture OccupancyPublished = new();
     static readonly CatalogTexture AtlasPublished = new();
+    static readonly CatalogTexture PlayerDepthPublished = new();
     static readonly List<CapturedLight> Captured = new();
     static readonly List<CapturedLight> ExecuteLights = new();
+    static readonly HashSet<uint> PreviousLights = new();
     static readonly List<BoxGpu> StampBoxes = new();
     static readonly List<BoxGpu> LightBoxes = new();
     static readonly List<object> OverlapScratch = new();
@@ -66,17 +68,36 @@ public static class PointShadowPass
     static readonly Dictionary<int, VertexShader> MeshVsByBundle = new();
     static readonly HashSet<int> MeshVsFailed = new();
     static readonly List<MyRenderableProxy> MeshProxyScratch = new();
-    static readonly HashSet<long> MeshSeen = new();
     static readonly ShaderMacro[] MeshPsMacros = { new ShaderMacro("MESH_DEPTH_PS", null) };
-    static readonly float[] HeaderScratch = new float[MaxLightCap * 4];
+    static readonly float[] HeaderScratch = new float[(MaxLightCap + 2) * 4];
 
     static int requestedCap;
+    static int effectiveCap;
     static int requestedFace = DefaultFaceRes;
     static bool occupancyRequested;
     static bool worldBoxesRequested;
     static bool loggedError;
     static bool loggedMeshError;
     static bool loggedMeshDraw;
+    static int lastMeshProxies;
+    static int lastMeshDraws;
+    static int lastPlayerDepthDraws;
+    static string playerDepthState = "not run";
+    static string meshState = "not run";
+
+    public static string Status
+    {
+        get
+        {
+            lock (Gate)
+                return "lights=" + ExecuteLights.Count + "/" + Captured.Count +
+                    " selected=" + string.Join(",", ExecuteLights.ConvertAll(light => light.ActorId.ToString())) +
+                    " cap=" + effectiveCap + "/" + requestedCap + " face=" + requestedFace +
+                    " proxies=" + lastMeshProxies + " draws=" + lastMeshDraws +
+                    " playerDepthDraws=" + lastPlayerDepthDraws + " mesh=" + meshState +
+                    " playerDepth=" + playerDepthState;
+        }
+    }
 
     static ComputeShader splatCs;
     static ComputeShader stampCs;
@@ -86,9 +107,11 @@ public static class PointShadowPass
     static string meshPath;
     static IConstantBuffer occupancyCb;
     static IConstantBuffer faceCb;
+    static IConstantBuffer meshProjectionCb;
     static ISrvBuffer boxBuffer;
     static IUavTexture occupancy;
     static IRtvTexture atlas;
+    static IRtvTexture playerDepth;
     static BlendState minBlend;
     static int atlasW;
     static int atlasH;
@@ -209,8 +232,9 @@ public static class PointShadowPass
                 var owner = light.Owner;
                 if (owner == null || owner.IsDestroyed)
                     continue;
-                var world = data.Position + data.PointOffset * owner.WorldMatrix.Forward;
-                var view = Vector3.Transform((Vector3)(world - env.CameraPosition), ref env.ViewAt0);
+                // Match MyLightComponent.WritePointlightConstants, including parent transforms.
+                var world = owner.WorldMatrix.Translation + data.PointOffset * owner.WorldMatrix.Forward;
+                var view = Vector3.Transform(world - env.CameraPosition, ref env.ViewAt0);
                 Captured.Add(new CapturedLight
                 {
                     ViewPos = view,
@@ -300,7 +324,13 @@ public static class PointShadowPass
         if (!shadersReady)
             return;
 
+        PreviousLights.Clear();
+        foreach (var previous in ExecuteLights) PreviousLights.Add(previous.ActorId);
         ExecuteLights.Clear();
+        // D3D11 texture dimensions are limited to 16384. Reserve header row;
+        // also keep this RGBA32F atlas within roughly 96 MiB.
+        cap = Math.Min(cap, Math.Min(16383 / face, (96 * 1024 * 1024) / (6 * face * face * 16)));
+        effectiveCap = cap;
         SelectLightsUnlocked(cap, ExecuteLights);
         StampBoxes.Clear();
         var skipActor = LocalCharacter.Copy().ActorId;
@@ -316,10 +346,15 @@ public static class PointShadowPass
         }
 
         if (cap > 0)
+        {
             FillAtlas(rc, face, ExecuteLights);
+            FillPlayerDepth(rc);
+        }
         else
         {
             AtlasPublished.Clear();
+            PlayerDepthPublished.Clear();
+            BufferCatalog.Set(BufferCatalog.PlayerDepth, null);
             BufferCatalog.Set(BufferCatalog.PointShadowAtlas, null);
         }
     }
@@ -330,33 +365,42 @@ public static class PointShadowPass
         if (cap <= 0 || Captured.Count == 0)
             return;
         var cam = MyRender11.Environment?.Matrices?.CameraPosition ?? Vector3D.Zero;
+        var character = MyIDTracker<MyActor>.FindByID(LocalCharacter.Copy().ActorId);
+        var anchor = character != null ? character.WorldAabb.Center : cam;
         var order = new List<int>(Captured.Count);
         for (var i = 0; i < Captured.Count; i++)
             order.Add(i);
         order.Sort((a, b) =>
         {
-            var da = Vector3D.DistanceSquared(Captured[a].WorldPos, cam);
-            var db = Vector3D.DistanceSquared(Captured[b].WorldPos, cam);
-            return da.CompareTo(db);
+            var da = Vector3D.DistanceSquared(Captured[a].WorldPos, anchor);
+            var db = Vector3D.DistanceSquared(Captured[b].WorldPos, anchor);
+            // Prefer lights that reach the caster. Retain an incumbent until
+            // another is materially closer, independent of camera orbit.
+            if (da > Captured[a].Range * Captured[a].Range) da += 1e12;
+            if (db > Captured[b].Range * Captured[b].Range) db += 1e12;
+            if (PreviousLights.Contains(Captured[a].ActorId)) da *= 0.81;
+            if (PreviousLights.Contains(Captured[b].ActorId)) db *= 0.81;
+            var comparison = da.CompareTo(db);
+            return comparison != 0 ? comparison : Captured[a].ActorId.CompareTo(Captured[b].ActorId);
         });
         var n = Math.Min(cap, order.Count);
         for (var i = 0; i < n; i++)
             dest.Add(Captured[order[i]]);
     }
 
-    static void CollectBoxes(CapturedLight light, List<BoxGpu> dest, int maxTotal, uint skipActor)
+    static void CollectBoxes(CapturedLight light, List<BoxGpu> dest, int maxTotal, uint skipActor, Vector3D? origin = null)
     {
         if (dest.Count >= maxTotal || light.Scene == null)
             return;
         var sphere = new BoundingSphereD(light.WorldPos, light.Range);
         SeenActors.Clear();
-        OverlapTree(light.Scene.DynamicRenderablesDBVH, ref sphere, light, dest, maxTotal, skipActor);
-        OverlapTree(light.Scene.DynamicRenderablesFarDBVH, ref sphere, light, dest, maxTotal, skipActor);
-        OverlapTree(light.Scene.ManualCullTree, ref sphere, light, dest, maxTotal, skipActor);
+        OverlapTree(light.Scene.DynamicRenderablesDBVH, ref sphere, light, dest, maxTotal, skipActor, origin);
+        OverlapTree(light.Scene.DynamicRenderablesFarDBVH, ref sphere, light, dest, maxTotal, skipActor, origin);
+        OverlapTree(light.Scene.ManualCullTree, ref sphere, light, dest, maxTotal, skipActor, origin);
     }
 
     static void OverlapTree(MyDynamicAABBTreeD tree, ref BoundingSphereD sphere, CapturedLight light,
-        List<BoxGpu> dest, int maxTotal, uint skipActor)
+        List<BoxGpu> dest, int maxTotal, uint skipActor, Vector3D? origin)
     {
         if (tree == null || dest.Count >= maxTotal)
             return;
@@ -370,7 +414,7 @@ public static class PointShadowPass
             return;
         }
 
-        var cam = MyRender11.Environment?.Matrices?.CameraPosition ?? Vector3D.Zero;
+        var cam = origin ?? MyRender11.Environment?.Matrices?.CameraPosition ?? Vector3D.Zero;
         var added = 0;
         for (var i = 0; i < OverlapScratch.Count && dest.Count < maxTotal && added < MaxBoxesPerLight; i++)
         {
@@ -465,6 +509,8 @@ public static class PointShadowPass
 
     static void FillAtlas(MyRenderContext rc, int face, List<CapturedLight> lights)
     {
+        lastMeshProxies = lastMeshDraws = 0;
+        meshState = lights.Count == 0 ? "no selected lights" : "not drawn";
         var cap = Math.Max(lights.Count, 1);
         EnsureAtlas(face, cap);
         if (atlas == null || boxVs == null || boxPs == null)
@@ -473,7 +519,6 @@ public static class PointShadowPass
         rc.ClearState();
         rc.SetRtv(atlas);
         rc.ClearRtv(atlas, new RawColor4(FarClear, FarClear, FarClear, FarClear));
-        WriteHeader(rc, lights);
 
         if (minBlend == null)
             minBlend = CreateMinBlend();
@@ -487,24 +532,21 @@ public static class PointShadowPass
         rc.SetPrimitiveTopology(PrimitiveTopology.TriangleList);
         rc.GeometryShader.Set(null);
 
-        var env = MyRender11.Environment?.Matrices;
-        var viewAt0 = env != null ? env.ViewAt0 : Matrix.Identity;
-        var cam = env?.CameraPosition ?? Vector3D.Zero;
         var wantBoxes = worldBoxesRequested;
         var skipActor = LocalCharacter.Copy().ActorId;
         for (var i = 0; i < lights.Count; i++)
         {
             LightBoxes.Clear();
             if (wantBoxes)
-                CollectBoxes(lights[i], LightBoxes, MaxBoxesPerLight, skipActor);
+                CollectBoxes(lights[i], LightBoxes, MaxBoxesPerLight, skipActor, lights[i].WorldPos);
             if (LightBoxes.Count > 0)
                 UploadBoxes(rc, LightBoxes);
 
-            var lightCamRel = (Vector3)(lights[i].WorldPos - cam);
             for (var f = 0; f < 6; f++)
             {
-                var cubeVp = CubeFaceViewProj(lights[i].ViewPos, f, lights[i].Range);
-                var viewProj = viewAt0 * cubeVp;
+                // Light-relative geometry and world-axis faces have no dependency
+                // on the viewer. Subtract the light origin in double precision.
+                var viewProj = CubeFaceViewProj(Vector3.Zero, f, lights[i].Range);
                 Matrix.Invert(ref viewProj, out var invViewProj);
                 var vx = f * allocatedFace;
                 var vy = 1 + i * allocatedFace;
@@ -512,7 +554,7 @@ public static class PointShadowPass
                 {
                     ViewProj = viewProj,
                     InvViewProj = invViewProj,
-                    LightPos = lightCamRel,
+                    LightPos = Vector3.Zero,
                     Range = lights[i].Range,
                     BoxCount = (uint)LightBoxes.Count,
                     ViewportX = vx,
@@ -520,7 +562,7 @@ public static class PointShadowPass
                     FaceRes = allocatedFace
                 };
                 WriteCb(rc, faceCb, ref faceCbData);
-                WriteKeenProjection(rc, viewProj);
+                WriteMeshProjection(rc, viewProj);
                 rc.SetViewport(vx, vy, allocatedFace, allocatedFace, 0f, 1f);
                 if (LightBoxes.Count > 0)
                 {
@@ -528,14 +570,14 @@ public static class PointShadowPass
                     rc.Draw(36 * LightBoxes.Count, 0);
                 }
 
-                DrawLocalCharacterMesh(rc);
+                DrawLocalCharacterMesh(rc, lights[i].WorldPos);
             }
         }
 
         if (ctx != null)
             ctx.OutputMerger.SetBlendState(prevBlend);
-        RestoreCameraProjection(rc);
         rc.SetRtvNull();
+        WriteHeader(rc, lights);
         rc.ClearState();
 
         var native = atlas.Resource != null ? atlas.Resource.NativePointer : IntPtr.Zero;
@@ -543,38 +585,63 @@ public static class PointShadowPass
         BufferCatalog.Set(BufferCatalog.PointShadowAtlas, AtlasPublished);
     }
 
-    static void WriteKeenProjection(MyRenderContext rc, Matrix viewProj)
+    static void FillPlayerDepth(MyRenderContext rc)
     {
-        if (MyCommon.ProjectionConstants == null)
+        var size = MyRender11.ResolutionI;
+        var env = MyRender11.Environment?.Matrices;
+        if (env == null || size.X <= 0 || size.Y <= 0)
+        {
+            PlayerDepthPublished.Clear();
+            BufferCatalog.Set(BufferCatalog.PlayerDepth, null);
             return;
-        var transposed = Matrix.Transpose(viewProj);
-        WriteCb(rc, MyCommon.ProjectionConstants, ref transposed);
+        }
+        if (playerDepth == null || playerDepth.Size.X != size.X || playerDepth.Size.Y != size.Y)
+        {
+            if (playerDepth != null) MyManagers.RwTextures.DisposeTex(ref playerDepth);
+            playerDepth = MyManagers.RwTextures.CreateRtv("Anomaly.PlayerDepth", size.X, size.Y, Format.R32_Float);
+        }
+        rc.ClearState();
+        rc.SetRtv(playerDepth);
+        rc.ClearRtv(playerDepth, new RawColor4(FarClear, FarClear, FarClear, FarClear));
+        var constants = new FaceConstants { ViewProj = env.ViewProjectionAt0, LightPos = Vector3.Zero };
+        WriteCb(rc, faceCb, ref constants);
+        WriteMeshProjection(rc, env.ViewProjectionAt0);
+        rc.SetViewport(0, 0, size.X, size.Y, 0, 1);
+        rc.SetPrimitiveTopology(PrimitiveTopology.TriangleList);
+        var previousBlend = rc.DeviceContext.OutputMerger.BlendState;
+        rc.DeviceContext.OutputMerger.SetBlendState(minBlend);
+        // Same skinned mesh, raster projection and frame as the main depth.
+        // Store camera distance; contact compares it with scene depth before
+        // excluding a sample, so walls in front of the player remain casters.
+        var draws = lastMeshDraws;
+        var atlasState = meshState;
+        var atlasProxies = lastMeshProxies;
+        DrawLocalCharacterMesh(rc, env.CameraPosition, true);
+        lastPlayerDepthDraws = lastMeshDraws - draws;
+        playerDepthState = meshState;
+        meshState = atlasState;
+        lastMeshProxies = atlasProxies;
+        lastMeshDraws = draws;
+        rc.DeviceContext.OutputMerger.SetBlendState(previousBlend);
+        rc.SetRtvNull();
+        rc.ClearState();
+        PlayerDepthPublished.Publish(playerDepth, playerDepth.Resource.NativePointer, size.X, size.Y);
+        BufferCatalog.Set(BufferCatalog.PlayerDepth, PlayerDepthPublished);
     }
 
-    static void BindNativeProjection(MyRenderContext rc)
+    static void WriteMeshProjection(MyRenderContext rc, Matrix viewProj)
     {
-        var proj = MyCommon.ProjectionConstants;
-        rc.VertexShader.SetConstantBuffer(MyCommon.PROJECTION_SLOT, null);
-        rc.VertexShader.SetConstantBuffer(MyCommon.PROJECTION_SLOT, proj);
-        var native = proj?.Buffer;
-        if (rc.DeviceContext != null && native != null)
-            rc.DeviceContext.VertexShader.SetConstantBuffer(MyCommon.PROJECTION_SLOT, native);
+        if (meshProjectionCb == null)
+            return;
+        var transposed = Matrix.Transpose(viewProj);
+        WriteCb(rc, meshProjectionCb, ref transposed);
     }
 
     static void BindMeshProjection(MyRenderContext rc)
     {
         rc.VertexShader.SetConstantBuffer(MyCommon.FRAME_SLOT, MyCommon.FrameConstants);
-        BindNativeProjection(rc);
+        rc.VertexShader.SetConstantBuffer(MyCommon.PROJECTION_SLOT, meshProjectionCb);
         rc.PixelShader.SetConstantBuffer(0, faceCb);
-    }
-
-    static void RestoreCameraProjection(MyRenderContext rc)
-    {
-        var env = MyRender11.Environment?.Matrices;
-        if (env == null || MyCommon.ProjectionConstants == null)
-            return;
-        WriteKeenProjection(rc, env.ViewProjectionAt0);
-        BindNativeProjection(rc);
     }
 
     static void BindBoxPipeline(MyRenderContext rc)
@@ -590,23 +657,37 @@ public static class PointShadowPass
         rc.PixelShader.SetConstantBuffer(0, faceCb);
     }
 
-    static void DrawLocalCharacterMesh(MyRenderContext rc)
+    static void DrawLocalCharacterMesh(MyRenderContext rc, Vector3D origin, bool cameraMask = false)
     {
-        if (meshPs == null || MyCommon.ProjectionConstants == null)
+        if (meshPs == null || meshProjectionCb == null)
+        {
+            meshState = "shader/projection unavailable";
             return;
+        }
         var snap = LocalCharacter.Copy();
         if (!snap.IsValid || snap.ActorId == 0)
+        {
+            meshState = "no controlled character";
             return;
+        }
 
         try
         {
             var actor = MyIDTracker<MyActor>.FindByID(snap.ActorId);
             var renderable = actor?.GetRenderable();
             if (renderable == null)
+            {
+                meshState = "render actor unavailable";
                 return;
-            CollectCharacterProxies(renderable, snap.IsFirstPerson);
+            }
+            CollectCharacterProxies(renderable, cameraMask);
+            lastMeshProxies = MeshProxyScratch.Count;
             if (MeshProxyScratch.Count == 0)
+            {
+                meshState = "no drawable opaque proxies";
                 return;
+            }
+            meshState = snap.IsFirstPerson ? "first person" : "third person";
 
             rc.VertexShader.SetSrv(0, null);
             rc.PixelShader.SetSrv(0, null);
@@ -618,11 +699,15 @@ public static class PointShadowPass
                     " fp=" + snap.IsFirstPerson + " proxies=" + MeshProxyScratch.Count);
             }
 
+            // Inactive LOD proxies retain old camera-relative matrices. Never
+            // use their cached transform for an independent shadow camera.
+            var local = CharacterWorldRelativeTo(actor.WorldMatrix, origin);
             for (var p = 0; p < MeshProxyScratch.Count; p++)
-                DrawCharacterProxy(rc, MeshProxyScratch[p]);
+                DrawCharacterProxy(rc, MeshProxyScratch[p], local);
         }
         catch (Exception e)
         {
+            meshState = "draw failed: " + e.GetType().Name;
             if (!loggedMeshError)
             {
                 loggedMeshError = true;
@@ -631,15 +716,19 @@ public static class PointShadowPass
         }
     }
 
-    static void CollectCharacterProxies(MyRenderableComponent renderable, bool firstPerson)
+    static void CollectCharacterProxies(MyRenderableComponent renderable, bool cameraMask)
     {
         MeshProxyScratch.Clear();
-        MeshSeen.Clear();
         var lods = renderable.Lods;
-        if (lods == null)
+        if (lods == null || lods.Length == 0)
             return;
 
-        for (var i = 0; i < lods.Length; i++)
+        // One stable shadow LOD, independent of main-view LOD transitions.
+        // All LOD proxies share the live skinning matrices. Fall back only
+        // when an entire higher-detail LOD has no drawable opaque parts.
+        var first = cameraMask ? Math.Min(Math.Max(renderable.CurrentLod, 0), lods.Length - 1) : 0;
+        var end = cameraMask ? first + 1 : lods.Length;
+        for (var i = first; i < end; i++)
         {
             var proxies = lods[i]?.RenderableProxies;
             if (proxies == null)
@@ -647,18 +736,18 @@ public static class PointShadowPass
             for (var p = 0; p < proxies.Length; p++)
             {
                 var proxy = proxies[p];
-                if (!AcceptCharacterProxy(proxy, firstPerson))
+                if (!AcceptCharacterProxy(proxy))
                     continue;
-                var key = ((long)proxy.Mesh.Index << 32) ^ (uint)proxy.DrawSubmesh.StartIndex
-                    ^ ((long)proxy.PartIndex << 16);
-                if (!MeshSeen.Add(key))
-                    continue;
-                MeshProxyScratch.Add(proxy);
+                // Reference identity avoids collisions between submesh keys.
+                if (!MeshProxyScratch.Contains(proxy))
+                    MeshProxyScratch.Add(proxy);
             }
+            if (MeshProxyScratch.Count > 0)
+                break;
         }
     }
 
-    static bool AcceptCharacterProxy(MyRenderableProxy proxy, bool firstPerson)
+    static bool AcceptCharacterProxy(MyRenderableProxy proxy)
     {
         if (proxy == null || proxy.DrawSubmesh.IndexCount <= 0)
             return false;
@@ -683,35 +772,22 @@ public static class PointShadowPass
                 return false;
         }
 
-        if (firstPerson && (proxy.Flags & MyRenderableProxyFlags.SkipInMainView) != 0)
-            return false;
-        if (firstPerson && IsFirstPersonHiddenMaterial(proxy))
-            return false;
-        return true;
+        // A shadow view is not the main camera. Include opaque head/body
+        // parts hidden by first-person material flags without mutating them.
+        return proxy.Mesh.Buffers.VB0 != null && proxy.Mesh.Buffers.IB != null;
     }
 
-    static bool IsFirstPersonHiddenMaterial(MyRenderableProxy proxy)
-    {
-        if (proxy.Material == MyMeshMaterialId.NULL)
-            return false;
-        var name = proxy.Material.Info.Name.String;
-        if (string.IsNullOrEmpty(name))
-            return false;
-        return name.IndexOf("head", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("hood", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("visor", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("headlight", StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
-    static void DrawCharacterProxy(MyRenderContext rc, MyRenderableProxy proxy)
+    static void DrawCharacterProxy(MyRenderContext rc, MyRenderableProxy proxy, Matrix local)
     {
         var buffers = proxy.Mesh.Buffers;
         if (buffers.VB0 == null || buffers.IB == null)
             return;
         var meshVs = GetMeshVs(proxy.DepthShaders);
         if (meshVs == null)
+        {
+            meshState = "vertex shader unavailable";
             return;
+        }
 
         rc.SetInputLayout(proxy.DepthShaders.IL);
         rc.VertexShader.Set(meshVs);
@@ -719,7 +795,7 @@ public static class PointShadowPass
         rc.GeometryShader.Set(null);
         rc.SetRasterizerState(MyRasterizerStateManager.NocullRasterizerState);
         rc.SetDepthStencilState(MyDepthStencilStateManager.IgnoreDepthStencil);
-        var objectCb = proxy.UpdateObjectBuffer(rc);
+        var objectCb = WriteCharacterObjectBuffer(rc, proxy, local);
         rc.VertexShader.SetConstantBuffer(MyCommon.OBJECT_SLOT, objectCb);
         rc.PixelShader.SetConstantBuffer(MyCommon.OBJECT_SLOT, objectCb);
         BindMeshProjection(rc);
@@ -737,6 +813,40 @@ public static class PointShadowPass
             rc.DrawIndexed(proxy.DrawSubmesh.IndexCount, proxy.DrawSubmesh.StartIndex,
                 proxy.DrawSubmesh.BaseVertex);
         }
+        lastMeshDraws++;
+    }
+
+    static Matrix CharacterWorldRelativeTo(MatrixD world, Vector3D origin)
+    {
+        var local = new Matrix(world);
+        local.Translation = (Vector3)(world.Translation - origin);
+        return local;
+    }
+
+    static IConstantBuffer WriteCharacterObjectBuffer(MyRenderContext rc, MyRenderableProxy proxy, Matrix local)
+    {
+        // Mirror Keen's object layout and bone remapping, but patch a COPY of
+        // the common data. Main-view proxies and their culling cache stay intact.
+        var cb = proxy.GetObjectBuffer(rc);
+        var mapping = MyMapping.MapDiscard(rc, cb);
+        if (proxy.NonVoxelObjectData.IsValid)
+            mapping.WriteAndPosition(ref proxy.NonVoxelObjectData);
+        else if (proxy.VoxelCommonObjectData.IsValid)
+            mapping.WriteAndPosition(ref proxy.VoxelCommonObjectData);
+        var common = proxy.CommonObjectData;
+        common.LocalMatrix = local;
+        mapping.WriteAndPosition(ref common);
+        if (proxy.SkinningMatrices != null)
+        {
+            var remap = proxy.DrawSubmesh.BonesMapping;
+            if (remap == null)
+                mapping.WriteAndPosition(proxy.SkinningMatrices, Math.Min(60, proxy.SkinningMatrices.Length));
+            else
+                for (var i = 0; i < remap.Length; i++)
+                    mapping.WriteAndPosition(ref proxy.SkinningMatrices[remap[i]]);
+        }
+        mapping.Unmap();
+        return cb;
     }
 
     static VertexShader GetMeshVs(MyMaterialShadersBundleId bundle)
@@ -809,11 +919,26 @@ public static class PointShadowPass
             HeaderScratch[i * 4 + 3] = lights[i].Range;
         }
 
+        // Caster identity bounds are independent of light coverage. Contact
+        // must never fall back to a second, partial player silhouette.
+        var actor = MyIDTracker<MyActor>.FindByID(LocalCharacter.Copy().ActorId);
+        if (actor != null)
+        {
+            var cam = MyRender11.Environment.Matrices.CameraPosition;
+            var center = (Vector3)(actor.WorldAabb.Center - cam);
+            var half = (Vector3)(actor.WorldAabb.Max - actor.WorldAabb.Min) * 0.5f;
+            HeaderScratch[256] = center.X; HeaderScratch[257] = center.Y;
+            HeaderScratch[258] = center.Z; HeaderScratch[259] = 1;
+            HeaderScratch[260] = half.X; HeaderScratch[261] = half.Y;
+            HeaderScratch[262] = half.Z;
+            HeaderScratch[263] = lastMeshDraws >= lights.Count * 6 && lastMeshDraws > 0 &&
+                (meshState == "first person" || meshState == "third person") ? 1 : 0;
+        }
         var handle = GCHandle.Alloc(HeaderScratch, GCHandleType.Pinned);
         try
         {
-            var box = new DataBox(handle.AddrOfPinnedObject(), MaxLightCap * 16, 0);
-            var region = new ResourceRegion(0, 0, 0, Math.Max(lights.Count, 1), 1, 1);
+            var box = new DataBox(handle.AddrOfPinnedObject(), (MaxLightCap + 2) * 16, 0);
+            var region = new ResourceRegion(0, 0, 0, MaxLightCap + 2, 1, 1);
             rc.DeviceContext.UpdateSubresource(box, atlas.Resource, 0, region);
         }
         finally
@@ -991,6 +1116,10 @@ public static class PointShadowPass
             usage: ResourceUsage.Dynamic);
         faceCb ??= MyManagers.Buffers.CreateConstantBuffer("Anomaly.PointShadowFaceCB", ConstantBytes,
             usage: ResourceUsage.Dynamic);
+        // Never map Keen's shared projection buffer: transparency/occlusion
+        // workers also record writes to it while this immediate pass runs.
+        meshProjectionCb ??= MyManagers.Buffers.CreateConstantBuffer("Anomaly.PointShadowProjectionCB", 64,
+            usage: ResourceUsage.Dynamic);
         shadersReady = true;
         MyLog.Default.WriteLine("Anomaly point-shadow shaders compiled.");
     }
@@ -1036,12 +1165,17 @@ public static class PointShadowPass
     {
         OccupancyPublished.Clear();
         AtlasPublished.Clear();
+        PlayerDepthPublished.Clear();
+        BufferCatalog.Set(BufferCatalog.PlayerDepth, null);
         BufferCatalog.Set(BufferCatalog.Occupancy, null);
         BufferCatalog.Set(BufferCatalog.PointShadowAtlas, null);
     }
 
     static void DisposeTargets()
     {
+        PlayerDepthPublished.Clear();
+        BufferCatalog.Set(BufferCatalog.PlayerDepth, null);
+        if (playerDepth != null) MyManagers.RwTextures.DisposeTex(ref playerDepth);
         if (occupancy != null)
             MyManagers.RwTextures.DisposeTex(ref occupancy);
         occupancy = null;
@@ -1069,6 +1203,12 @@ public static class PointShadowPass
         {
             MyManagers.Buffers.Dispose(new[] { faceCb });
             faceCb = null;
+        }
+
+        if (meshProjectionCb != null)
+        {
+            MyManagers.Buffers.Dispose(new[] { meshProjectionCb });
+            meshProjectionCb = null;
         }
 
         minBlend?.Dispose();

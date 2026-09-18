@@ -1,5 +1,7 @@
 # Anomaly Shader API
 
+Celestial background providers now have a dedicated [initial contract](CelestialBackgrounds.md): depth-masked main/probe rendering, copied uniforms/data and paired compilation. MSAA retains vanilla; in-game validation remains pending.
+
 Extensible shader framework for Space Engineers 1. First product is a velocity buffer; the same compile hook must also support **additive injection** into Keen programs and **wholesale replacement** of named programs.
 
 This is the architecture. Implementation order is [ROADMAP.md](ROADMAP.md) (velocity + hook) then [Extensibility.md](Extensibility.md) (generalize beyond motion vectors). Product phases and Keen facts remain in [PLAN.md](PLAN.md). File-level Keen inventory is [KeenShaders.md](KeenShaders.md).
@@ -132,7 +134,7 @@ Pack fullscreen effects ship `Fullscreen/<Slot>/*.hlsl`. Anomaly compiles and dr
 | Compose | Who | Dest |
 |---------|-----|------|
 | `IsolatedAdd` (default) | Many, additive | Scratch then `src + dest` into `LBuffer` (HDR slots) or the AfterTonemap result |
-| `IsolatedMix` | Many, over | Scratch then `src + dest * (1 - src.a)`. `src.rgb` must already be **LBuffer energy**. Light with `AnomalySunColor * AnomalySunDiffuse`. In-cloud day fill is `AnomalyVolumeAmbient()`. Planet-night is `AnomalyVolumeNight(albedo, sunVis)` (AJ × 0.05, Keen night ambient). Sun vis is `AnomalySunTransmittance` (monotonic squared limb `sqrt(2h/r)`; OD only after geo is ~1). High RGB + low alpha is fireflies. 0–1 albedo with high alpha replaces HDR sky. `passes[].scale` is pixel cost, not lighting. |
+| `IsolatedMix` | Many, over | Scratch then `src + dest * (1 - src.a)`. `src.rgb` must already be **LBuffer energy**. Light with `AnomalySunColor * AnomalySunDiffuse`. In-cloud day fill is `AnomalyVolumeAmbient()`. Planet-night is `AnomalyVolumeNight(albedo, sunVis)` (AJ × 0.05, Keen night ambient). Sun vis is `AnomalySunTransmittance` (monotonic squared limb `sqrt(2h/r)`; OD only after geo is ~1). Dest darken from a volume is `AnomalyVolumeSunShadow` (catalog `volumeSunShadow`). High RGB + low alpha is fireflies. 0–1 albedo with high alpha replaces HDR sky. `passes[].scale` is pixel cost, not lighting. |
 | `IsolatedSub` | Many, occlude | Scratch then blend `dest.rgb * (1 - saturate(src.rgb))` onto dest (same dest RTV as Replace). Pack writes a **0–1 dest fraction** (`AnomalyIsolatedSub` / `AnomalyIsolatedSubEnergy`). IsolatedSub blits dest for t0 when dest aliases LBuffer. Umbra uses `temporal` InColor+Reactive |
 | `Chain` | Many, ordered | Each samples the previous isolated; last copies to dest |
 | `PublishOnly` | Producer | Scratch only; catalog `pass.<id>` / `fullscreenIsolated` |
@@ -271,3 +273,192 @@ Iris’s lesson is semantic stages + compile-time rewrite + fallback, sitting on
 ## Terminal config (Rich HUD)
 
 Well-known type: `ClientPlugin.RichHud.TerminalConfigRegistry`. When [Rich HUD Master](https://steamcommunity.com/sharedfiles/filedetails/?id=1965654081) is in the world, Anomaly mounts Pulsar MyGui options under **Anomaly Shaders → Anomaly** (`Settings` and `Velocity Debug`). Packs and consumers call `RequestPage(title)` from `LoadAssets` or `Init` and add a sibling page on that root. Empty and reserved titles (`Anomaly`, `Settings`, `Velocity Debug`) fail closed. Corner status uses `ClientPlugin.RichHud.HudOverlayRegistry.Register(id, get)` — the getter returns a cached string on the HUD draw thread and must not write a `.cfg`. Master is optional; MyGui stays the fallback. Packs must not vendor a second client or list Master as a Pulsar `DependencyId`. Slider setters must not serialize or write a `.cfg` on the HUD or Update thread — cache one `XmlSerializer`, omit `CustomValueGetter` on every host control (dropdown getters cannot be Master’s `ListBoxEntry`), and let `FlushPending` write on a worker. Dropdown setters pull sibling controls from their getters once (`Refresh()` does the same after a button writes several fields). See [TerminalConfig.md](TerminalConfig.md), [ShaderPacks.md](ShaderPacks.md), and the wiki [Terminal config](../wiki/Terminal-config.md).
+
+
+### Point-shadow atlas sampling
+
+Include `AnomalyPointShadows.hlsli` and use
+`AnomalyPointShadowVisibility(atlas, row, directionWorld, distanceMetres, biasMetres)`.
+Faces are +X, -X, +Y, -Y, +Z, -Z. The producer uses view-space face directions;
+its raster UV includes the D3D Y inversion. The helper performs four weighted
+comparisons without reading another face, light row or the header. It is not a
+physical penumbra filter. `BufferCatalog.PointShadowStatus` exposes caster/draw
+diagnostics. One complete opaque character LOD is submitted independently of
+first-person visibility. Detailed world-mesh casters remain future work.
+
+The legacy name `AnomalyLightingViewPosUnjittered` does not mean stripping jitter
+from the raster inverse: it now reconstructs using the live projection, then
+`AnomalyViewToDepthUv` returns the original depth coordinate.
+
+
+### Contact traversal and atlas quality revision (2026-09-18)
+
+`AnomalyContactShadows.hlsli` exports `AnomalyContactVisibility(depth, receiverView,
+geometricNormalView, towardLightView, rayLengthMetres, depthThicknessMetres,
+pixelBudget)`. Include AnomalyFullscreen first. It is for current-frame camera
+depth only: it uses that frame's projection/reconstruction. Projected pixel
+intervals have perspective-correct depth bounds; exhaustion truncates/fades the
+ray instead of widening the stride. Receiver tangent-plane rejection and a small
+bias replace camera-depth separation gates. Maximum budget is 192 intervals.
+History depth is not supported by this helper; moving previous poses must not
+be treated as independent casters. Screen-space visibility is incomplete.
+
+PointShadowPass supports face sizes through 1024. Selection is constrained to
+D3D11 dimensions and roughly 96 MiB (RGBA32F plus header): 16 lights at 256,
+4 at 512, 1 at 1024. Requested cap and effective selection can differ. Detailed
+world-mesh casters, stable light IDs and measured GPU update budgets remain open.
+ScreenSpaceShadows is the first tenant. Its atlas visibility no longer depends on
+the contact top-N budget. WARP tests cover the shared sampler and contact helper;
+Light Test visual/performance acceptance remains pending.
+
+
+### Unified character shadow and light stability (2026-09-18)
+
+This supersedes the first-person-only restriction above: the same skinned atlas
+caster runs in both perspectives. Screen-space contact is not a complete
+third-person character-shadow substitute.
+
+Atlas header texels 0..63 retain (view-space light position, range). Texel 64
+now contains (camera-relative world caster center, valid=1); texel 65 contains
+world-axis half extents. Metadata is zero unless mesh draws completed, and is
+written after capture. AnomalyContactVisibilityExcludingBounds accepts these
+bounds plus the current lighting frame view-to-world rotation. Only a matching
+atlas light in Combined mode excludes this caster from depth contact; missing
+atlas and ContactOnly retain the original depth path. This is a bounded spatial
+approximation: nearby geometry inside the character bounds can also be excluded;
+a per-pixel caster identity mask remains the precise long-term solution.
+
+Atlas selection uses the render character center, in-range preference, stable
+actor-ID ties and incumbent retention (0.81 squared-distance factor). Status
+includes selected actor IDs. Sampling uses the live lighting inverse-view matrix.
+GPU tests cover rotated exclusion and preservation of blockers outside bounds.
+Live flicker acceptance is still pending; these tests do not reproduce frame
+generation, temporal reconstruction or dynamic light culling.
+
+
+### HDR stage ordering correction (2026-09-18)
+
+The old AfterLighting prefix on MyTransparentRendering.Render ran during
+parallel command-list recording. MyRenderScheduler schedules lighting resolve
+and transparency independently; CPU light capture could therefore lag the
+shadow pass. Worse, linear depth was produced in Scheduler.Done postfix,
+after the HDR shadow consumers had used the previous frame's depth.
+
+AfterLighting now runs in MyGBufferResolver.ConsumeWork postfix on the immediate
+render context, after lighting submission. OwnedBuffersPass.Execute produces
+current depth at this boundary before pack execution. AfterTransparent runs
+in MyTransparentRendering.ConsumeWork postfix, after transparency submission.
+The late Scheduler.Done depth invocation was removed; velocity diagnostics and
+camera-velocity processing remain there. This changes shared HDR-stage timing
+for all Anomaly packs and requires live integration validation.
+
+Player contact policy: the mesh atlas serves both perspectives. Header texel
+64.w identifies valid player bounds independent of atlas light allocation;
+65.w separately indicates successful mesh capture. Contact excludes player
+bounds even for lights without an atlas row and in ContactOnly diagnostic mode
+(scene-only contact). This prevents partial player silhouettes returning when
+coverage changes. It remains a bounding-volume approximation, not a precise
+per-pixel actor mask.
+
+TestShadowFrameOrder.ps1 checks the hook topology against the local decompiled
+engine schedule and rejects a return to late depth production. GPU contact and
+atlas tests remain green. These checks do not establish visual acceptance.
+
+
+### Player contact mask (2026-09-18)
+
+Combined now excludes the player using a rendered per-pixel depth mask instead
+of atlas-header bounds. PointShadowPass renders the same skinned character into
+reserved catalog `playerDepth`, an R32_FLOAT texture at render resolution, using
+the current camera projection. Values are Euclidean camera distance; clear is
+100000. It costs one extra character render and 4 bytes per render pixel.
+
+AnomalyContactVisibilityExcludingPlayer compares scene-point distance with this
+mask at each sampled pixel (3 cm minimum tolerance, scaled by depth). It skips
+matching player samples while preserving foreground walls. This is raster-depth
+matching, not an engine object-ID buffer; discrepancies at silhouettes remain a
+live validation concern. Header bounds remain available but no longer drive the
+Shadows pack's exclusion. Pack t7 binds playerDepth instead of unused historyDepth.
+
+PlayerMask debug view uses the same predicate: red means excluded player, dark
+green means scene contact remains eligible. PointShadowStatus includes mask draw
+count. Combined is atlas player plus scene contact; ContactOnly is scene contact
+without player; AtlasOnly remains atlas. Synthetic WARP tests cover player removal
+and a foreground wall at the same pixels. In-game acceptance remains pending.
+
+
+### Camera-distance and cold third-person transform correction (2026-09-18)
+
+Keen MyCullProxy.UpdateWorldMatrix refreshes camera-relative object matrices only
+for selected render proxies. The atlas selected a stable highest-detail LOD, so
+its cached CommonObjectData.LocalMatrix could be uninitialized on third-person
+load or stale after zooming out. This also displaced the player exclusion mask.
+
+PointShadowPass now uploads a private copy of common object constants with the
+live actor WorldMatrix minus the current camera in double precision, preserving
+Keen's bone-remapping layout. It does not modify the main-view proxy cache. Atlas
+LOD remains stable; playerDepth uses CurrentLod to match visible scene geometry.
+LOD cross-fade boundaries and unrelated scene-contact distance artifacts remain
+live validation concerns. TestCharacterTransform.ps1 compiles the production
+transform helper and checks rotated geometry under 0..100 m camera offsets at
+million-metre world coordinates.
+
+
+### Scene-contact camera-distance regression (2026-09-18)
+
+TestContactDistance.ps1 renders a fixed planar blocker/receiver scene on D3D11
+WARP while translating the camera. The original shader passed offsets 0/5 m
+but weakened at 15 m (visibility 0.412645 instead of <=0.2). Its eight-pixel
+end fade covered an increasing fraction of the physical ray with distance.
+The fade now uses perspective-correct physical ray fraction (last 10%).
+
+A second, short-range scene still missed hits at a 3 m camera offset after that
+fix. Unit-pixel intervals anchored at the ray origin crossed cell boundaries
+but sampled just one cell. Traversal now splits at exact X/Y pixel crossings,
+so depth overlap is tested within the sampled cell. Subpixel rays receive one
+interval rather than being discarded below half a pixel. Budget bounds use a
+conservative crossing count; very long projected rays remain budget-limited.
+
+Regression suite now passes 256 receivers at each of ten camera/scale cases:
+0/5/15/30/40 m offsets plus a 0.2-scale short-range scene at 0/1/3/6/8 m. It
+includes axis-aligned and diagonal rays, lit receivers outside the silhouette,
+flat-floor self-hit rejection and finite endpoints. Existing player exclusion
+and foreground-wall tests also pass. Off-screen/hidden blockers and unresolved
+subpixel geometry remain screen-space limitations. These reproduced failures
+are fixed; matching the reported in-game scene still requires visual acceptance.
+
+
+### Atlas startup diagnostics (2026-09-18)
+
+A third-person startup report showed 14 proxies and 84 atlas draws: mesh
+submission was already active. Ultra's RGBA32F atlas budget admits one 1024px
+light row out of 46 captured lights despite a requested cap of 10. This does
+not establish whether the selected light or mesh raster contents cause the
+missing shadow. PointShadowStatus now reports effective/requested capacity and
+keeps atlas and playerDepth states separate; the mask can no longer overwrite
+the atlas result. Atlas Faces must inspect an allocated row (row 0 in this case).
+
+
+### Camera-dependent atlas capture (2026-09-18)
+
+Follow-up live evidence rules out a first-person initialization gate: orbiting
+the camera in third person changes the raw atlas silhouette violently, while
+turning away from the lamp restores its applied shadow. Raw Atlas Faces contains
+the character; this is not just a missing draw. Selection remains budget-limited,
+but expanding the light budget is not the fix being tested here.
+
+PointShadowPass previously mapped MyCommon.ProjectionConstants for every cube
+face and restored the viewer projection. That buffer is also used by Keen's
+transparency, occlusion and geometry passes. The atlas/playerDepth renderer now
+owns and disposes a separate 64-byte projection CB, binds it at the standard b1
+slot, and never maps/restores the engine buffer. Atlas character and optional box
+vertices are now relative to each light's world position, subtracted in double
+precision; six fixed world-axis cube projections are centered at zero. Thus the
+atlas's mesh/projection inputs no longer depend on the viewer. playerDepth keeps
+the camera origin and scene projection. Header/sampler coordinates are unchanged.
+
+Validation: both target builds; production transform tests at large world
+coordinates and 36 observer positions across all six cube faces; WARP projection,
+filter and contact-distance regressions; source integration checks prohibit the
+shared projection buffer and enforce the distinct atlas/mask origins. The live
+shaking symptom is confirmed; visual acceptance of this correction is pending.

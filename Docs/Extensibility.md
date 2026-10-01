@@ -548,6 +548,28 @@ across 8,294,400 synthetic pixels; scaled translation is checked from 1 m to
 upscaler, resolution and device-reset validation remains pending. These are local
 source changes, not an installed deployment.
 
+### AfterAtmosphere inherited transparent bindings (2026-10-01, implemented; live validation pending)
+
+Aurora enabled was reported to suppress thruster billboards. Keen's
+`MyTransparentRendering.Render` binds pixel `b0 = MyCommon.FrameConstants`
+before atmospheres. `MyBillboardRenderer.BindResourcesCommon` rebinds vertex
+b0 but inherits pixel b0 and standard pixel samplers. Isolated velocity
+contribution replaces/clears pixel b0; fullscreen composition changes s0-s2.
+The following soft-particle billboard shader uses the inherited projection
+matrix for depth/fade, so a missing buffer suppresses emission.
+
+- [x] `OwnedPassRegistry.Run` restores vertex/pixel frame constants, standard
+  pixel samplers and the shadow sampler in its AfterAtmosphere `finally`, using
+  `TransparentStageBindings` and Keen's cache-aware wrappers on the same rc.
+  This includes ordinary tenant failures and the no-fullscreen path. No pack
+  patch, pass relocation or removal of temporal contribution is required.
+- [x] Linked production restoration passes 32 D3D11 WARP assertions per runtime
+  on net48 and net10. The probe reproduces zero emission with missing b0,
+  restores exact pixels and sampler addressing, exercises immediate/deferred
+  contexts, failure cleanup and repeated cached binding. Engine adapters model
+  Keen's skip-on-identical-reference behavior; actual thruster scene confirmation
+  remains pending. See `Tests/TransparentBindings`.
+
 ## Slice AJ — night / sky illuminant
 
 Keen `MyEnvironmentLightData` has no night-sky RGB. `AnomalySkyLuma` is Rec.709(`SunColorRaw`)×`AmbientDiffuseFactor` — a daylight proxy. Packs that hdr-lift it paint IsolatedMix night white.

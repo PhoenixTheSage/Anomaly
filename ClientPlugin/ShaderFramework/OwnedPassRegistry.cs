@@ -462,7 +462,15 @@ public static class OwnedPassRegistry
         }
         finally
         {
-            RenderTrace.End(label);
+            try
+            {
+                if (slot == OwnedPassSlot.AfterAtmosphere)
+                    TransparentStageBindings.RestoreAfterAtmosphere(rc);
+            }
+            finally
+            {
+                RenderTrace.End(label);
+            }
         }
     }
 

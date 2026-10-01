@@ -15,6 +15,25 @@ acceptance before installing render patches; older Anomaly builds leave HDR
 inactive with an update message. Acceptance can precede initialization and is
 not a compilation/readiness guarantee. See `Docs/ShaderPacks.md`.
 
+## AfterAtmosphere inherited billboard bindings (2026-10-01, implemented; Slice AI follow-up)
+
+The Aurora-enabled thruster billboard report exposed an inherited-state gap.
+Keen binds pixel frame b0 and standard samplers once before atmospheres;
+billboards rebind vertex b0 but rely on the pixel bindings. Isolated velocity
+contribution clears pixel b0 and fullscreen passes replace pixel s0-s2.
+Soft particles then read an absent projection matrix for their fade.
+
+`OwnedPassRegistry.Run` now restores the known transparent-stage frame constants
+and pixel samplers in an AfterAtmosphere `finally`, through Keen's wrappers on
+the supplied rc. This keeps native bindings, the state cache and deferred
+recording synchronized, also after a tenant fails. Aurora stays in its original
+slot with its shader and temporal policy unchanged. Other tenants share the fix.
+
+32 linked production WARP assertions pass per runtime across immediate/deferred
+contexts, including exact consumer pixels after restoration and fault cleanup.
+Actual in-game thruster confirmation remains pending. See Slice AI in
+`Docs/Extensibility.md` and `Tests/TransparentBindings`.
+
 ## Aurora isolated temporal distance (2026-10-01, implemented; Slice AI follow-up)
 
 D3D11 hardware probes of the current Aurora pixel shader and Anomaly velocity

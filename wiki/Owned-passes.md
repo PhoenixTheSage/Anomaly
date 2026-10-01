@@ -17,6 +17,12 @@ On a GPU hang, search `SpaceEngineers.log` for `Anomaly RenderTrace dump at`. Th
 
 ## Pack slots
 
+AfterAtmosphere exits through a `finally` that restores Keen's vertex/pixel
+frame constants and standard/shadow pixel samplers on the same context, including
+failed tenants. Billboard soft-particle shaders inherit pixel b0 and samplers;
+they must not receive the isolated contributor's cleared b0 or fullscreen bus
+samplers. Restoration uses Keen wrappers to keep the deferred state cache valid.
+
 | Slot | When | Use |
 |------|------|-----|
 | AfterLighting | Prefix `Transparent.Render` | HDR after lights, before atmosphere. Skipped on LCD / TargetView / TargetCamera. |

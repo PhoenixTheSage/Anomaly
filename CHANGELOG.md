@@ -2,6 +2,10 @@
 
 Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage below is reconstructed from repository history so the current version reflects shipped capability rather than the inherited SE-DLSS version.
 
+## 1.10.1 — 2026-10-01
+
+- Restore inherited frame constants and pixel samplers when AfterAtmosphere exits, including failed tenants. Isolated velocity contribution cleared pixel b0 before Keen's soft-particle billboards, suppressing thruster emission. Linked production D3D11 WARP probes pass on immediate/deferred contexts for net48 and net10; in-game confirmation is pending.
+
 ## 1.10.0 — 2026-10-01
 
 - Opt-in `SetVelocityDistanceScale(id, metresPerAlphaUnit)` keeps isolated temporal distances within FP16 range with matched host decoding; default 1 preserves legacy packs. Invalid/nonpositive hits retain geometry motion. Aurora clears non-volume alpha without changing RGB. Dual-runtime and hardware regression probes pass; in-game validation is pending.

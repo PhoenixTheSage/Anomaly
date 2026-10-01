@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFrameworks>net48;net10.0</TargetFrameworks><LangVersion>latest</LangVersion><PlatformTarget>x64</PlatformTarget>
+    <Bin64>T:/SteamLibrary/steamapps/common/SpaceEngineers/Bin64</Bin64></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../ClientPlugin/ShaderFramework/TransparentStageBindings.cs" Link="TransparentStageBindings.cs" />
+    <Reference Include="SharpDX"><HintPath>$(Bin64)/SharpDX.dll</HintPath></Reference>
+    <Reference Include="SharpDX.Direct3D11"><HintPath>$(Bin64)/SharpDX.Direct3D11.dll</HintPath></Reference>
+    <Reference Include="SharpDX.DXGI"><HintPath>$(Bin64)/SharpDX.DXGI.dll</HintPath></Reference>
+    <Reference Include="SharpDX.D3DCompiler"><HintPath>$(Bin64)/SharpDX.D3DCompiler.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

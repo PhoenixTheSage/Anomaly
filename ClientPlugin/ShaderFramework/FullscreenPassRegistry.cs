@@ -40,9 +40,17 @@ public static class FullscreenPassRegistry
     public const int UniformFloats = 64;
     public const int UniformBytes = 256;
     public const int PackSrvBase = 7;
-    public const int PackSrvLast = 9;
+    public const int PackSrvLast = 13;
     public const int PointLightsSlot = 10;
     public const int TileIndicesSlot = 11;
+
+    /// <summary>
+    /// Pack extras: t7–t9 and t12–t13. t10/t11 are tiled lights on HDR slots.
+    /// </summary>
+    public static bool IsPackSrvSlot(int slot)
+    {
+        return (slot >= PackSrvBase && slot <= 9) || (slot >= 12 && slot <= PackSrvLast);
+    }
 
     const string VsFile = "Fullscreen.hlsl";
     const string MergeFile = "FullscreenMerge.hlsl";
@@ -58,6 +66,8 @@ public static class FullscreenPassRegistry
     static readonly Dictionary<string, bool> PackEnabledById =
         new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, float> PackScaleById =
+        new(StringComparer.OrdinalIgnoreCase);
+    static readonly Dictionary<string, float> VelocityDistanceScaleById =
         new(StringComparer.OrdinalIgnoreCase);
     static readonly PublishedBuffer IsolatedPublished = new();
 
@@ -115,7 +125,8 @@ public static class FullscreenPassRegistry
         public float SkyAmbientPad;
         public float PlanetAirTop;
         public float VisualAtmoCeil;
-        public Vector2 PlanetAtmospherePad;
+        public float VolumeSkipFloor;
+        public float VolumeSkipMul;
     }
 
     [StructLayout(LayoutKind.Sequential, Size = UniformBytes)]
@@ -181,9 +192,10 @@ public static class FullscreenPassRegistry
 
     /// <summary>
     /// Bind catalog texture <paramref name="catalogName"/> on fullscreen
-    /// program <paramref name="programId"/> at t7–t9. Slot <c>-1</c> assigns
-    /// the next free reserved SRV. Fail closed if the bank is exhausted or
-    /// the slot is already owned by a different catalog name.
+    /// program <paramref name="programId"/> at t7–t9 or t12–t13. t10/t11
+    /// stay tiled point lights. Slot <c>-1</c> assigns the next free pack
+    /// SRV. Fail closed if the bank is exhausted or the slot is already
+    /// owned by a different catalog name.
     /// </summary>
     public static bool RequestSrv(string programId, string catalogName, int slot = -1)
     {
@@ -259,6 +271,28 @@ public static class FullscreenPassRegistry
             statusLine = FormatStatusUnlocked();
             return true;
         }
+    }
+
+    /// <summary>
+    /// Opt-in metres per alpha unit for ContributeVelocity. Default 1 preserves
+    /// the existing raw-metre contract. Write hit metres / scale in isolated.a;
+    /// zero alpha leaves geometry motion untouched, including surface-only tint.
+    /// Survives pack reload and device recreation; does not change scratch format.
+    /// </summary>
+    public static bool SetVelocityDistanceScale(string programId, float metresPerAlphaUnit)
+    {
+        if (string.IsNullOrWhiteSpace(programId) || float.IsNaN(metresPerAlphaUnit) ||
+            float.IsInfinity(metresPerAlphaUnit) || metresPerAlphaUnit < 1f || metresPerAlphaUnit > 1000000f)
+            return false;
+        lock (Gate)
+        {
+            var id = programId.Trim();
+            VelocityDistanceScaleById[id] = metresPerAlphaUnit;
+            for (var i = 0; i < Programs.Count; i++)
+                if (string.Equals(Programs[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                    Programs[i].VelocityDistanceScale = metresPerAlphaUnit;
+        }
+        return true;
     }
 
     /// <summary>
@@ -431,6 +465,37 @@ public static class FullscreenPassRegistry
             ApplyConflictsUnlocked();
             statusLine = FormatStatusUnlocked();
         }
+    }
+
+    static readonly Dictionary<string, RenderTextureCheckpoint> VolumeHistoryRecovery = new(StringComparer.OrdinalIgnoreCase);
+
+    internal static void CaptureVolumeRecovery(MyRenderContext rc)
+    {
+        foreach (var checkpoint in VolumeHistoryRecovery.Values) checkpoint.Reset();
+        lock (Gate)
+        {
+            foreach (var program in Programs)
+            {
+                if (!IsLiveUnlocked(program) || program.Slot != OwnedPassSlot.AfterAtmosphere || string.IsNullOrEmpty(program.HistoryName)) continue;
+                var published = BufferCatalog.Active(program.HistoryName);
+                if (published?.IsAvailable != true || published.Srv is not IRtvBindable history || history.Resource is not Texture2D texture) continue;
+                if (!VolumeHistoryRecovery.TryGetValue(program.HistoryName, out var checkpoint))
+                    VolumeHistoryRecovery.Add(program.HistoryName, checkpoint = new RenderTextureCheckpoint());
+                checkpoint.Capture(MyRender11.DeviceInstance, rc.DeviceContext, texture);
+            }
+        }
+        foreach (var checkpoint in VolumeHistoryRecovery.Values) if (!checkpoint.Captured) checkpoint.Dispose();
+    }
+
+    internal static void RestoreVolumeRecovery(MyRenderContext rc)
+    {
+        foreach (var checkpoint in VolumeHistoryRecovery.Values) checkpoint.Restore(rc.DeviceContext);
+    }
+
+    internal static void ReleaseVolumeRecovery()
+    {
+        foreach (var checkpoint in VolumeHistoryRecovery.Values) checkpoint.Dispose();
+        VolumeHistoryRecovery.Clear();
     }
 
     internal static void Run(OwnedPassSlot slot, MyRenderContext rc, object dest, bool outputRes,
@@ -620,7 +685,10 @@ public static class FullscreenPassRegistry
             PackEnabled = !PackEnabledById.TryGetValue(spec.Id.Trim(), out var packOn) || packOn,
             Scale = PackScaleById.TryGetValue(spec.Id.Trim(), out var packScale)
                 ? packScale
-                : SnapScale(spec.Scale)
+                : SnapScale(spec.Scale),
+            VelocityDistanceScale = VelocityDistanceScaleById.TryGetValue(spec.Id.Trim(), out var distanceScale)
+                ? distanceScale : 1f,
+            HistoryName = string.IsNullOrWhiteSpace(spec.HistoryName) ? null : spec.HistoryName.Trim()
         });
         if (spec.Binds != null)
         {
@@ -699,6 +767,7 @@ public static class FullscreenPassRegistry
             previous = dest as ISrvBindable ?? dest as IRtvTexture;
             lastChain = null;
             NoteDraw(prog, null, "replace-dest", dest);
+            SnapshotHistory(rc, prog, dest as ISrvBindable, size);
             return;
         }
 
@@ -740,6 +809,7 @@ public static class FullscreenPassRegistry
                 PublishNamed(prog, isolated);
                 previous = isolated;
                 lastChain = null;
+                SnapshotHistory(rc, prog, isolated, size);
                 return;
             }
         }
@@ -789,6 +859,7 @@ public static class FullscreenPassRegistry
             PublishNamed(prog, isolated);
             previous = isolated;
             lastChain = null;
+            SnapshotHistory(rc, prog, isolated, new Vector2I(scratchW, scratchH));
             return;
         }
 
@@ -800,6 +871,7 @@ public static class FullscreenPassRegistry
             PublishNamed(prog, isolated);
             previous = isolated;
             lastChain = null;
+            SnapshotHistory(rc, prog, isolated, new Vector2I(scratchW, scratchH));
             return;
         }
 
@@ -807,9 +879,11 @@ public static class FullscreenPassRegistry
         PublishIsolated(isolated);
         PublishNamed(prog, isolated);
         previous = isolated;
+        var snapSize = new Vector2I(scratchW, scratchH);
         if (prog.Compose == FullscreenCompose.Chain)
         {
             lastChain = prog;
+            SnapshotHistory(rc, prog, isolated, snapSize);
             return;
         }
 
@@ -817,12 +891,14 @@ public static class FullscreenPassRegistry
         if (prog.Compose == FullscreenCompose.PublishOnly)
         {
             NoteDraw(prog, null, "publish-only");
+            SnapshotHistory(rc, prog, isolated, snapSize);
             return;
         }
 
         if (dest == null)
         {
             NoteDraw(prog, "dest-null");
+            SnapshotHistory(rc, prog, isolated, snapSize);
             return;
         }
 
@@ -844,6 +920,25 @@ public static class FullscreenPassRegistry
             MergeToDest(rc, isolated, dest, 1, outputRes);
             NoteDraw(prog, null, "add", dest);
         }
+
+        SnapshotHistory(rc, prog, isolated, snapSize);
+    }
+
+    /// <summary>
+    /// Slice AV. Copy this program's output into its catalog history RT
+    /// before the next program reuses scratch or mutates dest. Skip when
+    /// the target is missing, the wrong size, or the same resource.
+    /// </summary>
+    static void SnapshotHistory(MyRenderContext rc, Program prog, ISrvBindable src, Vector2I size)
+    {
+        if (prog == null || src == null || string.IsNullOrEmpty(prog.HistoryName) || size.X <= 0 || size.Y <= 0)
+            return;
+        var published = BufferCatalog.Active(prog.HistoryName);
+        if (published == null || !published.IsAvailable || published.Width != size.X || published.Height != size.Y)
+            return;
+        if (published.Srv is not IRtvBindable history || ReferenceEquals(published.Srv, src))
+            return;
+        Blit(rc, src, history);
     }
 
     static void DrawIsolated(MyRenderContext rc, Program prog, IRtvTexture isolated)
@@ -858,7 +953,7 @@ public static class FullscreenPassRegistry
                 prog.Compose == FullscreenCompose.IsolatedSub);
         if ((prog.Policy & TemporalPolicy.ContributeVelocity) != 0 &&
             prog.Compose != FullscreenCompose.Replace)
-            TemporalParticipation.ContributeFromIsolated(rc, isolated);
+            TemporalParticipation.ContributeFromIsolated(rc, isolated, prog.VelocityDistanceScale);
     }
 
     static bool Aliases(IRtvBindable dest, ISrvBindable scene)
@@ -1001,6 +1096,8 @@ public static class FullscreenPassRegistry
             rc.ComputeShader.SetSrv(9, null);
             rc.ComputeShader.SetSrv(10, null);
             rc.ComputeShader.SetSrv(11, null);
+            rc.ComputeShader.SetSrv(12, null);
+            rc.ComputeShader.SetSrv(13, null);
             rc.ComputeShader.SetSampler(2, null);
             rc.ComputeShader.SetConstantBuffer(0, null);
             rc.ComputeShader.Set(null);
@@ -1242,7 +1339,7 @@ public static class FullscreenPassRegistry
         for (var i = 0; i < binds.Count; i++)
         {
             var bind = binds[i];
-            if (bind.Slot < PackSrvBase || bind.Slot > PackSrvLast)
+            if (!IsPackSrvSlot(bind.Slot))
                 continue;
             var buf = BufferCatalog.Active(bind.CatalogName);
             var srv = buf != null && buf.IsAvailable ? buf.Srv as ISrvBindable : null;
@@ -1267,6 +1364,8 @@ public static class FullscreenPassRegistry
         rc.PixelShader.SetSrv(9, null);
         rc.PixelShader.SetSrv(10, null);
         rc.PixelShader.SetSrv(11, null);
+        rc.PixelShader.SetSrv(12, null);
+        rc.PixelShader.SetSrv(13, null);
         rc.PixelShader.SetSampler(2, null);
         rc.AllShaderStages.SetConstantBuffer(0, null);
         rc.AllShaderStages.SetConstantBuffer(6, null);
@@ -1308,10 +1407,10 @@ public static class FullscreenPassRegistry
 
         if (slot < 0)
             slot = NextFreePackSlotUnlocked(list);
-        if (slot < PackSrvBase || slot > PackSrvLast)
+        if (!IsPackSrvSlot(slot))
         {
             Warn("RequestSrv slot t" + slot + " for '" + catalogName + "' on '" + programId +
-                 "' is outside t" + PackSrvBase + "–t" + PackSrvLast);
+                 "' is outside t7–t9 / t12–t13 (t10/t11 are tiled lights)");
             return false;
         }
 
@@ -1345,15 +1444,16 @@ public static class FullscreenPassRegistry
             for (var i = 0; i < list.Count; i++)
             {
                 var s = list[i].Slot;
-                if (s >= PackSrvBase && s <= PackSrvLast)
+                if (IsPackSrvSlot(s))
                     used[s] = true;
             }
         }
 
         for (var slot = PackSrvBase; slot <= PackSrvLast; slot++)
         {
-            if (!used[slot])
-                return slot;
+            if (!IsPackSrvSlot(slot) || used[slot])
+                continue;
+            return slot;
         }
 
         return -1;
@@ -1406,7 +1506,8 @@ public static class FullscreenPassRegistry
             SkyAmbientPad = 0f,
             PlanetAirTop = FrameTemporal.PlanetAirTop,
             VisualAtmoCeil = FrameTemporal.VisualAtmoCeil,
-            PlanetAtmospherePad = Vector2.Zero
+            VolumeSkipFloor = FrameTemporal.VolumeSkipFloor,
+            VolumeSkipMul = FrameTemporal.VolumeSkipMul
         };
         var mapping = MyMapping.MapDiscard(rc, extrasCb);
         mapping.WriteAndPosition(ref cb);
@@ -2012,6 +2113,8 @@ public static class FullscreenPassRegistry
         public bool ComputeTried;
         public PublishedBuffer Published;
         public float Scale = 1f;
+        public float VelocityDistanceScale = 1f;
+        public string HistoryName;
         public IUavTexture ScaledRt;
         public int ScaledW;
         public int ScaledH;
@@ -2030,6 +2133,7 @@ internal sealed class FullscreenProgramSpec
     public string OutputName;
     public SrvBind[] Binds;
     public float Scale = 1f;
+    public string HistoryName;
 }
 
 internal sealed class SrvBind

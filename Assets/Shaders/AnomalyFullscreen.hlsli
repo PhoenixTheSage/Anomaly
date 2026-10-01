@@ -37,9 +37,17 @@ Texture2D AnomalyGBuffer2 : register(t6);
 #ifndef ANOMALY_PACK_SRV2_TYPE
 #define ANOMALY_PACK_SRV2_TYPE Texture2D
 #endif
+#ifndef ANOMALY_PACK_SRV3_TYPE
+#define ANOMALY_PACK_SRV3_TYPE Texture3D
+#endif
+#ifndef ANOMALY_PACK_SRV4_TYPE
+#define ANOMALY_PACK_SRV4_TYPE Texture3D
+#endif
 ANOMALY_PACK_SRV0_TYPE AnomalyPackSrv0 : register(t7);
 ANOMALY_PACK_SRV1_TYPE AnomalyPackSrv1 : register(t8);
 ANOMALY_PACK_SRV2_TYPE AnomalyPackSrv2 : register(t9);
+ANOMALY_PACK_SRV3_TYPE AnomalyPackSrv3 : register(t12);
+ANOMALY_PACK_SRV4_TYPE AnomalyPackSrv4 : register(t13);
 #if !defined(ANOMALY_FULLSCREEN_SLOT_AFTERTONEMAP) && !defined(ANOMALY_FULLSCREEN_SLOT_AFTERUPSCALE)
 struct AnomalyPointLight
 {
@@ -74,6 +82,42 @@ uint2 AnomalyScenePixel(float2 uv)
 float2 AnomalySceneUvOffset(float2 pixelDelta)
 {
     return pixelDelta * AnomalyInvSceneSize;
+}
+
+// Complementary-depth 0 reconstructs to ~far (LinearDepth.hlsl).
+// AfterLighting LBuffer at those texels may still hold last-frame
+// atmosphere or Keen environment. Screen-space gathers must not
+// treat them as surfaces. farMeters is the view far clip.
+bool AnomalyIsForeground(float linearDepth, float farMeters)
+{
+    float far = max(farMeters, 1.0);
+    return linearDepth > 1e-4 && linearDepth < far * 0.999;
+}
+
+// 3×3 full-res linearDepth. 0–9. Isolated leaves are 1–3; object
+// silhouettes / window edges are typically 6–8; interiors are 9.
+int AnomalyForegroundCount(float2 uv, float farMeters)
+{
+    int n = 0;
+    float2 texel = AnomalyInvSceneSize;
+    [unroll]
+    for (int y = -1; y <= 1; y++)
+    {
+        [unroll]
+        for (int x = -1; x <= 1; x++)
+        {
+            float z = AnomalyLinearDepth.SampleLevel(
+                AnomalyPointSampler, uv + texel * float2(x, y), 0);
+            n += AnomalyIsForeground(z, farMeters) ? 1 : 0;
+        }
+    }
+    return n;
+}
+
+// All nine texels are foreground. Thickness / first-hit behind a surface.
+bool AnomalyIsSolidForeground(float2 uv, float farMeters)
+{
+    return AnomalyForegroundCount(uv, farMeters) == 9;
 }
 
 #if !defined(ANOMALY_FULLSCREEN_SLOT_AFTERTONEMAP) && !defined(ANOMALY_FULLSCREEN_SLOT_AFTERUPSCALE)
@@ -159,6 +203,25 @@ float3 AnomalyLightingN(float3 nView)
 {
     return world_to_view(view_to_world(nView));
 }
+
+// Camera-relative world (InvViewAt0). Same expansion OccupancySplat uses.
+// Do not use mul(view, frame_.Environment.inv_view_matrix) here — column-major
+// Frame packing transposes vs extras row_major AnomalyCameraToWorld, so cube
+// faces and occupancy marches followed the camera like a flashlight.
+float3 AnomalyViewToWorldAt0(float3 view)
+{
+    return AnomalyCameraToWorld[0].xyz * view.x
+         + AnomalyCameraToWorld[1].xyz * view.y
+         + AnomalyCameraToWorld[2].xyz * view.z;
+}
+
+float3 AnomalyWorldToViewAt0(float3 world)
+{
+    return float3(
+        dot(world, AnomalyCameraToWorld[0].xyz),
+        dot(world, AnomalyCameraToWorld[1].xyz),
+        dot(world, AnomalyCameraToWorld[2].xyz));
+}
 #endif
 
 // camToVolumeMeters is a uniform (camera-to-shell / camera-to-volume). Never per-ray tMin.
@@ -175,6 +238,147 @@ int AnomalyMarchSteps(float budget, int minSteps, int maxSteps,
     away *= away;
     float scaled = lerp((float)lo, max(budget, (float)lo), away * safety);
     return clamp((int)(scaled + 0.5), lo, hi);
+}
+
+// 0 at the volume / visual air; 1 at farMeters. Packs fade detail
+// (shape size, far-cap) from this — not a binary orbit flag.
+// AnomalyMarchSteps is slam/TDR protection (near → min, far → budget).
+// This is the complementary view-LOD axis. Extras stay 320 B.
+float AnomalyVolumeViewLod(float camToVolumeMeters, float farMeters)
+{
+    return saturate(max(camToVolumeMeters, 0.0) / max(farMeters, 1.0));
+}
+
+// Slice AS — AfterAtmosphere empty skip. occupancy is a pack sample
+// (weather coverage mip, not the 64³ catalog occupancy atlas). Fail
+// closed: never enlarge dt when the cell has volume. Do not bake an
+// SDF Texture3D from live weather. Extras stay 320 B (tail scalars).
+float AnomalyVolumeEmptyFloor()
+{
+    return AnomalyVolumeSkipFloor > 1e-5 ? AnomalyVolumeSkipFloor : 0.38;
+}
+
+float AnomalyVolumeEmptyMul()
+{
+    return AnomalyVolumeSkipMul > 1.0 ? AnomalyVolumeSkipMul : 6.0;
+}
+
+bool AnomalyVolumeIsEmpty(float occupancy)
+{
+    return occupancy < AnomalyVolumeEmptyFloor();
+}
+
+float AnomalyVolumeSkipDt(float occupancy, float dt, float emptyFloor, float emptyMul)
+{
+    float floorV = emptyFloor > 1e-5 ? emptyFloor : AnomalyVolumeEmptyFloor();
+    float mul = emptyMul > 1.0 ? emptyMul : AnomalyVolumeEmptyMul();
+    float step = max(dt, 1e-4);
+    // Soft empty factor. Fail closed: occupancy >= floor → 1×. Quadratic
+    // so a cell edge does not snap from 6× to 1× (dividing planes / pop-in).
+    float empty = saturate((floorV - occupancy) / max(floorV, 1e-5));
+    return step * lerp(1.0, mul, empty * empty);
+}
+
+float AnomalyVolumeSkipDt(float occupancy, float dt)
+{
+    return AnomalyVolumeSkipDt(occupancy, dt, AnomalyVolumeEmptyFloor(), AnomalyVolumeEmptyMul());
+}
+
+// Cap skip so a thin volume (hundreds of m) cannot be jumped. maxStep <= dt
+// leaves the uncapped helper (fail closed to 1× when occupied).
+float AnomalyVolumeSkipDt(float occupancy, float dt, float maxStep)
+{
+    float s = AnomalyVolumeSkipDt(occupancy, dt);
+    return maxStep > dt ? min(s, maxStep) : s;
+}
+
+// Bipolar advance. Fail closed inside a cell. Pack must break when t > t1.
+float AnomalyVolumeAdvance(float t, float t1, float occupancy, float dt)
+{
+    if (t > t1)
+        return t;
+    return t + AnomalyVolumeSkipDt(occupancy, dt);
+}
+
+float AnomalyVolumeAdvance(float t, float t1, float occupancy, float dt, float maxStep)
+{
+    if (t > t1)
+        return t;
+    return t + AnomalyVolumeSkipDt(occupancy, dt, maxStep);
+}
+
+// Slice AT — planet-shell weather / sample_pos. Nubis 2D NDF is local XZ
+// metres; on a sphere that is east/north arc metres. Isolines of
+// dot(dir, axis) are small circles (wavy hill streaks). Cartesian
+// Texture3D through the air column is cubic slabs. Extras stay 320 B.
+// cos(lat) is not floored. A floor keeps a disk of spinning longitude
+// at the pole (the pinwheel). At ±Y the product is 0, so the pole is a point.
+float2 AnomalyPlanetShellMetresFromDir(float3 dir, float hillRadius)
+{
+    dir = normalize(dir);
+    float lat = asin(clamp(dir.y, -1.0, 1.0));
+    float lon = atan2(dir.x, dir.z);
+    float cosLat = cos(lat);
+    return float2(lon * cosLat, lat) * max(hillRadius, 1.0);
+}
+
+// atan2 jumps on the -Z meridian, so a longitude chart cuts the shell.
+// Weight is 0 on that meridian and 1 by 0.06 rad (~one 4 km tile on
+// EarthLike). The other chart is this direction yawed 90° around Y.
+// Reproject that yawed direction at the SAME point. Do not move the
+// world position — a quarter-turn sample mixes two unrelated tiles.
+float AnomalyPlanetShellChartWeight(float3 dir)
+{
+    dir = normalize(dir);
+    float lon = atan2(dir.x, dir.z);
+    return smoothstep(0.0, 0.06, 3.14159265 - abs(lon));
+}
+
+float3 AnomalyPlanetShellChartDir(float3 dir)
+{
+    return float3(dir.z, dir.y, -dir.x);
+}
+
+// Nubis shape sample, horizontal metres. Azimuthal equidistant from +Y:
+// theta = acos(dir.y) is 0 at the pole, so longitude cannot spin a disk.
+// Pass (dir.x, -dir.y, dir.z) to center the projection on -Y. Stretch is
+// theta/sin(theta): 1 at the pole, ~1.57 at 90°. A lon*cos(lat) chart
+// with a cos floor is the pinwheel. Weather stays on ShellMetres / ShellUv.
+float2 AnomalyPlanetShapeArcMetres(float3 dir, float hillRadius)
+{
+    dir = normalize(dir);
+    float theta = acos(clamp(dir.y, -1.0, 1.0));
+    float phi = atan2(dir.x, dir.z);
+    float arc = theta * max(hillRadius, 1.0);
+    return float2(sin(phi), cos(phi)) * arc;
+}
+
+// 1 on the north chart, 0 on the south chart. Blend only across the equator
+// (~8 km on EarthLike). Each side then uses its nearer pole.
+float AnomalyPlanetShapeNorthWeight(float3 dir)
+{
+    dir = normalize(dir);
+    return smoothstep(-0.06, 0.06, dir.y);
+}
+
+float2 AnomalyPlanetShellMetres(float3 worldPos, float3 center, float hillRadius)
+{
+    return AnomalyPlanetShellMetresFromDir(worldPos - center, hillRadius);
+}
+
+float2 AnomalyPlanetShellUv(float3 worldPos, float3 center, float hillRadius, float tileMetres)
+{
+    return AnomalyPlanetShellMetres(worldPos, center, hillRadius) / max(tileMetres, 1.0);
+}
+
+// Nubis sample_pos: (surface-x, altitude, surface-z) in metres.
+float3 AnomalyPlanetSamplePos(float3 worldPos, float3 center, float hillRadius)
+{
+    float3 rel = worldPos - center;
+    float r = max(length(rel), 1.0);
+    float hill = max(hillRadius, 1.0);
+    float2 xz = AnomalyPlanetShellMetresFromDir(rel, hill);
+    return float3(xz.x, r - hill, xz.y);
 }
 
 // 0 = local night, 1 = full sun.
@@ -240,11 +444,12 @@ float2 AnomalyRaySphere(float3 origin, float3 dir, float3 center, float radius)
 
 // Night IsolatedMix inscatter as a fraction of AJ in-cloud day fill.
 // 1.0 × VolumeAmbient over dest≈0 is headlights. 0.30 was a grey deck
-// on a black night disk from orbit. Match Keen night ambient.
+// on a black night disk from orbit. 0.05 was the first Keen-ambient guess;
+// 0.02 is the live look test (darker night limb, still not black).
 // Dest luma is not an illuminant. Extras stay 320 B.
 float AnomalyVolumeNightScale()
 {
-    return 0.05;
+    return 0.02;
 }
 
 float3 AnomalyVolumeNight(float3 albedo, float sunVis)
@@ -389,6 +594,36 @@ float AnomalyIgn(float2 pixel)
 float AnomalyIgnWorld(float2 worldXz)
 {
     return AnomalyIgn(worldXz);
+}
+
+// Slice AV. Sixteen-phase ray start for a volume that reconstructs over
+// time. AnomalyIgn stays the stable contact / SSGI hash — do not xor it
+// with the frame index.
+float AnomalyIgnFrame(float2 pixel)
+{
+    float phase = float(AnomalyLightingFrameIndex & 15u) * 0.618034;
+    return frac(AnomalyIgn(pixel) + phase);
+}
+
+// Slice AV. Previous-frame UV of a camera-relative point. PrevViewProj is
+// already origin-corrected. Fail closed when history is invalid or the
+// point leaves the viewport. Do not sample catalog velocity: sky pixels
+// are far-plane camera motion, not this volume.
+bool AnomalyPrevUv(float3 worldCamRel, out float2 prevUv)
+{
+    prevUv = 0.0;
+    if (AnomalyLightingHistoryValid == 0)
+        return false;
+    if (!all(isfinite(worldCamRel)))
+        return false;
+    float4 prevClip = mul(float4(worldCamRel, 1.0), AnomalyPrevViewProj);
+    if (prevClip.w < 1e-4)
+        return false;
+    prevClip.xyz /= prevClip.w;
+    prevUv = float2(prevClip.x * 0.5 + 0.5, 0.5 - prevClip.y * 0.5);
+    if (!all(isfinite(prevUv)))
+        return false;
+    return all(prevUv >= 0.0) && all(prevUv <= 1.0);
 }
 
 // Slice AN. Catalog volumeSunShadow.r is remaining sun (1 = none).

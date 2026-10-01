@@ -29,14 +29,16 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | `ClientPlugin.Buffers.BufferCatalog` | `Active` / `Publish` / `RegisterLifetime` / `RequestLitMips` / `RequestPointShadows` / `RequestOccupancy` |
 | `ClientPlugin.Shaders.TonemapInputs` | Captured bloom / avgLum / dirt flags from `MyToneMapping.Run` |
 | `ClientPlugin.Shaders.FullscreenCompose` | IsolatedAdd / IsolatedMix / IsolatedSub / Replace / Chain / … |
-| `ClientPlugin.Shaders.FrameTemporal` | `JitterX`/`Y`, `UnjitteredViewProj`, `SafetyScale`, `SunColor` / `SunToward` / `SunDiffuse` / `SkyLuma` / `SkyAmbient` / `PlanetAirTop` / `VisualAtmoCeil`, `InvalidateHistory` |
+| `ClientPlugin.Shaders.FrameTemporal` | `JitterX`/`Y`, `UnjitteredViewProj`, `SafetyScale`, `SunColor` / `SunToward` / `SunDiffuse` / `SkyLuma` / `SkyAmbient` / `PlanetAirTop` / `VisualAtmoCeil` / `VolumeSkipFloor` / `VolumeSkipMul`, `InvalidateHistory` |
 | `ClientPlugin.Shaders.PlanetAtmosphere` | `TryGetRadii(worldCenter, matchMeters, out airTop, out visualCeil)` / `TryComputeRadii` — game thread; radii from planet center |
 | `ClientPlugin.Shaders.LocalCharacter` | Game-thread local player actor id, first-person flag, and cam-rel AABB (`TryGetCamRelBox`) for mesh maps; 0 otherwise |
 | `ClientPlugin.ShaderFramework.RenderTrace` | `Begin`/`End` interned names; `Dump`/`DumpIfLost` on lost-device (writes `SpaceEngineers.log`) |
-| `ClientPlugin.Buffers.PublishedBuffer` | `ISharedBuffer` wrapper for `Publish` |
+| `ClientPlugin.Buffers.PublishedBuffer` | `ISharedBuffer` wrapper: `Publish` (2D), `Publish3D`, `PublishBake`, `PublishStructured` |
 | `ClientPlugin.Velocity.VelocityRegistry` | `Active` |
-| `ClientPlugin.RichHud.TerminalConfigRegistry` | `RequestPage` / `RequestFolderPage` / `Label` / `Checkbox(..., enabled)` under **Anomaly Shaders** |
+| `ClientPlugin.RichHud.TerminalConfigRegistry` | `RequestPage` / `RequestFolderPage` (folder+page or page+folder path) / `Label` / `Checkbox(..., enabled)` / `OnResized` / `RegisterWindowResized` under **Anomaly Shaders** |
 | `ClientPlugin.RichHud.HudOverlayRegistry` | `Register(id, get)` / `Unregister` corner status when Master is registered |
+| `ClientPlugin.RichHud.ResizableWindow` | Anomaly-owned `WindowBase` subclass; `Resizing` / `Resized` from `resizeDir` |
+| `ClientPlugin.RichHud.TerminalWindowLayout` | `ColumnsFor` / `ContentWidth` (preferred ~300px **internal** columns inside one full-width tile; `SeparateAt` / `Columns(n)` override) |
 
 ## Implementation
 
@@ -56,7 +58,7 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | [TemporalParticipation.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/TemporalParticipation.cs) | `reactiveMask` clear / IsolatedAdd luma stamp / IsolatedAdd hit-distance MVs / ContributeVelocity |
 | [IsolatedVelocity.hlsl](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/IsolatedVelocity.hlsl) | Isolated.a (meters) → camera MVs at curtain depth |
 | [ReactiveStamp.hlsl](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/ReactiveStamp.hlsl) | Dilated isolated luma (IsolatedSub `.a`) → `reactiveMask` |
-| [AnomalyFullscreen.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/AnomalyFullscreen.hlsli) | Fullscreen bus t0–t11 / b0 `frame_` via `Frame.hlsli` (HDR slots) / b6 / b7; `ANOMALY_PACK_SRVn_TYPE` for t7–t9; `AnomalyScenePixel` / `AnomalySceneUvOffset` / `AnomalyLightingUv` / `AnomalyLightingViewPos` / `AnomalyLightingViewPosUnjittered` / `AnomalyViewToLightingUv` / `AnomalyViewToDepthUv` / `AnomalyLightingN` / `AnomalyIgn` / `AnomalyIgnWorld` / `AnomalyIsolatedSub` / `AnomalyIsolatedSubEnergy` / `AnomalyVolumeSunShadow` / `AnomalyVolumeCeil` / `AnomalyClampRadialToCeil` / `AnomalyVolumeCeilFade` |
+| [AnomalyFullscreen.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/AnomalyFullscreen.hlsli) | Fullscreen bus t0–t13 / b0 `frame_` via `Frame.hlsli` (HDR slots) / b6 / b7; `ANOMALY_PACK_SRVn_TYPE` for t7–t9 and t12–t13; `AnomalyScenePixel` / `AnomalySceneUvOffset` / `AnomalyLightingUv` / `AnomalyLightingViewPos` / `AnomalyLightingViewPosUnjittered` / `AnomalyViewToLightingUv` / `AnomalyViewToDepthUv` / `AnomalyLightingN` / `AnomalyIgn` / `AnomalyIgnWorld` / `AnomalyIsolatedSub` / `AnomalyIsolatedSubEnergy` / `AnomalyVolumeSunShadow` / `AnomalyVolumeCeil` / `AnomalyClampRadialToCeil` / `AnomalyVolumeCeilFade` |
 | [MeshDepth.hlsl](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/MeshDepth.hlsl) | Light-space skinned VS + euclidean distance PS (no Depth z-clamp) |
 | [FrameTemporal.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/FrameTemporal.cs) | Jitter + unjittered VP + `SafetyScale` + sun / sky / planet air extras |
 | [PlanetAtmosphere.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Shaders/PlanetAtmosphere.cs) | Game-thread air-top / visual ceil snapshot |
@@ -68,5 +70,7 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | [Light.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Lighting/Light.hlsli) | Thin `Keen/` wrap + extras |
 | [AtmosphereCommon.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Transparent/Atmosphere/AtmosphereCommon.hlsli) | Thin `Keen/` wrap + extras |
 | [TerminalConfigRegistry.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/RichHud/TerminalConfigRegistry.cs) | Rich HUD **Anomaly Shaders** pages |
+| [TerminalWindowMonitor.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/RichHud/TerminalWindowMonitor.cs) | Harmony `resizeDir` sample on Master’s terminal `WindowBase` |
+| [ResizableWindow.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/RichHud/ResizableWindow.cs) | Host HUD `WindowBase` subclass with `Resizing` / `Resized` |
 | [HudOverlayRegistry.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/RichHud/HudOverlayRegistry.cs) | Rich HUD corner overlay lines |
 | [AnomalyTerminalPages.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/RichHud/AnomalyTerminalPages.cs) | Mirrors Pulsar Settings + Velocity Debug |

@@ -282,11 +282,22 @@ public static class BufferCatalog
 /// </summary>
 public sealed class PublishedBuffer : ISharedBuffer
 {
-    public bool IsAvailable => Srv != null && NativeResource != IntPtr.Zero && Width > 0 && Height > 0;
+    public bool IsAvailable => Srv != null && Width > 0 && Height > 0 && Depth > 0 &&
+        (IsStructured || NativeResource != IntPtr.Zero);
     public object Srv { get; private set; }
     public IntPtr NativeResource { get; private set; }
     public int Width { get; private set; }
     public int Height { get; private set; }
+    public int Depth { get; private set; } = 1;
+    public int Format { get; private set; }
+    public int Stride { get; private set; }
+    public bool IsStructured { get; private set; }
+
+    /// <summary>
+    /// Optional UAV for a pack compute bake into this atlas. Anomaly does
+    /// not dispatch; the pack writes, IsolatedMix reads <see cref="Srv"/>.
+    /// </summary>
+    public object Uav { get; private set; }
 
     public PublishedBuffer()
     {
@@ -297,12 +308,65 @@ public sealed class PublishedBuffer : ISharedBuffer
         Publish(srv, nativeResource, width, height);
     }
 
+    /// <summary>
+    /// 2D catalog texture. This is the only method named <c>Publish</c> —
+    /// pack <c>GetMethod("Publish")</c> must stay unambiguous.
+    /// Texture3D uses <see cref="Publish3D"/>; UAV bake uses
+    /// <see cref="PublishBake"/>; node pools use <see cref="PublishStructured"/>.
+    /// </summary>
     public void Publish(object srv, IntPtr nativeResource, int width, int height)
+    {
+        ApplyRaster(srv, nativeResource, width, height, 1, 0, null);
+    }
+
+    /// <summary>
+    /// Texture3D atlas. Unique name so 2D pack binds do not throw
+    /// <c>AmbiguousMatchException</c>. Exactly five parameters so
+    /// reflection <c>Invoke</c> with width/height/depth still matches.
+    /// </summary>
+    public void Publish3D(object srv, IntPtr nativeResource, int width, int height, int depth)
+    {
+        ApplyRaster(srv, nativeResource, width, height, depth, 0, null);
+    }
+
+    /// <summary>
+    /// Texture3D (or 2D) plus optional UAV for a pack compute bake.
+    /// </summary>
+    public void PublishBake(object srv, IntPtr nativeResource, int width, int height, int depth,
+        int format, object uav)
+    {
+        ApplyRaster(srv, nativeResource, width, height, depth, format, uav);
+    }
+
+    void ApplyRaster(object srv, IntPtr nativeResource, int width, int height, int depth, int format,
+        object uav)
     {
         Srv = srv;
         NativeResource = nativeResource;
         Width = width;
         Height = height;
+        Depth = depth > 0 ? depth : 1;
+        Format = format;
+        Uav = uav;
+        IsStructured = false;
+        Stride = 0;
+    }
+
+    /// <summary>
+    /// Node pool / list. <see cref="Width"/> is element count.
+    /// </summary>
+    public void PublishStructured(object srv, IntPtr nativeResource, int elementCount, int stride,
+        object uav = null)
+    {
+        Srv = srv;
+        NativeResource = nativeResource;
+        Width = elementCount;
+        Height = 1;
+        Depth = 1;
+        Format = 0;
+        Stride = stride;
+        Uav = uav;
+        IsStructured = true;
     }
 
     public void Clear()
@@ -311,6 +375,11 @@ public sealed class PublishedBuffer : ISharedBuffer
         NativeResource = IntPtr.Zero;
         Width = 0;
         Height = 0;
+        Depth = 1;
+        Format = 0;
+        Stride = 0;
+        IsStructured = false;
+        Uav = null;
     }
 }
 
@@ -326,6 +395,8 @@ sealed class CatalogTexture : ISharedBuffer
     public IntPtr NativeResource => nativeResource;
     public int Width => width;
     public int Height => height;
+    public int Depth => 1;
+    public int Format => 0;
 
     public void Clear()
     {
@@ -357,6 +428,8 @@ sealed class UnavailableSharedBuffer : ISharedBuffer
     public IntPtr NativeResource => IntPtr.Zero;
     public int Width => 0;
     public int Height => 0;
+    public int Depth => 0;
+    public int Format => 0;
 }
 
 sealed class VelocitySharedBuffer : ISharedBuffer
@@ -380,6 +453,8 @@ sealed class VelocitySharedBuffer : ISharedBuffer
     public IntPtr NativeResource => inner != null ? inner.NativeResource : IntPtr.Zero;
     public int Width => inner != null ? inner.Width : 0;
     public int Height => inner != null ? inner.Height : 0;
+    public int Depth => 1;
+    public int Format => 0;
 }
 
 sealed class AttachmentSharedBuffer : ISharedBuffer
@@ -396,6 +471,8 @@ sealed class AttachmentSharedBuffer : ISharedBuffer
     public IntPtr NativeResource => inner != null ? inner.NativeResource : IntPtr.Zero;
     public int Width => 0;
     public int Height => 0;
+    public int Depth => 1;
+    public int Format => 0;
 }
 
 sealed class LBufferSharedBuffer : ISharedBuffer
@@ -414,6 +491,8 @@ sealed class LBufferSharedBuffer : ISharedBuffer
         Target?.Resource != null ? Target.Resource.NativePointer : IntPtr.Zero;
     public int Width => MyRender11.ResolutionI.X;
     public int Height => MyRender11.ResolutionI.Y;
+    public int Depth => 1;
+    public int Format => 0;
 }
 
 sealed class KeenColorBuffer : ISharedBuffer
@@ -464,4 +543,6 @@ sealed class KeenColorBuffer : ISharedBuffer
     public IntPtr NativeResource => nativeResource;
     public int Width => width;
     public int Height => height;
+    public int Depth => 1;
+    public int Format => 0;
 }

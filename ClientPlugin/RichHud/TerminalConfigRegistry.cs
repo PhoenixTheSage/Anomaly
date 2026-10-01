@@ -34,10 +34,38 @@ public static class TerminalConfigRegistry
     static readonly Dictionary<string, Page> Pages = new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, Folder> Folders = new(StringComparer.OrdinalIgnoreCase);
     static readonly List<Page> Order = new();
+    static readonly List<Action<float, float>> ResizeHandlers = new();
     static TerminalPageCategory frameworkGroup;
     static bool mounted;
+    static bool mountFailed;
+    static Vector2 windowSize;
+    static int columns = TerminalWindowLayout.ColumnsFromWidth(TerminalWindowLayout.MinWindowWidth);
 
     public static string LastError { get; private set; }
+
+    /// <summary>
+    /// Last sampled Master terminal window size in HUD pixels. Zero until
+    /// the resize monitor sees <c>HandleInput</c>. Packs that need wrapping
+    /// beyond tile columns can read this from
+    /// <see cref="ITerminalConfigPage.OnResized"/> /
+    /// <see cref="RegisterWindowResized"/>.
+    /// </summary>
+    public static Vector2 WindowSize
+    {
+        get { lock (Gate) return windowSize; }
+    }
+
+    /// <summary>
+    /// Default internal columns for the current <see cref="WindowSize"/>.
+    /// Each section is one full-width tile; controls wrap inside it unless
+    /// the section calls <see cref="ITerminalConfigPage.Columns"/> or
+    /// <see cref="ITerminalConfigPage.SeparateAt"/>. One column before the
+    /// first sample.
+    /// </summary>
+    public static int Columns
+    {
+        get { lock (Gate) return columns; }
+    }
 
     public static int PageCount
     {
@@ -55,7 +83,12 @@ public static class TerminalConfigRegistry
                 var names = new List<string>(Order.Count);
                 foreach (var page in Order)
                     names.Add(page.DisplayPath);
-                return "pages=" + Order.Count + " (" + string.Join(", ", names) + ")";
+                var size = windowSize.X > 1f
+                    ? " window=" + (int)windowSize.X + "x" + (int)windowSize.Y
+                      + " tileW=" + (int)TerminalWindowLayout.ContentWidth(windowSize.X)
+                      + " cols=" + columns
+                    : " cols=" + columns;
+                return "pages=" + Order.Count + " (" + string.Join(", ", names) + ")" + size;
             }
         }
     }
@@ -67,7 +100,7 @@ public static class TerminalConfigRegistry
     /// </summary>
     public static ITerminalConfigPage RequestPage(string title)
     {
-        return RequestPageCore(null, title, reserved: false);
+        return RequestPageCore((IReadOnlyList<string>)null, title, reserved: false);
     }
 
     /// <summary>
@@ -85,12 +118,30 @@ public static class TerminalConfigRegistry
             return null;
         }
 
-        return RequestPageCore(folderTitle, pageTitle, reserved: false);
+        return RequestPageCore(new[] { folderTitle.Trim() }, pageTitle, reserved: false);
+    }
+
+    /// <summary>
+    /// Page under an arbitrary folder path beside <see cref="FrameworkTitle"/>.
+    /// Empty / reserved folder names fail closed. Page title
+    /// <see cref="SettingsTitle"/> is allowed. Same path + page is
+    /// idempotent. Not pack-specific. Each path segment is a nested
+    /// <c>TerminalPageCategory</c> (leaf pages mount on the last folder).
+    /// </summary>
+    public static ITerminalConfigPage RequestFolderPage(string pageTitle, IReadOnlyList<string> folders)
+    {
+        if (folders == null || folders.Count == 0)
+        {
+            LastError = "empty folder path";
+            return null;
+        }
+
+        return RequestPageCore(folders, pageTitle, reserved: false);
     }
 
     internal static ITerminalConfigPage RequestReservedPage(string title)
     {
-        return RequestPageCore(null, title, reserved: true);
+        return RequestPageCore((IReadOnlyList<string>)null, title, reserved: true);
     }
 
     public static bool UnregisterPage(string title)
@@ -122,11 +173,14 @@ public static class TerminalConfigRegistry
 
         lock (Gate)
         {
-            if (mounted)
+            if (mounted || mountFailed)
                 return;
 
             try
             {
+                TerminalCategoryNest.EnsurePatched();
+                TerminalWindowMonitor.EnsurePatched();
+                TerminalTileCompactor.EnsurePatched();
                 RichHudTerminal.Root.Enabled = true;
                 RichHudTerminal.Root.Name = RootName;
                 EnsureFrameworkGroup();
@@ -137,6 +191,7 @@ public static class TerminalConfigRegistry
             }
             catch (Exception e)
             {
+                mountFailed = true;
                 LastError = e.Message;
                 MyLog.Default.WriteLine("Anomaly Rich HUD terminal mount failed: " + e.Message);
                 DebugLog.Write("TerminalConfigRegistry mount failed: " + e);
@@ -163,6 +218,96 @@ public static class TerminalConfigRegistry
             }
             frameworkGroup = null;
             mounted = false;
+            mountFailed = false;
+            TerminalWindowMonitor.Reset();
+        }
+    }
+
+    /// <summary>
+    /// Optional pack callback after a completed terminal resize (mouse-up).
+    /// HUD input thread. Do not serialize or write a <c>.cfg</c>. Same
+    /// handler is idempotent. Empty handler fails closed.
+    /// </summary>
+    public static bool RegisterWindowResized(Action<float, float> handler)
+    {
+        if (handler == null)
+        {
+            LastError = "missing resize handler";
+            return false;
+        }
+
+        lock (Gate)
+        {
+            if (!ResizeHandlers.Contains(handler))
+                ResizeHandlers.Add(handler);
+            LastError = null;
+            return true;
+        }
+    }
+
+    public static bool UnregisterWindowResized(Action<float, float> handler)
+    {
+        if (handler == null)
+            return false;
+        lock (Gate)
+            return ResizeHandlers.Remove(handler);
+    }
+
+    internal static void NotifyWindowResized(Vector2 size)
+    {
+        ApplyWindowSize(size, completed: true);
+    }
+
+    internal static void ApplyWindowSize(Vector2 size, bool completed)
+    {
+        List<Action<float, float>> handlers = null;
+        List<Page> pages;
+        lock (Gate)
+        {
+            windowSize = size;
+            columns = TerminalWindowLayout.ColumnsFromWidth(size.X);
+            pages = new List<Page>(Order);
+            if (completed)
+                handlers = ResizeHandlers.Count == 0 ? null : new List<Action<float, float>>(ResizeHandlers);
+        }
+
+        if (mounted)
+        {
+            foreach (var page in pages)
+            {
+                try
+                {
+                    page.PresentSize();
+                }
+                catch (Exception e)
+                {
+                    DebugLog.Write("terminal reflow " + page.DisplayPath + ": " + e);
+                }
+            }
+        }
+
+        if (!completed)
+            return;
+
+        InvokeResizeHandlers(handlers, size);
+        foreach (var page in pages)
+            page.NotifyResized(size);
+    }
+
+    static void InvokeResizeHandlers(List<Action<float, float>> handlers, Vector2 size)
+    {
+        if (handlers == null)
+            return;
+        foreach (var handler in handlers)
+        {
+            try
+            {
+                handler(size.X, size.Y);
+            }
+            catch (Exception e)
+            {
+                DebugLog.Write("terminal WindowResized: " + e);
+            }
         }
     }
 
@@ -182,6 +327,14 @@ public static class TerminalConfigRegistry
 
     static ITerminalConfigPage RequestPageCore(string folderTitle, string pageTitle, bool reserved)
     {
+        IReadOnlyList<string> folders = string.IsNullOrWhiteSpace(folderTitle)
+            ? null
+            : new[] { folderTitle.Trim() };
+        return RequestPageCore(folders, pageTitle, reserved);
+    }
+
+    static ITerminalConfigPage RequestPageCore(IReadOnlyList<string> folders, string pageTitle, bool reserved)
+    {
         if (string.IsNullOrWhiteSpace(pageTitle))
         {
             LastError = "empty title";
@@ -189,15 +342,8 @@ public static class TerminalConfigRegistry
         }
 
         pageTitle = pageTitle.Trim();
-        if (!string.IsNullOrWhiteSpace(folderTitle))
+        if (folders != null && folders.Count > 0)
         {
-            folderTitle = folderTitle.Trim();
-            if (IsReservedTitle(folderTitle))
-            {
-                LastError = "reserved folder title: " + folderTitle;
-                return null;
-            }
-
             if (IsReservedRootTitle(pageTitle))
             {
                 LastError = "reserved title: " + pageTitle;
@@ -206,7 +352,7 @@ public static class TerminalConfigRegistry
         }
         else
         {
-            folderTitle = null;
+            folders = null;
             if (reserved ? !IsReservedPage(pageTitle) : IsReservedTitle(pageTitle))
             {
                 LastError = reserved
@@ -218,19 +364,17 @@ public static class TerminalConfigRegistry
 
         lock (Gate)
         {
-            var key = PageKey(folderTitle, pageTitle);
+            Folder folder = null;
+            if (folders != null)
+            {
+                folder = EnsureFolderPath(folders);
+                if (folder == null)
+                    return null;
+            }
+
+            var key = PageKey(folder, pageTitle);
             if (Pages.TryGetValue(key, out var existing))
                 return existing;
-
-            Folder folder = null;
-            if (folderTitle != null)
-            {
-                if (!Folders.TryGetValue(folderTitle, out folder))
-                {
-                    folder = new Folder(folderTitle);
-                    Folders.Add(folderTitle, folder);
-                }
-            }
 
             var page = new Page(pageTitle, folder);
             Pages.Add(key, page);
@@ -253,9 +397,42 @@ public static class TerminalConfigRegistry
         }
     }
 
-    static string PageKey(string folderTitle, string pageTitle)
+    static Folder EnsureFolderPath(IReadOnlyList<string> folders)
     {
-        return folderTitle == null ? pageTitle : folderTitle + "/" + pageTitle;
+        Folder parent = null;
+        var path = "";
+        for (int i = 0; i < folders.Count; i++)
+        {
+            var seg = folders[i];
+            if (string.IsNullOrWhiteSpace(seg))
+            {
+                LastError = "empty folder title";
+                return null;
+            }
+
+            seg = seg.Trim();
+            if (IsReservedTitle(seg))
+            {
+                LastError = "reserved folder title: " + seg;
+                return null;
+            }
+
+            path = path.Length == 0 ? seg : path + "/" + seg;
+            if (!Folders.TryGetValue(path, out var folder))
+            {
+                folder = new Folder(seg, path, parent);
+                Folders.Add(path, folder);
+            }
+
+            parent = folder;
+        }
+
+        return parent;
+    }
+
+    static string PageKey(Folder folder, string pageTitle)
+    {
+        return folder == null ? pageTitle : folder.Path + "/" + pageTitle;
     }
 
     static bool IsReservedPage(string title)
@@ -278,12 +455,18 @@ public static class TerminalConfigRegistry
 
     sealed class Folder
     {
-        public Folder(string title)
+        public Folder(string title, string path, Folder parent)
         {
             Title = title;
+            Path = path;
+            Parent = parent;
         }
 
         public string Title { get; }
+
+        public string Path { get; }
+
+        public Folder Parent { get; }
 
         public TerminalPageCategory Mounted;
 
@@ -292,12 +475,16 @@ public static class TerminalConfigRegistry
             if (Mounted != null || !RichHudClient.Registered)
                 return;
 
+            Parent?.EnsureMounted();
             var group = new TerminalPageCategory
             {
                 Name = Title,
                 Enabled = true,
             };
-            RichHudTerminal.Root.Add(group);
+            if (Parent == null)
+                RichHudTerminal.Root.Add(group);
+            else if (Parent.Mounted == null || !TerminalCategoryNest.TryAttach(Parent.Mounted, group))
+                RichHudTerminal.Root.Add(group);
             Mounted = group;
         }
 
@@ -329,8 +516,10 @@ public static class TerminalConfigRegistry
         readonly Folder folder;
         readonly bool persistHostConfig;
         readonly List<CategorySpec> categories = new();
+        readonly List<Action<float, float>> resized = new();
         CategorySpec current;
         ControlPage mountedPage;
+        int lastWrap = -1;
 
         public Page(string title, Folder folder)
         {
@@ -341,7 +530,7 @@ public static class TerminalConfigRegistry
 
         public string Title { get; }
 
-        public string DisplayPath => folder == null ? Title : folder.Title + "/" + Title;
+        public string DisplayPath => folder == null ? Title : folder.Path + "/" + Title;
 
         public ITerminalConfigPage Category(string header)
         {
@@ -356,6 +545,26 @@ public static class TerminalConfigRegistry
                 Subheader = string.IsNullOrWhiteSpace(subheader) ? "" : subheader.Trim(),
             };
             categories.Add(current);
+            return this;
+        }
+
+        public ITerminalConfigPage Columns(int count)
+        {
+            if (current == null)
+                Category(Title);
+            if (count < 0)
+                count = 0;
+            if (count > TerminalWindowLayout.MaxColumns)
+                count = TerminalWindowLayout.MaxColumns;
+            current.Columns = count;
+            return this;
+        }
+
+        public ITerminalConfigPage SeparateAt(float width)
+        {
+            if (current == null)
+                Category(Title);
+            current.SeparateAt = width > 1f ? width : 0f;
             return this;
         }
 
@@ -476,7 +685,7 @@ public static class TerminalConfigRegistry
                     ApplyTip(button, description);
                     return button;
                 },
-                Weight = TileWeight.Compact,
+                Weight = TileWeight.Standard,
             });
             return this;
         }
@@ -494,6 +703,15 @@ public static class TerminalConfigRegistry
         public ITerminalConfigPage Refresh()
         {
             PullMounted();
+            return this;
+        }
+
+        public ITerminalConfigPage OnResized(Action<float, float> handler)
+        {
+            if (handler == null)
+                return this;
+            if (!resized.Contains(handler))
+                resized.Add(handler);
             return this;
         }
 
@@ -534,6 +752,7 @@ public static class TerminalConfigRegistry
             }
 
             mountedPage = page;
+            lastWrap = TilesPerRow(null);
         }
 
         public void Unmount()
@@ -548,6 +767,7 @@ public static class TerminalConfigRegistry
                 // Master already tore the page down.
             }
             mountedPage = null;
+            lastWrap = -1;
             foreach (var spec in categories)
             {
                 spec.MountedCategory = null;
@@ -559,6 +779,74 @@ public static class TerminalConfigRegistry
         {
             if (mountedPage != null)
                 mountedPage.Enabled = false;
+        }
+
+        public void PresentSize()
+        {
+            if (mountedPage == null)
+                return;
+            var rebuild = false;
+            foreach (var spec in categories)
+            {
+                if (ColumnsFor(spec) != spec.MountedColumns)
+                    rebuild = true;
+            }
+
+            if (rebuild)
+            {
+                Reflow();
+                return;
+            }
+
+            foreach (var spec in categories)
+                FitCategory(spec);
+        }
+
+        public void Reflow()
+        {
+            if (mountedPage == null)
+                return;
+            lastWrap = TilesPerRow(null);
+            foreach (var spec in categories)
+            {
+                if (spec.MountedRows.Count > 0)
+                {
+                    var old = spec.MountedRows.ToArray();
+                    foreach (var row in old)
+                    {
+                        try
+                        {
+                            row.Enabled = false;
+                        }
+                        catch
+                        {
+                            // Master already tore the row down.
+                        }
+                    }
+                }
+
+                foreach (var row in BuildCategoryRows(spec))
+                    mountedPage.Add(row);
+            }
+
+            PullMounted();
+        }
+
+        public void NotifyResized(Vector2 size)
+        {
+            if (resized.Count == 0)
+                return;
+            foreach (var handler in resized.ToArray())
+            {
+                try
+                {
+                    handler(size.X, size.Y);
+                }
+                catch (Exception e)
+                {
+                    DebugLog.Write("terminal OnResized " + DisplayPath + ": " + e);
+                }
+            }
         }
 
         void AddControl(ControlSpec spec)
@@ -575,55 +863,120 @@ public static class TerminalConfigRegistry
                 return;
             }
 
-            var packed = PackTiles(current.Controls);
-            var lastGroup = packed[packed.Count - 1];
-            var startedNewTile = lastGroup.Count == 1 && ReferenceEquals(lastGroup[0], spec);
+            // One Master tile per section — append into it and re-fit
+            // internal columns from the live window.
             var last = current.MountedRows[current.MountedRows.Count - 1];
-            if (!startedNewTile)
-            {
-                last.Tiles[last.Tiles.Count - 1].Add(spec.Build());
-                return;
-            }
-
-            if (last.Tiles.Count >= TilesPerRow())
-            {
-                last = NewCategoryRow(current, first: false);
-                current.MountedRows.Add(last);
-                mountedPage.Add(last);
-            }
-
-            var tile = new ControlTile { Enabled = true };
-            last.Add(tile);
-            tile.Add(spec.Build());
-            current.MountedCategory = last;
+            last.Tiles[0].Add(spec.Build());
+            FitCategory(current);
         }
 
         List<ControlCategory> BuildCategoryRows(CategorySpec spec)
         {
             spec.MountedRows.Clear();
             spec.MountedCategory = null;
-            var packed = PackTiles(spec.Controls);
-            if (packed.Count == 0)
+            if (spec.Controls.Count == 0)
                 return spec.MountedRows;
 
-            var perRow = TilesPerRow();
-            for (var i = 0; i < packed.Count; i += perRow)
+            var cols = ColumnsFor(spec);
+            var row = NewCategoryRow(spec, first: true);
+            var tile = new ControlTile { Enabled = true };
+            row.Add(tile);
+            foreach (var control in spec.Controls)
+                tile.Add(control.Build());
+
+            spec.MountedRows.Add(row);
+            spec.MountedCategory = row;
+            spec.MountedColumns = cols;
+            FitCategory(spec);
+            return spec.MountedRows;
+        }
+
+        static void FitCategory(CategorySpec spec)
+        {
+            if (spec.MountedRows.Count == 0)
+                return;
+
+            var cols = ColumnsFor(spec);
+            var tileWidth = TerminalWindowLayout.ContentWidth(WindowWidth());
+            // Height matches the LTR grid when cols>1; ChainLayoutPostfix
+            // places that grid after Master’s vertical stack each Layout.
+            var tileHeight = InternalTileHeight(spec.Controls, cols);
+            var row = spec.MountedRows[0];
+            var tiles = row.Tiles;
+            if (tiles.Count > 0)
+                TerminalTileCompactor.ApplyTile(tiles[0], tileWidth, tileHeight, cols);
+
+            TerminalTileCompactor.ApplyRow(
+                row,
+                tileHeight,
+                header: true,
+                subheader: !string.IsNullOrEmpty(spec.Subheader));
+            spec.MountedColumns = cols;
+        }
+
+        static float ControlHeight(ControlSpec control)
+        {
+            var weight = control.Weight;
+            return weight == TileWeight.Wide
+                ? TerminalWindowLayout.WideControlHeight
+                : weight == TileWeight.Standard
+                    ? TerminalWindowLayout.StandardControlHeight
+                    : TerminalWindowLayout.CompactControlHeight;
+        }
+
+        /// <summary>
+        /// Content-hugging height for one tile whose controls wrap into
+        /// <paramref name="columns"/> internal columns (row-major). Wide
+        /// controls take a full row.
+        /// </summary>
+        static float InternalTileHeight(List<ControlSpec> controls, int columns)
+        {
+            if (controls == null || controls.Count == 0)
+                return TerminalWindowLayout.TilePadding.Y + TerminalWindowLayout.CompactControlHeight;
+            if (columns < 1)
+                columns = 1;
+
+            var stack = 0f;
+            var i = 0;
+            while (i < controls.Count)
             {
-                var row = NewCategoryRow(spec, first: i == 0);
-                var count = Math.Min(perRow, packed.Count - i);
-                for (var t = 0; t < count; t++)
+                if (controls[i].Weight == TileWeight.Wide)
                 {
-                    var tile = new ControlTile { Enabled = true };
-                    row.Add(tile);
-                    foreach (var control in packed[i + t])
-                        tile.Add(control.Build());
+                    if (stack > 0f)
+                        stack += TerminalWindowLayout.ControlSpacing;
+                    stack += ControlHeight(controls[i]);
+                    i++;
+                    continue;
                 }
 
-                spec.MountedRows.Add(row);
+                var rowCount = Math.Min(columns, controls.Count - i);
+                for (var c = 0; c < rowCount; c++)
+                {
+                    if (controls[i + c].Weight == TileWeight.Wide)
+                    {
+                        rowCount = c;
+                        break;
+                    }
+                }
+
+                if (rowCount < 1)
+                    rowCount = 1;
+
+                var rowH = 0f;
+                for (var c = 0; c < rowCount; c++)
+                {
+                    var h = ControlHeight(controls[i + c]);
+                    if (h > rowH)
+                        rowH = h;
+                }
+
+                if (stack > 0f)
+                    stack += TerminalWindowLayout.ControlSpacing;
+                stack += rowH;
+                i += rowCount;
             }
 
-            spec.MountedCategory = spec.MountedRows[spec.MountedRows.Count - 1];
-            return spec.MountedRows;
+            return TerminalWindowLayout.TilePadding.Y + stack;
         }
 
         static ControlCategory NewCategoryRow(CategorySpec spec, bool first)
@@ -641,79 +994,25 @@ public static class TerminalConfigRegistry
         }
 
         /// <summary>
-        /// Master’s <c>ControlCategory</c> is a fixed-height horizontal scroller
-        /// (300×250 tiles, 12px gap). The terminal’s minimum width (1044) fits
-        /// two tiles after the mod list. Extra tiles go on new category rows.
-        /// Column count follows screen width so a stretched terminal on a wide
-        /// display picks up more columns without assuming a maximized window
-        /// on 1080p.
+        /// Internal column count for one section. Null uses the page-wide
+        /// wrap so <see cref="Reflow"/> can detect a window-driven change.
         /// </summary>
-        static int TilesPerRow()
+        static int TilesPerRow(CategorySpec spec)
         {
-            const float tile = 300f;
-            const float gap = 12f;
-            const float chrome = 400f;
-            const float minWindow = 1044f;
-            var screen = SafeScreenWidth();
-            var window = Math.Max(minWindow, screen - 80f);
-            window = Math.Min(window, Math.Max(minWindow, screen * 0.55f));
-            var content = Math.Max(tile, window - chrome);
-            var n = (int)((content + gap) / (tile + gap));
-            if (n < 1)
-                n = 1;
-            if (n > 6)
-                n = 6;
-            return n;
+            return ColumnsFor(spec);
         }
 
-        static float SafeScreenWidth()
+        static float WindowWidth()
         {
-            try
-            {
-                if (!RichHudClient.Registered)
-                    return 1920f;
-                HudMain.Init();
-                var width = HudMain.ScreenDimHighDPI.X;
-                return width > 1f ? width : 1920f;
-            }
-            catch
-            {
-                return 1920f;
-            }
+            return windowSize.X > 1f ? windowSize.X : TerminalWindowLayout.MinWindowWidth;
         }
 
-        static List<List<ControlSpec>> PackTiles(List<ControlSpec> controls)
+        static int ColumnsFor(CategorySpec spec)
         {
-            var tiles = new List<List<ControlSpec>>();
-            List<ControlSpec> current = null;
-            var kind = TileWeight.Compact;
-            foreach (var control in controls)
-            {
-                if (current == null || !CanFit(current.Count, kind, control.Weight))
-                {
-                    current = new List<ControlSpec>();
-                    tiles.Add(current);
-                    kind = control.Weight;
-                }
-                else if ((int)control.Weight > (int)kind)
-                {
-                    kind = control.Weight;
-                }
-
-                current.Add(control);
-            }
-
-            return tiles;
-        }
-
-        static bool CanFit(int count, TileWeight tileKind, TileWeight incoming)
-        {
-            if (count == 0)
-                return true;
-            if (tileKind == TileWeight.Wide || incoming == TileWeight.Wide)
-                return false;
-            var limit = tileKind == TileWeight.Standard || incoming == TileWeight.Standard ? 2 : 3;
-            return count < limit;
+            return TerminalWindowLayout.ColumnsFor(
+                WindowWidth(),
+                spec == null ? 0 : spec.Columns,
+                spec == null ? 0f : spec.SeparateAt);
         }
 
         TerminalSlider BuildSlider(ControlSpec spec, string label, float min, float max, float step, bool integer, Func<float> get, Action<float> set, string description)
@@ -891,6 +1190,7 @@ public static class TerminalConfigRegistry
             // this client returns EntryData<object>. If net10 binds the Func,
             // Update assigns it every tick, InvalidCastException, ExceptionHandler
             // reloads, and the terminal closes. Selection is push-only.
+            // Open-list height is tightened in TerminalTileCompactor.FitDropdownList.
             dropdown.ControlChangedHandler = (sender, _) =>
             {
                 if (pulling)
@@ -1010,6 +1310,9 @@ public static class TerminalConfigRegistry
         {
             public string Header;
             public string Subheader;
+            public int Columns;
+            public float SeparateAt;
+            public int MountedColumns;
             public readonly List<ControlSpec> Controls = new();
             public readonly List<ControlCategory> MountedRows = new();
             public ControlCategory MountedCategory;

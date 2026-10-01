@@ -40,7 +40,7 @@ internal static class DirectionalVolumeShadows
     {
         Timer.Poll(MyRender11.RC.DeviceContext);
         valid = false;
-        if (!Requested || VolumetricMediumRegistry.Capture(out _).Length == 0) return;
+        if (!Requested || !VolumetricMediumRegistry.HasEnabledMedia) return;
         if (MyRender11.MultisamplingEnabled) { Status = "Unsupported MSAA"; return; }
         FrameTemporal.EnsureSnapshot();
         var sun = (Vector3D)FrameTemporal.SunToward;

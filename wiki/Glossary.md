@@ -23,7 +23,9 @@
 | Complementary depth | Hardware depth; `compute_depth` turns it into positive view Z. |
 | Fail closed | On conflict, keep Keen/Anomaly default; do not last-writer-wins. |
 | Framework gap | Pack workaround the next shader will also need. File on Anomaly (`Docs/Extensibility.md` Slice AI, [[Framework-gaps]]) in the same turn. |
-| Slice AI | Extras-CB sun (`AnomalySunColor`) / IsolatedMix `LBuffer` units / `AnomalyMarchSteps` / `AnomalySunVisibility`. Shipped. |
+| Slice AI | Extras-CB sun (`AnomalySunColor`) / IsolatedMix `LBuffer` units / `AnomalyMarchSteps` / `AnomalyVolumeViewLod` / `AnomalySunVisibility`. Shipped. |
 | Slice AJ | Extras-CB night fill (`AnomalySkyAmbient` = `SunColor * 0.028` / `AnomalyVolumeAmbient`). Shipped. Do not hdr-lift `AnomalySkyLuma`. Do not scale by `AmbientForwardPass`. |
+| Slice AS | AfterAtmosphere empty skip. Extras `AnomalyVolumeSkipFloor` / `AnomalyVolumeSkipMul` (320 B tail). Helpers `AnomalyVolumeSkipDt` / `AnomalyVolumeAdvance`. Fail closed. Do not bake an SDF Texture3D. Occupancy source remains pack weather. |
+| Slice AT | Planet-shell weather UV. Helper shipped (`AnomalyPlanetShellUv` / `AnomalyPlanetSamplePos`: east/north metres, plus `ChartWeight` / `ChartDir` for a longitude chart). Shape tiles use `AnomalyPlanetShapeArcMetres` (azimuthal from the nearer pole). Do not floor `cos(lat)`. Packs must not invent a global `centerH` sphere or `dot(dir, axis)` weather UV. Clouds: 64×64×2 coverage; the climate map wraps in longitude. |
 | Anomaly Shaders | Rich HUD terminal root. Framework pages live under **Anomaly**; packs add sibling titles. Master optional. |
 | Hud overlay | Corner status via `HudOverlayRegistry`. Master optional; getter is a cached string, not a config write. |

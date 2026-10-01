@@ -25,12 +25,20 @@ fog style; Clear and Heavy Fantasy are also available.
   depth-aware reconstruction, near-surface refinement and one linear HDR `L + T * scene`
   composite after atmosphere and before transparency.
 - Airtight room cells are captured on the simulation thread regardless of oxygen amount.
-  Uploaded cells are cached by topology; transforms refresh for moving grids. Missing/stale
+  Sorted cells and bounds are cached by topology; unchanged frames update only grid transforms
+  in a reusable discard-written buffer. Deferred draws retain their original buffer contents.
+  Membership, cell-array identity or generation changes rebuild the immutable cell buffer. Missing/stale
   data reports degraded exclusion. Membership/topology changes reject volume history.
 - Clouds retain their renderer outside the shared distance. A successful frame transaction
   clips its near interval; failure restores the full legacy interval. Its surface-facing
   `volumeSunShadow` product remains published, while the legacy whole-scene attenuation
   stamp is disabled during joint rendering to avoid duplicate attenuation.
+- Before granting the near interval, the host checkpoints scene color, reactive state, velocity
+  and writable fullscreen history textures. If the shared composite fails after legacy rendering,
+  it restores those resources, resets every frozen/current interval callback and replays the
+  AfterAtmosphere fullscreen programs once with the full legacy interval. Successful frames retain
+  their existing order. The GPU copies add memory and bandwidth cost that still needs live timing;
+  copy failure or device loss cannot guarantee a recovered image, and device loss is rethrown.
 - Fog uses planet height, world-anchored advected noise, boundary/distance fades and
   anisotropic sun scattering in Anomaly lighting units. Density, height, variation, wind,
   tint, phase, contrast, distance, quality and debug controls have their own Atmosphere page.
@@ -77,6 +85,13 @@ rejection, invalid provider values, scene-depth clipping, finite camera-turn mot
 zero-density composition. The spatial light kernel tracks a moving density boundary.
 Frame settings are immutable, and the shadow-bias test includes a receiver just behind
 a blocker. These checks do not establish real scene geometry or performance.
+
+**2026-09-20 compile fix:** Joint fog+clouds failed in-game (`AnomalyLinearSampler`
+undeclared in CloudOctree under volume kernels). `AnomalyVolumeCommon.hlsli` aliases
+it to `VolumeLinearClamp`. WARP fog+clouds passes 113 after the alias.
+
+**2026-09-20 CB slot fix:** Enable then failed at Bind (`IndexOutOfRangeException`) —
+Keen CB slots are 0–7 only; shadow constants moved from `b8` to `b5`.
 SE-FG additionally passes 12 HDR/SDR gradient/star checks plus eight reactive-mask checks.
 The color fixture explicitly seeds its no-HUD copy, matching production behavior.
 

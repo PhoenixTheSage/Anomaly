@@ -234,7 +234,7 @@ RWStructuredBuffer<float4> R:register(u0);
         using(var uav=new UnorderedAccessView(d,output))
         using(var stage=new Buffer(d,new BufferDescription{SizeInBytes=16,CpuAccessFlags=CpuAccessFlags.Read,Usage=ResourceUsage.Staging}))
         {
-            var c=d.ImmediateContext; c.ComputeShader.Set(shader); c.ComputeShader.SetConstantBuffer(8,cb);
+            var c=d.ImmediateContext; c.ComputeShader.Set(shader); c.ComputeShader.SetConstantBuffer(5,cb);
             c.ComputeShader.SetShaderResources(20,srv,srv,srv); c.ComputeShader.SetSampler(5,sampler);
             c.ComputeShader.SetUnorderedAccessView(0,uav); c.Dispatch(1,1,1); c.ComputeShader.SetUnorderedAccessView(0,null);
             c.ComputeShader.SetShaderResources(20,new ShaderResourceView[3]); c.CopyResource(output,stage);

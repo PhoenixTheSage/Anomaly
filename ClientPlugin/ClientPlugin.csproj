@@ -1,4 +1,4 @@
-﻿<Project>
+<Project>
   <!-- VS 17 MSBuild (ReSharper / Build Tools) cannot resolve .NET 10's
        WorkloadAutoImportPropsLocator. This plugin does not use workloads. -->
   <PropertyGroup>
@@ -25,8 +25,8 @@
     <NoWarn>$(NoWarn);CS0811</NoWarn>
 
     <!-- Default versions; overridden by Version.Build.props  -->
-    <AssemblyVersion>1.6.0.0</AssemblyVersion>
-    <FileVersion>1.6.0.0</FileVersion>
+    <AssemblyVersion>1.10.0.0</AssemblyVersion>
+    <FileVersion>1.10.0.0</FileVersion>
     <PathSeparator Condition="$([MSBuild]::IsOSPlatform('Windows'))">\</PathSeparator>
     <PathSeparator Condition="!$([MSBuild]::IsOSPlatform('Windows'))">/</PathSeparator>
 

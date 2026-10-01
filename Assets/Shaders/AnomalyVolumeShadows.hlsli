@@ -6,7 +6,7 @@ Texture2D<float> AnomalyVolumeShadow0 : register(t20);
 Texture2D<float> AnomalyVolumeShadow1 : register(t21);
 Texture2D<float> AnomalyVolumeShadow2 : register(t22);
 SamplerComparisonState AnomalyVolumeShadowSampler : register(s5);
-cbuffer AnomalyVolumeShadowConstants : register(b8)
+cbuffer AnomalyVolumeShadowConstants : register(b5)
 {
     row_major float4x4 AnomalyVolumeShadowMatrix[3];
     float4 AnomalyVolumeShadowRadii; // xyz radii; w current-frame validity

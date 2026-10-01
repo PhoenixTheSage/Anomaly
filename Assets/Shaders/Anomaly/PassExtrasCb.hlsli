@@ -45,7 +45,11 @@ cbuffer AnomalyLightingExtras : register(MERGE(b, ANOMALY_EXTRAS_CB_SLOT))
     // IsolatedMix cap). Never 0.90 × AtmosphereRadius.
     float AnomalyPlanetAirTop;
     float AnomalyVisualAtmoCeil;
-    float2 AnomalyPlanetAtmospherePad;
+    // Slice AS — AfterAtmosphere empty skip. Occupancy below Floor
+    // takes Mul × dt. 0 / ≤1 fail closed to helper defaults (0.38 / 6).
+    // Named tail of the 320 B extras; do not grow the CB.
+    float AnomalyVolumeSkipFloor;
+    float AnomalyVolumeSkipMul;
 };
 
 #endif

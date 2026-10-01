@@ -8,9 +8,9 @@ Velocity stays a typed convenience: bind `ClientPlugin.Velocity.VelocityRegistry
 
 | Type | Role |
 |------|------|
-| `ISharedBuffer` | `IsAvailable`, Keen `ISrvBindable` as `object Srv`, `NativeResource`, `Width`/`Height` |
+| `ISharedBuffer` | `IsAvailable`, Keen `ISrvBindable` as `object Srv`, `NativeResource`, `Width`/`Height`/`Depth`/`Format` |
 | `BufferCatalog` | `Active(name)` / `Set` (Anomaly internals) / `Publish` / `Unpublish` / `RegisterLifetime` |
-| `PublishedBuffer` | Pack-owned `ISharedBuffer` wrapper for `Publish` |
+| `PublishedBuffer` | Pack-owned `ISharedBuffer` wrapper. `Publish` is 2D only (unique name — pack `GetMethod("Publish")` must not see overloads). `Publish3D` for Texture3D atlases; `PublishBake` for UAV bake; `PublishStructured` for node pools |
 
 Well-known names:
 

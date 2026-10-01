@@ -63,7 +63,7 @@ float3 compute_screen_ray(float2 uv) {
                     + up[face] * ((i % 4 < 2 ? -1 : 1) * .999999f);
             source.AppendFormat(culture,"float3({0:R},{1:R},{2:R}){3}\n",points[i].X,points[i].Y,points[i].Z,i==count-1?"":",");
         }
-        source.Append("};\n[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID) { frame_.Screen.resolution=float2(1920,1080); frame_.Screen.offset=float2(7,11); frame_.Environment.projection_matrix=(float4x4)0; frame_.Environment.projection_matrix._11=1.3; frame_.Environment.projection_matrix._22=2.1; frame_.Environment.projection_matrix._31=(id.x%7-3.0)/1920; frame_.Environment.projection_matrix._32=(id.x%5-2.0)/1080; float2 pixel=float2(100.5+id.x,200.5+id.x); float3 receiver=AnomalyLightingViewPosUnjittered(pixel,10+id.x); float2 back=AnomalyViewToDepthUv(receiver)*frame_.Screen.resolution; uint face; float2 uv; AnomalyPointShadowFaceUv(points[id.x],face,uv); float v=AnomalyPointShadowVisibility(Atlas,0,points[id.x],face+1.2,0.04)+2*AnomalyPointShadowVisibility(Atlas,1,points[id.x],face+10.8,0.04)+4*AnomalyPointShadowVisibility(Atlas,3,points[id.x],100,0.04); float edge0=AnomalyPointShadowVisibility(Atlas,2,float3(-0.5,0,1),50,0); float edge1=AnomalyPointShadowVisibility(Atlas,2,float3(0,0,1),50,0); float edge2=AnomalyPointShadowVisibility(Atlas,2,float3(0.5,0,1),50,0); if(abs(edge0-0.125)>0.0001 || abs(edge1-0.5)>0.0001 || abs(edge2-0.875)>0.0001) v=-2; Results[id.x]=float4(uv,face,any(abs(back-pixel)>0.002)?-1:v); }");
+        source.Append("};\n[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID) { frame_.Screen.resolution=float2(1920,1080); frame_.Screen.offset=float2(7,11); frame_.Environment.projection_matrix=(float4x4)0; frame_.Environment.projection_matrix._11=1.3; frame_.Environment.projection_matrix._22=2.1; frame_.Environment.projection_matrix._31=(id.x%7-3.0)/1920; frame_.Environment.projection_matrix._32=(id.x%5-2.0)/1080; float2 pixel=float2(100.5+id.x,200.5+id.x); float3 receiver=AnomalyLightingViewPosUnjittered(pixel,10+id.x); float2 back=AnomalyViewToDepthUv(receiver)*frame_.Screen.resolution; uint face; float2 uv; AnomalyPointShadowFaceUv(points[id.x],face,uv); float v=AnomalyPointShadowVisibility(Atlas,0,points[id.x],face+1.2,0.04)+2*AnomalyPointShadowVisibility(Atlas,1,points[id.x],face+10.8,0.04)+4*AnomalyPointShadowVisibility(Atlas,3,points[id.x],100,0.04); float edge0=AnomalyPointShadowVisibilitySoft(Atlas,2,float3(-0.5,0,1),50,0); float edge1=AnomalyPointShadowVisibilitySoft(Atlas,2,float3(0,0,1),50,0); float edge2=AnomalyPointShadowVisibilitySoft(Atlas,2,float3(0.5,0,1),50,0); if(abs(edge0-0.125)>0.0001 || abs(edge1-0.5)>0.0001 || abs(edge2-0.875)>0.0001) v=-2; if(AnomalyPointShadowVisibility(Atlas,2,float3(-0.5,0,1),50,0)!=0 || AnomalyPointShadowVisibility(Atlas,2,float3(0,0,1),50,0)!=1 || AnomalyPointShadowVisibility(Atlas,2,float3(0.5,0,1),50,0)!=1) v=-3; Results[id.x]=float4(uv,face,any(abs(back-pixel)>0.002)?-1:v); }");
         using (var pixels = new DataStream(24*13*16,true,true))
         {
         for(int y=0;y<13;y++) for(int x=0;x<24;x++)
@@ -96,13 +96,16 @@ float3 compute_screen_ray(float2 uv) {
                 for(int i=0;i<count;i++)
                 {
                     var actual=stream.Read<VRageMath.Vector4>();
+                    if(actual.W<0) throw new Exception((actual.W==-1 ? "Depth reconstruction" : actual.W==-2 ? "Soft shadow tent filter" : "Point shadow edge")+" mismatch at sample "+i);
                     int face=i/100;
                     var view=M.CreateLookAt(V.Zero,forward[face],up[face]);
                     var projection=M.CreatePerspectiveFieldOfView(VRageMath.MathHelper.PiOver2,1,.02f,20);
                     var p=VRageMath.Vector4.Transform(new VRageMath.Vector4(points[i],1),view*projection);
                     float x=p.X/p.W*.5f+.5f, y=.5f-p.Y/p.W*.5f;
-                    if(Math.Abs(actual.X-x)>1e-5 || Math.Abs(actual.Y-y)>1e-5 || actual.Z!=face || Math.Abs(actual.W-6)>1e-5)
+                    if(Math.Abs(actual.X-x)>1e-5 || Math.Abs(actual.Y-y)>1e-5 || actual.Z!=face)
                         throw new Exception("Atlas projection mismatch at sample "+i+": actual="+actual+" expected="+x+","+y+","+face);
+                    if(Math.Abs(actual.W-6)>1e-5)
+                        throw new Exception("Atlas visibility/row isolation mismatch at sample "+i+": actual="+actual.W+" expected=6");
                 }
             }
             finally { context.UnmapSubresource(staging,0); stream.Dispose(); }

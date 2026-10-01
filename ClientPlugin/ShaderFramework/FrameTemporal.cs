@@ -189,6 +189,26 @@ public static class FrameTemporal
     }
 
     /// <summary>
+    /// Slice AS empty-occupancy floor written as
+    /// <c>AnomalyVolumeSkipFloor</c>. Occupancy below this takes
+    /// <see cref="VolumeSkipMulDefault"/> × dt. Helper fail-closes to
+    /// the same value when extras are 0.
+    /// </summary>
+    public const float VolumeSkipFloorDefault = 0.38f;
+
+    /// <summary>
+    /// Slice AS empty-air step multiply written as
+    /// <c>AnomalyVolumeSkipMul</c>. Never enlarge dt inside a cell.
+    /// </summary>
+    public const float VolumeSkipMulDefault = 6f;
+
+    /// <summary>Written as <c>AnomalyVolumeSkipFloor</c>.</summary>
+    public static float VolumeSkipFloor => VolumeSkipFloorDefault;
+
+    /// <summary>Written as <c>AnomalyVolumeSkipMul</c>.</summary>
+    public static float VolumeSkipMul => VolumeSkipMulDefault;
+
+    /// <summary>
     /// Floor for <see cref="SkyAmbient"/> as a fraction of unlifted sun
     /// (HZD / planet night fill ≈ 3%).
     /// </summary>

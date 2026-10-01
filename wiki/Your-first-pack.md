@@ -31,6 +31,8 @@ public void LoadAssets(IReadOnlyDictionary<string, string> assets)
 
 If Anomaly is missing, `GetType` is null and the pack is inert. Do not set `Reference="true"` on the HLSL zip — that flag is for managed DLLs.
 
+`PublishedBuffer.Publish` is the unique 2D method. Bind it with the four-arg signature (`object`, `IntPtr`, `int`, `int`). Do not call `GetMethod("Publish")` by name alone — extra 3D/UAV methods use `Publish3D` / `PublishBake`.
+
 ## 3. Pack folder
 
 ```
@@ -60,7 +62,7 @@ Fullscreen/           Anomaly-drawn programs (not Keen overlays)
 
 ## 5. Optional terminal page
 
-When Rich HUD Master is in the world, players open **Anomaly Shaders** in the main terminal. Anomaly’s own pages live under **Anomaly**. Request a page named after your pack so it sits beside that folder. Do not vendor Rich HUD yourself.
+When Rich HUD Master is in the world, players open **Anomaly Shaders** in the main terminal. Anomaly’s own pages live under **Anomaly**. Request a page named after your pack so it sits beside that folder. Do not vendor Rich HUD yourself. Settings tiles wrap from the live terminal window size after you release the resize edge — you do not need a pack-side layout pass unless you subscribe to `OnResized`.
 
 ```csharp
 var t = assembly.GetType("ClientPlugin.RichHud.TerminalConfigRegistry");

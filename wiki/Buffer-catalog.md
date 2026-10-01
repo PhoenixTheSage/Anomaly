@@ -37,7 +37,7 @@ foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
 
 ## Publish (pack-owned names)
 
-`Publish(packId, name, buffer)` / `Unpublish` / `UnpublishAll`. Reserved names fail closed. Two pack ids on the same name fail closed. Use `PublishedBuffer` as the `ISharedBuffer`. `RegisterLifetime` is DRS / device-end — drop your own `OnDeviceReset` Harmony.
+`BufferCatalog.Publish(packId, name, buffer)` / `Unpublish` / `UnpublishAll`. Reserved names fail closed. Two pack ids on the same name fail closed. Use `PublishedBuffer` as the `ISharedBuffer`. `PublishedBuffer.Publish` is **2D only** (unique name — do not `GetMethod("Publish")` if Anomaly later adds overloads; bind the four-arg signature). Texture3D is `Publish3D`; UAV bake is `PublishBake`; node pools are `PublishStructured`. `RegisterLifetime` is DRS / device-end — drop your own `OnDeviceReset` Harmony.
 
 > **Warning — Jitter.** SE-DLSS owns Halton jitter (Projection M31/M32). Anomaly reads it into `FrameTemporal` and republishes an unjittered VP on the extras CB. Linearize uses M33/M43 only. Do not steal jitter.
 

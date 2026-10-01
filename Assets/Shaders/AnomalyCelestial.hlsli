@@ -6,6 +6,9 @@
 
 Texture2D<float> AnomalyCelestialDepth : register(t0);
 StructuredBuffer<float4> AnomalyCelestialData : register(t1);
+// Optional pack art (Texture2DArray). Missing/unbound samples as transparent black.
+Texture2DArray<float4> AnomalyCelestialArt : register(t2);
+SamplerState AnomalyCelestialArtSampler : register(s0);
 cbuffer AnomalyCelestialView : register(b6)
 {
     float4 CelestialViewR0, CelestialViewR1, CelestialViewR2;

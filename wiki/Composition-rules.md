@@ -32,9 +32,10 @@ Iris packs are exclusive. Pulsar loads many plugins. These rules are the law so 
 | Last-writer-wins Replace on a slot | Same as silent Overlay overwrite. |
 | Pack-private IsolatedMix HDR scale / Keen `frame_.Light` lighting | Slice AI extras illuminant. `Frame.hlsli` layout is not a public contract. |
 | Per-pack march LOD that floors `AnomalySafetyScale` or uses per-ray `tMin` | Slice AI helper. Grazing chords and spectator slams TDR otherwise. |
+| Bake a signed-distance Texture3D from live weather on the render thread | Slice AS `AnomalyVolumeSkipDt`. A 200 ms static SDF cannot track wrapping weather and TDRs the test card. |
 | Sample Keen shadow cascades from AfterAtmosphere for a planet disk | Cascades are camera-local. `AnomalySunTransmittance` (fail closed to Lambert `AnomalySunVisibility`, wrap capped at 12% of radius). Dest darken is Slice AN `volumeSunShadow`. |
 | Scale `AnomalySkyAmbient` by `AmbientForwardPass` | Keen adds probe ambient into that field. Night IsolatedMix becomes sun-scale. Use `SunColor * 0.028` for **in-cloud day fill** only. |
-| Treat `AnomalyVolumeAmbient` (2.8% sun) as planet-night illuminant | IsolatedMix over dest≈0 is headlights. `AnomalyVolumeNight` (AJ × 0.05) + monotonic squared-limb `AnomalySunTransmittance`. |
+| Treat `AnomalyVolumeAmbient` (2.8% sun) as planet-night illuminant | IsolatedMix over dest≈0 is headlights. `AnomalyVolumeNight` (AJ × 0.02) + monotonic squared-limb `AnomalySunTransmittance`. |
 | Hard `μ≤0` / mid-chord vis for IsolatedMix night | Snaps clouds to night while Keen atmosphere is still day-lit. Per-sample `sqrt(2h/r)` twilight. |
 | Return raw `geo` when `μ≤0` and `geo*exp(-OD)` when `μ>0` | Bright band on the night side of `μ=0`, then IsolatedMix HDR wall. Symmetric `smoothstep(-t, t)` then `geo²`. |
 | `smoothstep(-t, t*0.45, μ)` / cap twilight at 0.18 | vis=1 ~5° into day while Keen is still twilight; 0.18 sat inside Pertam's sunset. Cap 0.40. |
@@ -43,6 +44,7 @@ Iris packs are exclusive. Pulsar loads many plugins. These rules are the law so 
 | Gate planet night with a sphere-hit `tNear > 1` | Grazing miss + HashIgn IsolatedMix HDR sun at low alpha: white grain on dest (terrain included). Air-limb `sqrt(2h/r)` twilight, not a hard `μ≤0` cut. |
 | Clip IsolatedMix at `AtmosphereRadius` / cloud inner sphere | Proxy does not write depth. Inner is density. GBuffer `AnomalyLinearDepth`; planet body from orbit only. Height uses Slice AK extras. |
 | AfterLighting IsolatedSub `vis *= (1-hit)` every step / Harmony-unhide first-person body | First-hit then break. MeshDepth interpolates world (no DEPTH_ONLY z-clamp). IsolatedSub mins CubeVisibility when RequestPointShadows > 0. Contact still owns GBuffer hits. GBuffer never contains the FP head. |
+| Light AfterLighting sky / far-plane LBuffer as GI / environment | Complementary-depth 0 reconstructs to ~far. That texel may still hold last-frame atmosphere. `AnomalyIsForeground` then `AnomalyForegroundCount` ≥ 6 (not 9/9). Gather color is mip 0 only. Do not use half-res `hiZ` as the hit depth at a sky UV. |
 
 > **Warning — Exclusive overlay vs velocity.** Velocity inject still applies to a replaced Standard pixel only if that pixel still includes `Passes/PixelStage.hlsli`. A full-file replace that omits the include opts out of extras.
 

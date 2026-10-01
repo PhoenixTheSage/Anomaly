@@ -156,6 +156,8 @@ sealed class StructuredSharedBuffer : ISharedBuffer
     public IntPtr NativeResource => native;
     public int Width => count;
     public int Height => 1;
+    public int Depth => 1;
+    public int Format => 0;
 
     public void Publish(ISrvBindable bindable, int elementCount)
     {

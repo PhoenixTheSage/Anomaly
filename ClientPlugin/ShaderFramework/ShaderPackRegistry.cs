@@ -124,8 +124,22 @@ public static class ShaderPackRegistry
     /// </summary>
     public static void Register(string id, string root)
     {
+        TryRegister(id, root, null, out _);
+    }
+
+    /// <summary>
+    /// Returns whether this registration was scanned and accepted. An optional
+    /// required fullscreen program must be present before the pack is queued.
+    /// Acceptance may precede Init/application and does not certify compilation.
+    /// </summary>
+    public static bool TryRegister(string id, string root, string requiredFullscreenProgramId, out string error)
+    {
+        error = null;
         if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(root))
-            return;
+        {
+            error = "Pack id and root are required";
+            return false;
+        }
         var applied = false;
         lock (Gate)
         {
@@ -133,14 +147,26 @@ public static class ShaderPackRegistry
             {
                 var resolved = ResolveRoot(root, id);
                 if (resolved == null)
-                    return;
+                {
+                    error = "Could not resolve pack root: " + root;
+                    return false;
+                }
                 if (!TryReadManifest(Path.Combine(resolved, ManifestName), out var manifest))
                 {
-                    Warn("pack '" + id + "' missing or invalid " + ManifestName + " at " + resolved);
-                    return;
+                    error = "pack '" + id + "' missing or invalid " + ManifestName + " at " + resolved;
+                    Warn(error);
+                    return false;
                 }
 
                 var pack = ScanPack(id, resolved, manifest, local: id.StartsWith("local:", StringComparison.OrdinalIgnoreCase));
+                if (!string.IsNullOrWhiteSpace(requiredFullscreenProgramId) &&
+                    !pack.FullscreenPrograms.Exists(p => string.Equals(p.Id, requiredFullscreenProgramId,
+                        StringComparison.OrdinalIgnoreCase)))
+                {
+                    error = "pack '" + id + "' missing required fullscreen program '" + requiredFullscreenProgramId + "'";
+                    Warn(error);
+                    return false;
+                }
                 Pending[pack.ManifestId] = pack;
                 if (extrasBytes != null)
                 {
@@ -152,6 +178,8 @@ public static class ShaderPackRegistry
             {
                 LastError = e.GetType().Name + ": " + e.Message;
                 Warn("Register(" + id + "): " + LastError);
+                error = LastError;
+                return false;
             }
         }
 
@@ -160,6 +188,7 @@ public static class ShaderPackRegistry
             ValidateStages();
             ShaderWarmup.Request();
         }
+        return true;
     }
 
     internal static void ScanLocalDrop(Func<string, string, string> getConfigPath)
@@ -1010,6 +1039,7 @@ public static class ShaderPackRegistry
             existing.OutputName = output;
             existing.Binds = spec.Binds;
             existing.Scale = spec.Scale > 0 ? spec.Scale : 1f;
+            existing.HistoryName = string.IsNullOrWhiteSpace(spec.History) ? null : spec.History.Trim();
         }
     }
 
@@ -1077,7 +1107,8 @@ public static class ShaderPackRegistry
                 Temporal = ReadJsonStringArray(obj, "temporal"),
                 Output = ReadJsonString(obj, "output"),
                 Binds = ReadJsonBinds(obj),
-                Scale = ReadJsonFloat(obj, "scale", 1f)
+                Scale = ReadJsonFloat(obj, "scale", 1f),
+                History = ReadJsonString(obj, "history")
             });
         }
 
@@ -2330,5 +2361,6 @@ public static class ShaderPackRegistry
         public string Output;
         public SrvBind[] Binds;
         public float Scale = 1f;
+        public string History;
     }
 }

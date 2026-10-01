@@ -380,7 +380,12 @@ public static class PointShadowPass
             if (db > Captured[b].Range * Captured[b].Range) db += 1e12;
             if (PreviousLights.Contains(Captured[a].ActorId)) da *= 0.81;
             if (PreviousLights.Contains(Captured[b].ActorId)) db *= 0.81;
+            // Among equals, prefer larger range so a dominant room light wins
+            // the single Low-quality atlas slot over tiny decorative bulbs.
             var comparison = da.CompareTo(db);
+            if (comparison != 0)
+                return comparison;
+            comparison = Captured[b].Range.CompareTo(Captured[a].Range);
             return comparison != 0 ? comparison : Captured[a].ActorId.CompareTo(Captured[b].ActorId);
         });
         var n = Math.Min(cap, order.Count);
@@ -534,6 +539,7 @@ public static class PointShadowPass
 
         var wantBoxes = worldBoxesRequested;
         var skipActor = LocalCharacter.Copy().ActorId;
+        var character = MyIDTracker<MyActor>.FindByID(skipActor);
         for (var i = 0; i < lights.Count; i++)
         {
             LightBoxes.Clear();
@@ -542,8 +548,17 @@ public static class PointShadowPass
             if (LightBoxes.Count > 0)
                 UploadBoxes(rc, LightBoxes);
 
+            // Always stamp the suit on every face when present. Floor receivers
+            // sample light→surface directions that can sit on an adjacent face
+            // from the body AABB (hard straight umbra cuts). Hemisphere skip
+            // looked cheap but clipped head/shoulders on the cast shadow.
+            var stampMesh = character != null && !character.IsDestroyed;
+
             for (var f = 0; f < 6; f++)
             {
+                if (!stampMesh && LightBoxes.Count == 0)
+                    continue;
+
                 // Light-relative geometry and world-axis faces have no dependency
                 // on the viewer. Subtract the light origin in double precision.
                 var viewProj = CubeFaceViewProj(Vector3.Zero, f, lights[i].Range);
@@ -570,7 +585,8 @@ public static class PointShadowPass
                     rc.Draw(36 * LightBoxes.Count, 0);
                 }
 
-                DrawLocalCharacterMesh(rc, lights[i].WorldPos);
+                if (stampMesh)
+                    DrawLocalCharacterMesh(rc, lights[i].WorldPos);
             }
         }
 
@@ -911,11 +927,17 @@ public static class PointShadowPass
         if (atlas?.Resource == null || rc.DeviceContext == null)
             return;
         Array.Clear(HeaderScratch, 0, HeaderScratch.Length);
+        var env = MyRender11.Environment?.Matrices;
         for (var i = 0; i < lights.Count && i < MaxLightCap; i++)
         {
-            HeaderScratch[i * 4 + 0] = lights[i].ViewPos.X;
-            HeaderScratch[i * 4 + 1] = lights[i].ViewPos.Y;
-            HeaderScratch[i * 4 + 2] = lights[i].ViewPos.Z;
+            // Re-transform with the live ViewAt0 so headers match Keen's
+            // WritePointlightConstants (same formula) at AfterLighting time.
+            var view = lights[i].ViewPos;
+            if (env != null)
+                view = Vector3.Transform(lights[i].WorldPos - env.CameraPosition, ref env.ViewAt0);
+            HeaderScratch[i * 4 + 0] = view.X;
+            HeaderScratch[i * 4 + 1] = view.Y;
+            HeaderScratch[i * 4 + 2] = view.Z;
             HeaderScratch[i * 4 + 3] = lights[i].Range;
         }
 

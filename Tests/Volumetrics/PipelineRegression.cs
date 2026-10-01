@@ -88,7 +88,7 @@ static class PipelineRegression
                 c.ClearUnorderedAccessView(volume.History.Uav,new SharpDX.Mathematics.Interop.RawVector4(expected*1.1f,expected*1.1f,expected*1.1f,1));
                 Action dispatch=()=> {
                     c.ClearState();Update(c,cb,frame);Update(c,providers,uniforms);
-                    c.ComputeShader.Set(shader);c.ComputeShader.SetConstantBuffer(6,cb);c.ComputeShader.SetConstantBuffer(7,providers);c.ComputeShader.SetConstantBuffer(8,shadowCb);
+                    c.ComputeShader.Set(shader);c.ComputeShader.SetConstantBuffer(6,cb);c.ComputeShader.SetConstantBuffer(7,providers);c.ComputeShader.SetConstantBuffer(5,shadowCb);
                     c.ComputeShader.SetShaderResources(0,depthSrv,light.Srv,volume.History.Srv,oldCoefficients.Srv);
                     c.ComputeShader.SetShaderResource(9,oldDepthSrv);c.ComputeShader.SetShaderResources(20,shadowSrv,shadowSrv,shadowSrv);
                     c.ComputeShader.SetSampler(0,linear);c.ComputeShader.SetSampler(2,linear);c.ComputeShader.SetSampler(5,compare);
@@ -173,7 +173,7 @@ RWStructuredBuffer<float4> RegressionOutput:register(u0);
                             c.ComputeShader.Set(integrate);c.ComputeShader.SetConstantBuffer(0,integrationCb);
                             c.ComputeShader.SetShaderResources(0,volume.Coefficients.Srv,volume.Source.Srv);
                             c.ComputeShader.SetUnorderedAccessView(0,volume.ScatteringTransmittance.Uav);c.Dispatch(1,1,1);c.ClearState();
-                            c.ComputeShader.Set(rs);c.ComputeShader.SetConstantBuffer(6,cb);c.ComputeShader.SetConstantBuffer(7,providers);c.ComputeShader.SetConstantBuffer(8,shadowCb);
+                            c.ComputeShader.Set(rs);c.ComputeShader.SetConstantBuffer(6,cb);c.ComputeShader.SetConstantBuffer(7,providers);c.ComputeShader.SetConstantBuffer(5,shadowCb);
                             c.ComputeShader.SetShaderResources(0,depthSrv,light.Srv,volume.History.Srv,oldCoefficients.Srv,volume.ScatteringTransmittance.Srv,volume.Source.Srv,volume.Coefficients.Srv,volume.Motion.Srv,volume.SunVisibility.Srv,volume.DepthSrv);
                             c.ComputeShader.SetShaderResources(20,shadowSrv,shadowSrv,shadowSrv);c.ComputeShader.SetSampler(0,linear);c.ComputeShader.SetSampler(5,compare);
                             c.ComputeShader.SetUnorderedAccessView(0,output);c.Dispatch(1,1,1);c.ClearState();c.CopyResource(result,staging);

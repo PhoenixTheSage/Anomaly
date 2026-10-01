@@ -21,4 +21,13 @@ public interface ISharedBuffer
     int Width { get; }
 
     int Height { get; }
+
+    /// <summary>
+    /// Texture3D depth, or 1 for 2D / structured. 0 is treated as 1.
+    /// Slice AO: brick atlases need this; Width/Height alone is not enough.
+    /// </summary>
+    int Depth { get; }
+
+    /// <summary>DXGI format enum as int, or 0 when unknown.</summary>
+    int Format { get; }
 }

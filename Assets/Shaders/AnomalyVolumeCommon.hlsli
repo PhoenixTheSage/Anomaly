@@ -29,6 +29,9 @@ cbuffer VolumeProviders : register(b7)
 SamplerState VolumeLinearClamp : register(s0);
 SamplerState AnomalyWrapSampler : register(s1);
 SamplerState AnomalyPointSampler : register(s2);
+// Volume kernels sample with the fullscreen linear name; alias it
+// onto the volume clamp linear so shared-medium compiles stay self-contained.
+#define AnomalyLinearSampler VolumeLinearClamp
 Texture2D<float> VolumeSceneDepth : register(t0);
 Texture3D<float> VolumeLightTau : register(t1);
 Texture3D<float4> VolumePreviousSource : register(t2);

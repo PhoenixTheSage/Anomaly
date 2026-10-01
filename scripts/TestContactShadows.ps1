@@ -41,7 +41,10 @@ RWStructuredBuffer<float4> Results : register(u0);
  float playerSkipped=AnomalyContactVisibilityExcludingPlayer(Blocker,Player,receiver,float3(0,0,1),L,length(toLight),.2,192);
  // The same pixels occupied by a wall in front of the character must remain.
  float foregroundPreserved=AnomalyContactVisibilityExcludingPlayer(Blocker,Floor,receiver,float3(0,0,1),L,length(toLight),.2,192);
- Results[id.x]=float4(full,floor,shortRay,excluded>.999 && abs(preserved-full)<.0001 && playerSkipped>.999 && abs(foregroundPreserved-full)<.0001 ? 1:0);
+ float softHard=AnomalyContactVisibilityExcludingPlayer(Blocker,Player,receiver,float3(0,0,1),L,length(toLight),.2,192,0);
+ float softOn=AnomalyContactVisibilityExcludingPlayer(Blocker,Player,receiver,float3(0,0,1),L,length(toLight),.2,192,4);
+ float softBlocker=AnomalyContactVisibilityExcludingPlayer(Blocker,Floor,receiver,float3(0,0,1),L,length(toLight),.2,192,4);
+ Results[id.x]=float4(full,floor,shortRay,excluded>.999 && abs(preserved-full)<.0001 && playerSkipped>.999 && abs(foregroundPreserved-full)<.0001 && abs(softHard-playerSkipped)<.0001 && softOn>=0 && softOn<=1.001 && (id.x<110 || id.x>145 || softBlocker<=0.35) ? 1:0);
 }";
   using(var pixels=new DataStream(256*64*4,true,true))
   using(var floorPixels=new DataStream(256*64*4,true,true))

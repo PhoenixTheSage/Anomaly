@@ -21,7 +21,7 @@ Keen’s order, not a pack’s. Velocity is published at `MyRenderScheduler.Done
 
 ## Jitter
 
-SE-DLSS owns Halton jitter (`Projection.M31` / `M32`). `FrameTemporal` reads it and republishes `AnomalyUnjitteredViewProj` / `AnomalyPrevViewProj` / `AnomalyLightingJitter` / `AnomalySafetyScale` / `AnomalySunColor` / `AnomalySkyAmbient` / `AnomalyPlanetAirTop` / `AnomalyVisualAtmoCeil` on the extras CB (lighting, atmosphere, post — append-only, **320 B**). Do not patch the projection.
+SE-DLSS owns Halton jitter (`Projection.M31` / `M32`). `FrameTemporal` reads it and republishes `AnomalyUnjitteredViewProj` / `AnomalyPrevViewProj` / `AnomalyLightingJitter` / `AnomalySafetyScale` / `AnomalySunColor` / `AnomalySkyAmbient` / `AnomalyPlanetAirTop` / `AnomalyVisualAtmoCeil` / `AnomalyVolumeSkipFloor` / `AnomalyVolumeSkipMul` on the extras CB (lighting, atmosphere, post — append-only, **320 B**). Do not patch the projection.
 
 > **Note — Color bus.** AfterUpscale is a scheduler. The unique upscaler calls `ClaimUpscale` then `NotifyUpscaleComplete(rc, dest)` so catalog `upscaledColor` is the dest at output resolution. Display tenants (`TemporalPolicy.Display`) read `ctx.SceneColor`, not raw `LBuffer`. Display without an upscaler grades `LBuffer` into the dest at `Run` so `DrawGameScene` can copy. That dest is Keen’s borrow when it is already fp16; otherwise Anomaly wraps an fp16 UAV. Display with an upscaler: if `Run` returns null, Anomaly adopts the notified dest. If nobody notifies, Anomaly runs the slot once at `DrawGameScene` postfix (native res, `LBuffer`). Anomaly does not present.
 

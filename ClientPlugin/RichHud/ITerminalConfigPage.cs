@@ -11,10 +11,15 @@ namespace ClientPlugin.RichHud;
 /// take a compile-time reference to Anomaly or RichHudFramework.
 /// <para>
 /// Optional parameters are explicit overloads so pack reflection can match
-/// arity without default-argument padding. Tiles pack horizontally: color
-/// pickers occupy a tile alone, sliders and dropdowns pair, checkboxes and
-/// buttons stack up to three. Master’s category is one horizontal scroller;
-/// Anomaly wraps extra tiles onto new category rows from the terminal width.
+/// arity without default-argument padding. Each category is one full-width
+/// tile. Controls flow left-to-right into <em>internal</em> columns sized
+/// around a preferred width from the live window.
+/// <see cref="SeparateAt"/> sets that wrap width.
+/// <see cref="Columns"/> forces a count (<c>1</c> is one full-width column).
+/// The next <see cref="Category(string)"/> starts below, and Master’s page
+/// scrolls when the window runs out of height.
+/// <see cref="OnResized"/> runs on the HUD input thread after mouse-up;
+/// do not serialize or write a <c>.cfg</c> there.
 /// </para>
 /// </summary>
 public interface ITerminalConfigPage
@@ -24,6 +29,21 @@ public interface ITerminalConfigPage
     ITerminalConfigPage Category(string header);
 
     ITerminalConfigPage Category(string header, string subheader);
+
+    /// <summary>
+    /// Forces an internal column count on the current section’s tile. 1 is
+    /// one full-width column. 2 or more shares the tile across that many
+    /// control columns. Call after <see cref="Category(string)"/>.
+    /// </summary>
+    ITerminalConfigPage Columns(int count);
+
+    /// <summary>
+    /// Preferred internal control-column width for the current section.
+    /// The tile wraps into as many columns of that width as fit. Zero uses
+    /// Anomaly’s default preferred width. Call after
+    /// <see cref="Category(string)"/>.
+    /// </summary>
+    ITerminalConfigPage SeparateAt(float width);
 
     ITerminalConfigPage Label(string text);
 
@@ -64,4 +84,11 @@ public interface ITerminalConfigPage
     /// including other dropdowns.
     /// </summary>
     ITerminalConfigPage Refresh();
+
+    /// <summary>
+    /// Invoked after a completed terminal window resize (mouse-up), with the
+    /// live width and height in HUD pixels. Anomaly already reflows tile
+    /// width and internal column wrap. HUD input thread — do not serialize.
+    /// </summary>
+    ITerminalConfigPage OnResized(Action<float, float> handler);
 }

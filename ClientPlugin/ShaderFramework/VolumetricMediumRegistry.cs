@@ -23,6 +23,22 @@ public static class VolumetricMediumRegistry
     static long revision, historyRevision;
     static readonly HashSet<string> Requests = new(StringComparer.OrdinalIgnoreCase);
     internal static bool Requested { get { lock(Gate) return Requests.Count > 0; } }
+    internal static bool HasEnabledMedia
+    {
+        get { lock (Gate) { foreach (var m in Media.Values) if (m.Enabled) return true; return false; } }
+    }
+    internal static bool HasReadyMedia
+    {
+        get
+        {
+            lock (Gate)
+            {
+                bool any = false;
+                foreach (var m in Media.Values) if (m.Enabled) { any = true; if (!m.ParametersSet) return false; }
+                return any;
+            }
+        }
+    }
     internal static int Quality { get; private set; } = 1;
     internal static int DebugView { get; private set; }
     internal static float Distance { get; private set; } = 8000;
@@ -54,14 +70,27 @@ public static class VolumetricMediumRegistry
     internal static void SetStatus(string value) { lock(Gate) status=value; }
     internal static void ResetIntervals()
     {
-        Medium[] snapshot;
-        lock(Gate) { activeRevision=-1; activeProviders=null; snapshot=Media.Values.ToArray(); }
-        foreach(var medium in snapshot) medium.Interval?.Invoke(0);
+        var callbacks = new HashSet<Action<float>>();
+        lock(Gate)
+        {
+            activeRevision=-1; activeProviders=null;
+            if (activeMedia != null) foreach (var medium in activeMedia) if (medium.Interval != null) callbacks.Add(medium.Interval);
+            foreach (var medium in Media.Values) if (medium.Interval != null) callbacks.Add(medium.Interval);
+            activeMedia = null;
+        }
+        List<Exception> errors = null;
+        foreach(var callback in callbacks)
+        {
+            try { callback(0); }
+            catch (Exception e) { (errors ??= new List<Exception>()).Add(e); }
+        }
+        if (errors != null) throw new AggregateException("Volume interval reset failed", errors);
     }
 
     static long activeRevision = -1;
     static uint activeFrame;
     static HashSet<string> activeProviders;
+    static Medium[] activeMedia;
     static string status = "Shared volume backend not ready; legacy rendering retained";
 
     public static string StatusLine { get { lock (Gate) return status; } }
@@ -161,6 +190,7 @@ public static class VolumetricMediumRegistry
                 committed.Any(m => !m.ParametersSet))
             { status = "Shared volume prerequisites incomplete; legacy rendering retained"; return false; }
             activeProviders=new HashSet<string>(committed.Select(m=>m.Id),StringComparer.OrdinalIgnoreCase);
+            activeMedia = committed;
             activeFrame = frame;
             activeRevision = revision;
             status = "Shared volume frame ready";

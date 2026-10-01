@@ -1,7 +1,9 @@
 #pragma pack_matrix(row_major)
 
 // IsolatedAdd / IsolatedMix / DirectAdd / PublishOnly with ContributeVelocity.
-// Isolated.a is view-space hit distance in meters (0 = no overlay). Reconstruct
+// Isolated.a * DistanceScale is ray hit distance in meters (0 = no overlay).
+// Default scale 1 preserves existing packs; opt-in scale avoids FP16 far-hit clipping.
+// Reconstruct
 // camera MVs at that depth so DLSS can lock the curtain instead of rejecting
 // history (Reactive) or using far-plane sky parallax.
 
@@ -15,7 +17,7 @@ cbuffer Constants : register(b0)
     float2 RenderSize;
     float2 ProjScale;
     uint HistoryValid;
-    uint Pad0;
+    float DistanceScale;
     float2 Pad1;
 };
 
@@ -58,7 +60,8 @@ float4 __pixel_shader(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Targ
     uint2 pixel = uint2(pos.xy);
     float2 base = VelocityTex[pixel];
     float4 iso = Isolated.SampleLevel(PointSampler, uv, 0);
-    if (iso.a <= 1e-3 || HistoryValid == 0)
+    float hitMetres = iso.a * max(DistanceScale, 1.0);
+    if (hitMetres <= 1e-3 || !isfinite(hitMetres) || HistoryValid == 0)
         return float4(base, 0, 1);
-    return float4(CameraVelocityAtDistance(uv, iso.a), 0, 1);
+    return float4(CameraVelocityAtDistance(uv, hitMetres), 0, 1);
 }

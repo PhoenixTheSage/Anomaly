@@ -22,7 +22,7 @@ internal static class VolumetricInteriorSnapshot
 
     internal static void UpdateFromGameThread()
     {
-        if (MySession.Static == null || MySector.MainCamera == null || (!VolumetricMediumRegistry.Requested || VolumetricMediumRegistry.Capture(out _).Length == 0))
+        if (MySession.Static == null || MySector.MainCamera == null || !VolumetricMediumRegistry.Requested || !VolumetricMediumRegistry.HasEnabledMedia)
         { Clear(); return; }
         var grids = new List<Grid>();
         var seen = new HashSet<long>();

@@ -74,7 +74,11 @@ namespace RichHudFramework
 			/// <exclude/>
 			public ControlCategory(ControlContainerMembers data)
 			{
-				this.data = RichHudTerminal.Instance.GetNewMenuCategory();
+				// Use the category that was just created. Replacing it with a
+				// second GetNewMenuCategory() left Tiles bound to an orphan
+				// and Add() writing to a different one, so later size updates
+				// never reached the tiles on screen.
+				this.data = data;
 
 				var GetTileDataFunc = data.Item2.Item1 as Func<int, ControlContainerMembers>;
 				Func<int, ControlTile> GetTileFunc = x => new ControlTile(GetTileDataFunc(x));

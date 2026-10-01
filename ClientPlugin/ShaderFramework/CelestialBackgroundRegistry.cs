@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using ClientPlugin.ShaderFramework;
+using SharpDX;
 using SharpDX.Direct3D;
 using SharpDX.Direct3D11;
+using SharpDX.DXGI;
 using VRage.Render11.Common;
 using VRage.Render11.RenderContext;
 using VRage.Render11.Resources;
@@ -26,6 +28,7 @@ public static class CelestialBackgroundRegistry
     const int MaxDataFloats = 4 * 1048576;
     static readonly object Gate = new();
     static readonly Dictionary<string, Provider> Providers = new(StringComparer.OrdinalIgnoreCase);
+    static readonly Queue<ArtBindable> RetiredArt = new();
     static Provider compiled;
     static PixelShader mainShader, probeShader;
     static VertexShader vertexShader;
@@ -78,7 +81,17 @@ public static class CelestialBackgroundRegistry
         catch (Exception e) { MyLog.Default.WriteLine("Anomaly celestial registration: " + e.Message); return false; }
     }
 
-    public static void Unregister(string id) { if (id != null) lock (Gate) { Providers.Remove(id); status = "provider removed"; } }
+    public static void Unregister(string id)
+    {
+        if (id == null) return;
+        lock (Gate)
+        {
+            if (!Providers.TryGetValue(id, out var p)) return;
+            p.ArtState.Clear();
+            Providers.Remove(id);
+            status = "provider removed";
+        }
+    }
     public static void SetEnabled(string id, bool enabled) { lock (Gate) if (Providers.TryGetValue(id, out var p)) p.Enabled = enabled; }
     public static void Retry(string id) { lock (Gate) if (Providers.TryGetValue(id, out var p)) { p.Failed = false; p.Revision++; } }
 
@@ -98,6 +111,27 @@ public static class CelestialBackgroundRegistry
         lock (Gate) if (Providers.TryGetValue(id, out var p)) p.Data = copy;
     }
 
+    /// <summary>
+    /// Optional art Texture2DArray at t2 with Linear s0. Pass null rgba to clear.
+    /// Anomaly owns the GPU texture; packs supply tightly packed RGBA8 slices
+    /// (width*height*4*slices bytes). Fail closed when unbound.
+    /// </summary>
+    public static void SetArt(string id, int width, int height, int slices, byte[] rgba)
+    {
+        lock (Gate)
+        {
+            if (!Providers.TryGetValue(id, out var p)) return;
+            p.ArtState.Set(width, height, slices, rgba);
+        }
+    }
+
+    /// <summary>Clear optional art. Equivalent to SetArt(id, 0, 0, 0, null).</summary>
+    public static void SetArt(string id, byte[] rgba)
+    {
+        if (rgba != null) throw new ArgumentException("Use SetArt(id, width, height, slices, rgba) to upload");
+        SetArt(id, 0, 0, 0, null);
+    }
+
     static void Validate(float[] values, int max, bool records)
     {
         if (values == null || values.Length > max || (records && values.Length % 4 != 0))
@@ -111,7 +145,7 @@ public static class CelestialBackgroundRegistry
 
     static void DrawMain(MyRenderContext rc)
     {
-        lock (Gate) mainDrawnProvider = null;
+        lock (Gate) { DrainRetiredArt(); mainDrawnProvider = null; }
         var gbuffer = MyGBuffer.Main;
         if (gbuffer?.ResolvedDepthStencil?.SrvDepth == null) return;
         Draw(rc, gbuffer.LBuffer, gbuffer.ResolvedDepthStencil.SrvDepth, false, Matrix.Identity, Matrix.Identity);
@@ -125,6 +159,7 @@ public static class CelestialBackgroundRegistry
         if (rc == null || !rc.IsInitialized || target == null || depth == null) return;
         lock (Gate)
         {
+            DrainRetiredArt();
             if (Providers.Count != 1) { status = Providers.Count == 0 ? "no provider" : "conflict: multiple celestial providers"; return; }
             Provider p = null;
             foreach (var candidate in Providers.Values) p = candidate;
@@ -139,6 +174,7 @@ public static class CelestialBackgroundRegistry
             try
             {
                 if (!EnsureShaders(p)) return;
+                p.ArtState.Apply(CreateArt);
                 var count = Math.Max(1, p.Data.Length / 4);
                 if (dataBuffer == null || !ReferenceEquals(uploadedData, p.Data))
                 {
@@ -174,6 +210,7 @@ public static class CelestialBackgroundRegistry
                 // Record a real OM bind even on a fresh deferred context. No destination SRV is read.
                 rc.AllShaderStages.SetSrv(0, null);
                 rc.AllShaderStages.SetSrv(1, null);
+                rc.AllShaderStages.SetSrv(2, null);
                 rc.ResetTargets();
                 rc.DeviceContext.OutputMerger.SetTargets(null, 1, new[] { target.Rtv });
                 rc.SetRtv(target);
@@ -191,6 +228,8 @@ public static class CelestialBackgroundRegistry
                 rc.PixelShader.SetConstantBuffer(7, uniformCb);
                 rc.PixelShader.SetSrv(0, depth);
                 rc.PixelShader.SetSrv(1, dataBuffer);
+                rc.PixelShader.SetSrv(2, p.Art);
+                rc.PixelShader.SetSampler(0, MySamplerStateManager.Linear);
                 rc.SetViewport(0, 0, size.X, size.Y);
                 rc.Draw(3, 0);
                 if (!probe) { mainDrawnProvider = p; mainDrawnFrame = FrameTemporal.FrameIndex; }
@@ -207,6 +246,8 @@ public static class CelestialBackgroundRegistry
             {
                 rc.PixelShader.SetSrv(0, null);
                 rc.PixelShader.SetSrv(1, null);
+                rc.PixelShader.SetSrv(2, null);
+                rc.PixelShader.SetSampler(0, null);
                 rc.PixelShader.SetConstantBuffer(6, null);
                 rc.PixelShader.SetConstantBuffer(7, null);
                 rc.SetRtvNull();
@@ -245,6 +286,54 @@ public static class CelestialBackgroundRegistry
         }
     }
 
+    static ArtBindable CreateArt(QueuedArtResource<ArtBindable>.Upload upload)
+    {
+        var handle = GCHandle.Alloc(upload.Rgba, GCHandleType.Pinned);
+        Texture2D texture = null;
+        ShaderResourceView srv = null;
+        try
+        {
+            var boxes = new DataBox[upload.Slices];
+            int sliceBytes = upload.Width * upload.Height * 4;
+            for (int s = 0; s < upload.Slices; s++)
+                boxes[s] = new DataBox(IntPtr.Add(handle.AddrOfPinnedObject(), s * sliceBytes), upload.Width * 4, 0);
+            texture = new Texture2D(MyRender11.DeviceInstance, new Texture2DDescription
+            {
+                Width = upload.Width,
+                Height = upload.Height,
+                MipLevels = 1,
+                ArraySize = upload.Slices,
+                Format = Format.R8G8B8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Immutable,
+                BindFlags = BindFlags.ShaderResource,
+            }, boxes);
+            srv = new ShaderResourceView(MyRender11.DeviceInstance, texture, new ShaderResourceViewDescription
+            {
+                Format = Format.R8G8B8A8_UNorm,
+                Dimension = ShaderResourceViewDimension.Texture2DArray,
+                Texture2DArray =
+                {
+                    MipLevels = 1,
+                    FirstArraySlice = 0,
+                    ArraySize = upload.Slices,
+                    MostDetailedMip = 0,
+                }
+            });
+            return new ArtBindable(texture, srv, upload.Width, upload.Height);
+        }
+        catch { srv?.Dispose(); texture?.Dispose(); throw; }
+        finally { handle.Free(); }
+    }
+
+    // Called under Gate from the render path, including when no provider remains.
+    static void DrainRetiredArt()
+    {
+        while (RetiredArt.Count > 0) RetiredArt.Dequeue().Dispose();
+        if (compiled != null && (!Providers.TryGetValue(compiled.Id, out var live) || !ReferenceEquals(live, compiled)))
+            ReleaseGpu();
+    }
+
     static int compiledRevision;
     static byte[] Compile(string file, bool probe) => MyShaderCompiler.Compile(file,
         new[] { new ShaderMacro("ANOMALY_CELESTIAL_PROBE", probe ? "1" : "0") },
@@ -252,7 +341,17 @@ public static class CelestialBackgroundRegistry
 
     internal static void Release()
     {
-        lock (Gate) { ReleaseGpu(); foreach (var p in Providers.Values) p.Failed = false; status = "pending device resources"; }
+        lock (Gate)
+        {
+            foreach (var p in Providers.Values)
+            {
+                p.ArtState.Clear();
+                p.Failed = false;
+            }
+            DrainRetiredArt();
+            ReleaseGpu();
+            status = "pending device resources";
+        }
     }
 
     static void ReleaseGpu()
@@ -266,11 +365,34 @@ public static class CelestialBackgroundRegistry
         viewCb = null; uniformCb = null; dataBuffer = null; uploadedData = null; compiled = null;
     }
 
+    sealed class ArtBindable : ISrvBindable, IDisposable
+    {
+        readonly Texture2D texture;
+        public string Name => "Anomaly.CelestialArt";
+        public SharpDX.Direct3D11.Resource Resource => texture;
+        public ShaderResourceView Srv { get; }
+        public Vector2I Size { get; }
+        public Vector3I Size3 => new Vector3I(Size.X, Size.Y, 1);
+        public ArtBindable(Texture2D tex, ShaderResourceView view, int w, int h)
+        {
+            texture = tex;
+            Srv = view;
+            Size = new Vector2I(w, h);
+        }
+        public void Dispose()
+        {
+            Srv?.Dispose();
+            texture?.Dispose();
+        }
+    }
+
     sealed class Provider
     {
         public string Id, File;
         public bool Enabled = true, Failed, NativeSunGlare = true;
         public int Revision;
         public float[] Uniforms = new float[64], Data = Array.Empty<float>();
+        public readonly QueuedArtResource<ArtBindable> ArtState = new(art => RetiredArt.Enqueue(art));
+        public ISrvBindable Art => ArtState.Resource;
     }
 }

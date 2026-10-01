@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using ClientPlugin.Buffers;
 using ClientPlugin.Shaders;
+using ClientPlugin.Velocity;
 using SharpDX.Direct3D;
 using SharpDX.Direct3D11;
 using SharpDX.DXGI;
@@ -23,6 +24,12 @@ internal static class SharedVolumetricRenderer
     static readonly VolumetricFrameResources Volume=new();
     static readonly VolumetricInteriorUpload Interiors=new();
     static readonly VolumetricGpuTimer LightTimer=new(),InjectionTimer=new(),ReconstructionTimer=new();
+    static readonly RenderTextureCheckpoint ColorRecovery = new(), VelocityRecovery = new();
+    static IVelocityBuffer recoveryVelocity;
+    static object recoveryVelocitySrv;
+    static IntPtr recoveryVelocityNative;
+    static int recoveryVelocityWidth, recoveryVelocityHeight;
+    static bool recoveryVelocityHistory;
     static VolumetricFrameResources.Volume lightTau,previousCoefficients;
     static Texture2D previousDepth;
     static ShaderResourceView previousDepthSrv;
@@ -72,8 +79,10 @@ internal static class SharedVolumetricRenderer
     }
     internal static void BeginFrame()
     {
-        prepared=false; Volume.BeginFrame();
-        VolumetricMediumRegistry.ResetIntervals();
+        prepared=false; Volume.BeginFrame(); ColorRecovery.Reset(); VelocityRecovery.Reset();
+        recoveryVelocity = null; recoveryVelocitySrv = null;
+        try { VolumetricMediumRegistry.ResetIntervals(); }
+        catch (Exception e) { Fail(e); }
         foreach(var name in ProductNames) BufferCatalog.Set(name,null);
     }
     internal static void BeforeScheduler()
@@ -100,7 +109,7 @@ internal static class SharedVolumetricRenderer
             EnsureShaders(media);
             EnsureResources(context.Width,context.Height,quality);
             var camera=MyRender11.Environment.Matrices.CameraPosition;
-            Interiors.Upload(VolumetricInteriorSnapshot.Capture(),camera);
+            Interiors.Upload(VolumetricInteriorSnapshot.Capture(),camera,rc);
             var planet=PlanetAtmosphere.Copy();
             bool useHistory=history && interiorRevision==Interiors.Revision && epoch==Volume.Epoch && historyRevision==capturedHistoryRevision &&
                 FrameTemporal.HistoryValid && FrameTemporal.SafetyScale>.8f && previousPlanet==planet.Center;
@@ -155,6 +164,9 @@ internal static class SharedVolumetricRenderer
             // Alpha/coverage mask has its own shader variant below.
             DrawCoverage(rc,maskShader,velocityMask);
             ReconstructionTimer.End(rc.DeviceContext);
+            // Capture the scene before legacy fullscreen programs clip their near interval.
+            // On a failed composite, restore it and replay those programs unsuppressed.
+            CaptureRecovery(rc);
             if(!VolumetricMediumRegistry.Commit(FrameTemporal.FrameIndex,revision,true,true,true,true,media)) return;
             // Only change legacy intervals after every shared draw has recorded successfully.
             foreach(var m in media) m.Interval?.Invoke(distance);
@@ -166,7 +178,13 @@ internal static class SharedVolumetricRenderer
             history=true; interiorRevision=Interiors.Revision; epoch=Volume.Epoch; historyRevision=capturedHistoryRevision;
             previousPlanet=planet.Center; previousTime=time;
         }
-        catch(Exception e) { Fail(e); VolumetricMediumRegistry.ResetIntervals(); if(RenderTrace.IsLostDevice(e)) throw; }
+        catch(Exception e)
+        {
+            Fail(e);
+            try { VolumetricMediumRegistry.ResetIntervals(); }
+            catch (Exception reset) { MyLog.Default.WriteLine("Anomaly volume interval recovery: " + reset); }
+            if(RenderTrace.IsLostDevice(e)) throw;
+        }
         finally { LightTimer.End(rc.DeviceContext); InjectionTimer.End(rc.DeviceContext); ReconstructionTimer.End(rc.DeviceContext); rc.ClearState(); }
     }
     static void Composite(OwnedPassContext context)
@@ -175,6 +193,27 @@ internal static class SharedVolumetricRenderer
         var rc=context.Rc;
         try
         {
+            var error = VolumeCompositeRecovery.Execute(() => CompositePrepared(rc),
+                () => RestoreRecovery(rc),
+                () => { prepared = false; history = false; Volume.BeginFrame(); VolumetricMediumRegistry.ResetIntervals(); },
+                () => FullscreenPassRegistry.Run(OwnedPassSlot.AfterAtmosphere, rc, null, false),
+                RenderTrace.IsLostDevice);
+            if (error != null) { Fail(error); return; }
+            // A diagnostic failure must not revoke an already-composited frame.
+            try { ReportActive(); }
+            catch (Exception diagnostic) { System.Diagnostics.Trace.WriteLine(diagnostic); }
+        }
+        catch(Exception e)
+        {
+            Fail(e);
+            try { VolumetricMediumRegistry.ResetIntervals(); }
+            catch (Exception reset) { MyLog.Default.WriteLine("Anomaly volume interval recovery: " + reset); }
+            if(RenderTrace.IsLostDevice(e)) throw;
+        }
+        finally { rc.ClearState(); }
+    }
+    static void CompositePrepared(MyRenderContext rc)
+    {
             rc.PixelShader.SetSrv(0,color);
             Draw(rc,compositeShader,MyGBuffer.Main.LBuffer,null,compositeBlend);
             rc.ClearState();
@@ -188,6 +227,9 @@ internal static class SharedVolumetricRenderer
             Publish("volumeMotion",motion); Publish("volumeReactive",reactive);
             Publish("volumeRepresentativeDepth",new TextureBindable(Volume.RepresentativeDepth,Volume.DepthSrv));
             Publish("volumeSunVisibility",new VolumeBindable(Volume.SunVisibility));
+    }
+    static void ReportActive()
+    {
             VolumetricMediumRegistry.SetStatus("Shared volume active; "+Interiors.Status+"; GPU shadows/light/inject/integrate/reconstruct ms: "+
                 Timing(DirectionalVolumeShadows.GpuMilliseconds)+" / "+Timing(LightTimer.LastMilliseconds)+" / "+Timing(InjectionTimer.LastMilliseconds)+" / "+Timing(VolumetricIntegrator.GpuMilliseconds)+" / "+Timing(ReconstructionTimer.LastMilliseconds));
             int now=Environment.TickCount;
@@ -200,9 +242,36 @@ internal static class SharedVolumetricRenderer
                     " injectMs="+Timing(InjectionTimer.LastMilliseconds)+" integrateMs="+Timing(VolumetricIntegrator.GpuMilliseconds)+
                     " reconstructMs="+Timing(ReconstructionTimer.LastMilliseconds)+" interiors="+Interiors.Status);
             }
-        }
-        catch(Exception e) { Fail(e); if(RenderTrace.IsLostDevice(e)) throw; }
-        finally { rc.ClearState(); }
+    }
+    static void CaptureRecovery(MyRenderContext rc)
+    {
+        rc.ClearState();
+        ColorRecovery.Capture(MyRender11.DeviceInstance, rc.DeviceContext, MyGBuffer.Main?.LBuffer?.Resource as Texture2D);
+        if (!ColorRecovery.Captured) throw new InvalidOperationException("Volume scene checkpoint unavailable");
+        TemporalParticipation.CaptureRecovery(rc);
+        FullscreenPassRegistry.CaptureVolumeRecovery(rc);
+        recoveryVelocity = VelocityRegistry.Active;
+        recoveryVelocitySrv = recoveryVelocity?.Srv;
+        recoveryVelocityNative = recoveryVelocity?.NativeResource ?? IntPtr.Zero;
+        recoveryVelocityWidth = recoveryVelocity?.Width ?? 0; recoveryVelocityHeight = recoveryVelocity?.Height ?? 0;
+        recoveryVelocityHistory = recoveryVelocity?.HistoryValid ?? false;
+        VelocityRecovery.Capture(MyRender11.DeviceInstance, rc.DeviceContext,
+            (recoveryVelocitySrv as ISrvBindable)?.Resource as Texture2D);
+        rc.ClearState();
+    }
+    static void RestoreRecovery(MyRenderContext rc)
+    {
+        rc.ClearState();
+        ColorRecovery.Restore(rc.DeviceContext);
+        TemporalParticipation.RestoreRecovery(rc);
+        FullscreenPassRegistry.RestoreVolumeRecovery(rc);
+        VelocityRecovery.Restore(rc.DeviceContext);
+        if (ReferenceEquals(recoveryVelocity, CameraVelocityBuffer.Instance))
+            CameraVelocityBuffer.Instance.Publish(recoveryVelocitySrv, recoveryVelocityNative,
+                recoveryVelocityWidth, recoveryVelocityHeight, recoveryVelocityHistory);
+        if (recoveryVelocity != null) VelocityRegistry.SetActive(recoveryVelocity);
+        foreach (var name in ProductNames) BufferCatalog.Set(name, null);
+        rc.ClearState();
     }
     static string Timing(double value)=>double.IsNaN(value)?"pending":value.ToString("F2",System.Globalization.CultureInfo.InvariantCulture);
     static void ContributeMotion(OwnedPassContext context)
@@ -246,12 +315,14 @@ internal static class SharedVolumetricRenderer
             if(!buffer.IsAvailable || !(buffer.Srv is ISrvBindable resource)) throw new InvalidOperationException("Missing medium texture: "+media[i].CatalogBindings[j]);
             srvs[32+i*3+j]=resource.Srv;
         }
+        // Keen MyCommonStage only has 8 CB slots (0–7). Shadow constants used to
+        // sit at b8 and IndexOutOfRangeException'd every Prepare on enable.
         if(pixel) {
-            rc.PixelShader.SetConstantBuffer(6,frameCb); rc.PixelShader.SetConstantBuffer(7,providerCb); rc.PixelShader.SetConstantBuffer(8,shadowCb);
+            rc.PixelShader.SetConstantBuffer(5,shadowCb); rc.PixelShader.SetConstantBuffer(6,frameCb); rc.PixelShader.SetConstantBuffer(7,providerCb);
             rc.DeviceContext.PixelShader.SetShaderResources(0,srvs); rc.DeviceContext.PixelShader.SetSamplers(0,linear,wrap,point);
             rc.DeviceContext.PixelShader.SetSampler(5,comparison);
         } else {
-            rc.ComputeShader.SetConstantBuffer(6,frameCb); rc.ComputeShader.SetConstantBuffer(7,providerCb); rc.ComputeShader.SetConstantBuffer(8,shadowCb);
+            rc.ComputeShader.SetConstantBuffer(5,shadowCb); rc.ComputeShader.SetConstantBuffer(6,frameCb); rc.ComputeShader.SetConstantBuffer(7,providerCb);
             rc.DeviceContext.ComputeShader.SetShaderResources(0,srvs); rc.DeviceContext.ComputeShader.SetSamplers(0,linear,wrap,point);
             rc.DeviceContext.ComputeShader.SetSampler(5,comparison);
         }
@@ -349,6 +420,8 @@ internal static class SharedVolumetricRenderer
     internal static void Release()
     {
         prepared=history=diagnosticWritten=false; Volume.Dispose(); Interiors.Dispose(); ReleaseShaders(); ReleaseTargets();
+        ColorRecovery.Dispose(); VelocityRecovery.Dispose(); recoveryVelocity = null; recoveryVelocitySrv = null;
+        FullscreenPassRegistry.ReleaseVolumeRecovery();
         lightTau?.Dispose();previousCoefficients?.Dispose();previousDepthSrv?.Dispose();previousDepth?.Dispose();
         lightTau=previousCoefficients=null;previousDepthSrv=null;previousDepth=null;
         LightTimer.Dispose();InjectionTimer.Dispose();ReconstructionTimer.Dispose();
@@ -363,6 +436,8 @@ internal static class SharedVolumetricRenderer
         public IntPtr NativeResource=>IsAvailable?resource.Resource.NativePointer:IntPtr.Zero;
         public int Width=>resource.Size.X;
         public int Height=>resource.Size.Y;
+        public int Depth=>resource is TextureBindable tb ? Math.Max(tb.Size3.Z, 1) : 1;
+        public int Format=>0;
         public int ContractVersion=>VolumetricFrameResources.Version;
         public uint Frame=>frame;
         public long ResourceEpoch=>epoch;

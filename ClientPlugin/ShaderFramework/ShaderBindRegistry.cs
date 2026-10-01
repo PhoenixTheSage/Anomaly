@@ -77,7 +77,8 @@ public static class ShaderBindRegistry
         public float SkyAmbientPad;
         public float PlanetAirTop;
         public float VisualAtmoCeil;
-        public Vector2 PlanetAtmospherePad;
+        public float VolumeSkipFloor;
+        public float VolumeSkipMul;
     }
 
     public static string StatusLine
@@ -341,7 +342,8 @@ public static class ShaderBindRegistry
             SkyAmbientPad = 0f,
             PlanetAirTop = FrameTemporal.PlanetAirTop,
             VisualAtmoCeil = FrameTemporal.VisualAtmoCeil,
-            PlanetAtmospherePad = Vector2.Zero
+            VolumeSkipFloor = FrameTemporal.VolumeSkipFloor,
+            VolumeSkipMul = FrameTemporal.VolumeSkipMul
         };
         var mapping = MyMapping.MapDiscard(rc, extrasCb);
         mapping.WriteAndPosition(ref cb);

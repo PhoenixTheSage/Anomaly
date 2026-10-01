@@ -57,6 +57,35 @@ public static class TemporalParticipation
     static bool clearedThisFrame;
     static bool stampedThisFrame;
     static bool loggedError;
+    static readonly RenderTextureCheckpoint ReactiveRecovery = new(), StampRecovery = new();
+    static bool recoveryCleared, recoveryStamped;
+    static IRtvTexture recoveryReactiveTarget, recoveryStampScratch;
+
+    internal static void CaptureRecovery(MyRenderContext rc)
+    {
+        lock (Gate)
+        {
+            EnsureReactiveUnlocked(rc);
+            recoveryCleared = clearedThisFrame; recoveryStamped = stampedThisFrame;
+            recoveryReactiveTarget = reactiveTarget; recoveryStampScratch = stampScratch;
+            ReactiveRecovery.Capture(MyRender11.DeviceInstance, rc.DeviceContext, reactiveTarget?.Resource as Texture2D);
+            StampRecovery.Capture(MyRender11.DeviceInstance, rc.DeviceContext, stampScratch?.Resource as Texture2D);
+        }
+    }
+
+    internal static void RestoreRecovery(MyRenderContext rc)
+    {
+        lock (Gate)
+        {
+            ReactiveRecovery.Restore(rc.DeviceContext); StampRecovery.Restore(rc.DeviceContext);
+            // Stamping swaps these textures; restore their roles as well as their pixels.
+            reactiveTarget = recoveryReactiveTarget; stampScratch = recoveryStampScratch;
+            clearedThisFrame = recoveryCleared; stampedThisFrame = recoveryStamped;
+            var native = reactiveTarget?.Resource?.NativePointer ?? IntPtr.Zero;
+            ReactivePublished.Publish(reactiveTarget, native, width, height);
+            BufferCatalog.Set(BufferCatalog.ReactiveMask, ReactivePublished);
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential, Size = IsolatedVelocityCbBytes)]
     struct IsolatedVelocityConstants
@@ -69,7 +98,7 @@ public static class TemporalParticipation
         public Vector2 RenderSize;
         public Vector2 ProjScale;
         public uint HistoryValid;
-        public uint Pad0;
+        public float DistanceScale;
         public Vector2 Pad1;
     }
 
@@ -136,10 +165,11 @@ public static class TemporalParticipation
 
     /// <summary>
     /// IsolatedAdd with <see cref="TemporalPolicy.ContributeVelocity"/>:
-    /// reconstruct camera MVs from isolated.a (meters along the unjittered
-    /// camera ray) and composite over catalog velocity.
+    /// reconstruct camera MVs from isolated.a * distanceScale (meters along
+    /// the unjittered camera ray) and composite over catalog velocity.
     /// </summary>
-    internal static void ContributeFromIsolated(MyRenderContext rc, ISrvBindable isolated)
+    internal static void ContributeFromIsolated(MyRenderContext rc, ISrvBindable isolated,
+        float distanceScale = 1f)
     {
         if (rc == null || !rc.IsInitialized || isolated == null)
             return;
@@ -147,7 +177,7 @@ public static class TemporalParticipation
         {
             try
             {
-                ContributeFromIsolatedUnlocked(rc, isolated);
+                ContributeFromIsolatedUnlocked(rc, isolated, distanceScale);
             }
             catch (Exception e)
             {
@@ -364,7 +394,7 @@ public static class TemporalParticipation
         PublishContribute(dest, size.X, size.Y);
     }
 
-    static void ContributeFromIsolatedUnlocked(MyRenderContext rc, ISrvBindable isolated)
+    static void ContributeFromIsolatedUnlocked(MyRenderContext rc, ISrvBindable isolated, float distanceScale)
     {
         EnsureShadersUnlocked();
         EnsureIsolatedVelocityUnlocked();
@@ -397,7 +427,8 @@ public static class TemporalParticipation
             CamToWorldR2 = FrameTemporal.CameraToWorldRow(2),
             RenderSize = new Vector2(size.X, size.Y),
             ProjScale = FrameTemporal.ProjScale,
-            HistoryValid = FrameTemporal.HistoryValid ? 1u : 0u
+            HistoryValid = FrameTemporal.HistoryValid ? 1u : 0u,
+            DistanceScale = distanceScale
         };
         var mapping = MyMapping.MapDiscard(rc, isolatedVelocityCb);
         mapping.WriteAndPosition(ref cb);
@@ -632,6 +663,8 @@ public static class TemporalParticipation
 
     static void DisposeTargets()
     {
+        ReactiveRecovery.Dispose(); StampRecovery.Dispose();
+        recoveryReactiveTarget = recoveryStampScratch = null;
         if (reactiveTarget != null)
             MyManagers.RwTextures.DisposeTex(ref reactiveTarget);
         if (stampScratch != null)

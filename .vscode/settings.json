@@ -1,0 +1,3 @@
+{
+    "resharper.build.customMsbuildPath": "C:\\Program Files\\dotnet\\sdk\\10.0.400\\MSBuild.dll"
+}

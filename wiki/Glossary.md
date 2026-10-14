@@ -27,5 +27,8 @@
 | Slice AJ | Extras-CB night fill (`AnomalySkyAmbient` = `SunColor * 0.028` / `AnomalyVolumeAmbient`). Shipped. Do not hdr-lift `AnomalySkyLuma`. Do not scale by `AmbientForwardPass`. |
 | Slice AS | AfterAtmosphere empty skip. Extras `AnomalyVolumeSkipFloor` / `AnomalyVolumeSkipMul` (320 B tail). Helpers `AnomalyVolumeSkipDt` / `AnomalyVolumeAdvance`. Fail closed. Do not bake an SDF Texture3D. Occupancy source remains pack weather. |
 | Slice AT | Planet-shell weather UV. Helper shipped (`AnomalyPlanetShellUv` / `AnomalyPlanetSamplePos`: east/north metres, plus `ChartWeight` / `ChartDir` for a longitude chart). Shape tiles use `AnomalyPlanetShapeArcMetres` (azimuthal from the nearer pole). Do not floor `cos(lat)`. Packs must not invent a global `centerH` sphere or `dot(dir, axis)` weather UV. Clouds: 64×64×2 coverage; the climate map wraps in longitude. |
+| Slice AX | Vulkan object motion and pack GBuffer targets. Catalog `velocity` keeps the depth-equal object vector and fills the rest from depth. Extra targets are `GBuffer/<name>.hlsl` (`SV_Target4` is slot 0). Sentinel `0xFFFF000000000009` plus the slot. Packed `GBuffer1.a` stays DX11. Shipped. |
+| Slice AY | Bound fullscreen guest bus. A binding outside the fixed bands fails closed. Shipped. |
+| Slice AZ | Volume compute packet, depth-tested celestial packet, glare ownership, and catalog `hdrColor` / `upscaledColor` / `displayColor`. Shipped. |
 | Anomaly Shaders | Rich HUD terminal root. Framework pages live under **Anomaly**; packs add sibling titles. Master optional. |
 | Hud overlay | Corner status via `HudOverlayRegistry`. Master optional; getter is a cached string, not a config write. |

@@ -1,5 +1,24 @@
 # Framework gaps
 
+## Vulkan volumeReactive mask (2026-10-14, open)
+
+DX11 frame generation reads catalog `volumeReactive`, the screen reject mask written by the shared froxel renderer. On Vulkan that renderer does not run. Frame generation samples guest image `0xFFFF00000000000B` when a program publishes `volumeReactive`, and otherwise interpolates without a mask. Catalog `velocity` (`0xFFFF00000000000A`) is the live CameraVelocity image and is what the Vulkan warp uses, matching the DX11 convention-15 path. `FrameTemporal.InvalidateHistory` clears the guest history bit so the next warp seeds.
+
+## Interactive RHUD windows (2026-10-02, Slice AI, implemented)
+
+Final Frontier's 3D map needs a resizable interactive viewport rather than the
+existing corner-text HudOverlayRegistry. This shared capability now lives in
+InteractiveOverlayRegistry API v1: lifecycle/input capture, standard controls,
+clipped projected triangle/line batches and virtualized object rows. Payloads are
+CLR arrays/delegates to avoid plugin loader tuple identities. Final Frontier owns
+entity discovery, permissions/redaction, camera projection and rendering LOD.
+
+Both runtime builds and policy/contract tests pass. A warmed 5,000-object CPU
+projection benchmark meets the 2 ms p95 target on this development machine;
+total in-world CPU, GPU, Master reset/input capture and visual acceptance are
+pending. No GTX 1070 Ti acceptance is claimed. See `Docs/InteractiveOverlays.md`
+and Final Frontier `Docs/Map.md` / `Tests/Run-MapTests.ps1`.
+
 ## SSGI coverage and temporal evidence (2026-10-01, implemented in tenant; Slice AI/AR follow-up)
 
 Prism.SSGI gives accepted coverage counts 6/7 at least one SSILVB angular sector without depth extrusion; thickness still requires >= 8. Coincident front/back horizons must not cancel the accepted illuminant. Full-resolution depth, mip-0 color, sky rejection and world-space radius guards remain required. Positive current-neighbor luminance bounds temporal outliers; dark history and black neighbors cannot establish that new light is a firefly. This is tenant algorithm guidance, with no Anomaly API or extras change.
@@ -15,7 +34,7 @@ acceptance before installing render patches; older Anomaly builds leave HDR
 inactive with an update message. Acceptance can precede initialization and is
 not a compilation/readiness guarantee. See `Docs/ShaderPacks.md`.
 
-## AfterAtmosphere inherited billboard bindings (2026-10-01, implemented; Slice AI follow-up)
+## Transparent consumer bindings (updated 2026-10-02, implemented; Slice AI follow-up)
 
 The Aurora-enabled thruster billboard report exposed an inherited-state gap.
 Keen binds pixel frame b0 and standard samplers once before atmospheres;
@@ -33,6 +52,18 @@ slot with its shader and temporal policy unchanged. Other tenants share the fix.
 contexts, including exact consumer pixels after restoration and fault cleanup.
 Actual in-game thruster confirmation remains pending. See Slice AI in
 `Docs/Extensibility.md` and `Tests/TransparentBindings`.
+
+October 2 Star Dust follow-up: Vanilla and Enhanced are reported invisible even
+with a populated pool. DLSS/FSR output-depth preparation clears the context after
+the earlier AfterAtmosphere restoration. The host now also restores frame b0,
+standard pixel samplers and shadow sampler at the actual
+`MyBillboardRenderer.BindResourcesCommon` consumer boundary. This covers native
+and upscaler-replacement LDR/PostPP paths without changing render order or depth.
+The installed native SOFT_PARTICLE pixel shader reproduces missing-binding
+invisibility and exact recovery on synthetic inputs, with soft foreground
+clipping retained. The actual built Harmony postfix installs on the installed
+game renderer. The expanded runner passes 43 assertions per runtime across
+immediate/deferred WARP contexts; full game/upscaler acceptance remains pending.
 
 ## Aurora isolated temporal distance (2026-10-01, implemented; Slice AI follow-up)
 
@@ -73,7 +104,31 @@ Open work lives in [Docs/Extensibility.md](https://github.com/PhoenixTheSage/Ano
 | **How** | Append-only extras, new compose, fullscreen helper, catalog name — not a Keen patch |
 | **Why** | What breaks if every pack invents it (HDR units, Frame.hlsli layout, TDR step counts) |
 
+## Shipped
+
+Slice AX shipped object motion and pack GBuffer targets. Catalog `velocity` keeps the RG16F object-motion vector and fills sky, skinned characters, voxels, foliage, and decals from depth. A pack target is `anomaly.json` `"attachments"` or `GBufferTargetRegistry.Request`. Vulkan writes `GBuffer/<name>.hlsl` in a depth-equal pass and publishes sentinel `0xFFFF000000000009` plus the slot. Stock color targets stay three plus depth. Packed `GBuffer1.a` stays a DX11 write into Keen's channel.
+
+Slice AY shipped the bound fullscreen bus. Slice AZ shipped the volume compute packet, the depth-tested celestial packet, glare ownership, and catalog `hdrColor` / `upscaledColor` / `displayColor`. Bilinear compose stays the default until a pack claims the upscale slot. `pointShadowAtlas` is not published.
+
 ## Open
+
+### Active display colour mode (2026-10-02)
+
+**Where:** display tenant / `OwnedPassRegistry`, with a structured reflection
+contract or append-only view metadata. **How:** declare SDR versus scRGB/HDR
+encoding and expose only a ready, enabled display tenant's mode; default to SDR
+on absence, failure, conflict and unload. **Why:** `HasDisplayTenant` does not
+identify HDR, and an HDR plugin's loaded assembly does not establish activation.
+Solar gold looks orange when a palette relying on SDR's channel shoulder passes
+through HDR's luminance shoulder. **Tenant:** Final Frontier.
+
+Temporary labeled workaround: query the public status of HDR Output's
+`hdr.tonemap` program and use HDR gold only for `live `; poll mode changes without
+requiring a settings edit. This depends on a specific tenant and status prefix,
+so replace it when the structured capability ships. No Keen lighting patches,
+private registry fields or display-format guesses. GPU and bridge transition
+checks pass; in-game HDR and glow acceptance remain pending. See Slice AI in
+`Docs/Extensibility.md`.
 
 ### Point-shadow baseline (2026-09-18)
 
@@ -91,19 +146,27 @@ reconstruction round-trips even with Halton jitter.
 
 ### Final Frontier implementation status (2026-09-18)
 
-Sun-glare isolation added 2026-09-18: `SetNativeSunGlare(id, enabled)` controls
-only the exact solar light after successful same-frame main replacement; no
-world mutation. Defaults on; false supports diagnosing the reported orange
-ring. User reports FSR motion-dependent star brightness; wider flux-preserving
-profiles are a candidate mitigation, still requiring an in-game comparison.
-Analytic effects, partial-disc visibility and full temporal validation remain open.
+Sun-glare worker handoff implemented 2026-10-02: `SetNativeSunGlare(id, enabled)`
+controls only the exact solar light, with no world mutation. Keen's transparent
+worker can record before the current main celestial draw, so same-frame success
+alone failed to suppress overlapping native glare. The host now accepts the
+current or previous successful main draw and retains readiness during the next
+draw. Main-pass fallback/device release clear readiness; failed, disabled,
+conflicting and unregistered providers restore native handling. Older readiness
+expires; activation/failure can have an already-recorded transition frame.
+The API still defaults to native glare for other providers. FinalFrontier now
+claims it for one RHUD-controlled glow and removes its former smooth rim layers.
+Twenty-four actual registry/installed-game prefix checks pass on each runtime,
+with draw certificates and the clock seeded rather than a running game scheduler.
+FinalFrontier passes 87 GPU and 84 integration checks. Partial-disc visibility,
+in-game glow and full temporal validation remain open.
 
 
 Initial [celestial support](Celestial-backgrounds.md) is implemented. User validated replacement, live brightness, zoom, sun sizing and day/night tracking; catalogue and remaining compatibility checks are pending. See Slice AI in `Docs/Extensibility.md` and FinalFrontier's `Docs/IntegrationSpike.md`.
 
 - **Implemented:** `CelestialBackgroundRegistry` owns background-only main/probe draws, paired shader compilation, copied live uniforms, immutable float4 catalogue data, optional art Texture2DArray (`SetArt` RGBA8 → t2 + Linear s0; Slice AQ), view direction/footprint, pre-discard directionDx/directionDy for integrated star profiles, and explicit vanilla fallback. Existing extras stay 320 B.
 - **Open, phase 1/3:** in-game hook/scheduling, sky temporal/upscaler and probe-refresh validation; MSAA currently falls back instead of overwriting mixed-coverage pixels. Depth-zero reprojection remains unmodified.
-- **Held for phase 4:** sun-specific glare suppression/restoration and partial-disc visibility. Vanilla flare remains in the prototype.
+- **Implemented, phase 4:** exact solar glare ownership/restoration with the worker handoff above. **Open:** partial-disc visibility and in-game glare/bloom transition acceptance.
 - **Held for phase 5:** projected Keen UI labels through Anomaly. Shader name headers and fantasy art overlays are pack-side on the celestial pass (Slice AQ).
 
 | Gap | Where | How | Why pack-private was unsafe | Tenant |
@@ -461,3 +524,34 @@ coordinates and 36 observer positions across all six cube faces; WARP projection
 filter and contact-distance regressions; source integration checks prohibit the
 shared projection buffer and enforce the distinct atlas/mask origins. The live
 shaking symptom is confirmed; visual acceptance of this correction is pending.
+
+## Opaque ray-scene tenant contract (2026-10-03, implemented; Slice AI follow-up)
+
+Updated 2026-10-04: the append-only v1 channel at `frame[14]` supplies physical native-light actor origins separately from Keen's offset positions in field 6. SE-RT defaults to physical origins, exposes an offset opt-in and uses bounded any-hit shadow traversal for detected sources. Nearby off-screen actors were already resident; the engine's explicit visibility flag continues to exclude hidden previews. Unknown coverage cannot certify an unblocked ray, while a known opaque blocker can certify shadow. Native distant sun coverage remains. This baseline was extended by the thin-glass and far-sun contract below; geometry residency and per-pixel ray budgets remain bounded.
+
+Anomaly owns the reusable scene-capture and opaque-HDR ownership boundary for SE-RT. Modern/legacy upload hooks preserve vertices/indices; snapshots include instance transforms, materials, skin poses, voxel material triples, native lamps, billboard/effect proxies, sun shadows and environment probes. Unknown meshes remain explicit coverage. Both owned and fullscreen contributions honor committed ownership, including Prism SSGI and Screen Space Shadows aliases. Completion/reset callbacks keep GPU query polling on the immediate context and tenant resource disposal on renderer lifecycle boundaries.
+
+`Docs/RayTracing.md` documents ABI v1. Native spotlight texture profiles and approximate GPU-effect sources from CPU emitter metadata are connected. Disabled tenants skip frame enumeration while upload capture stays armed. Current source gaps include generic instance-buffer draws, individual GPU-particle extraction, render-target billboard textures and full secondary normal-map/paint/voxel transition shading. Producers can register explicit emissive discs. Native texture-change paths cover screen materials. In-game acceptance and the 1080p midrange GPU budget are still unverified; software WARP checks establish numerical/resource behavior only.
+
+### Shadow quality extension (2026-10-04; implementation with live acceptance pending)
+
+RayScene v1 appends the optional far-only sun product at field 15 and optional
+versioned thin-glass optics at material variant field 4. Field 14 physical
+origins and every existing field retain their meanings. Tenants explicitly
+request far sun through SetFarSunEnabled; disabled tenants incur no far pass.
+Anomaly runs one isolated 2048-square directional depth batch, excludes the
+256 m resident sphere by fragment clipping and preserves native depth-material
+cutouts/dither. Both mesh render paths route depth shader bindings explicitly;
+unverified/unready variants invalidate the product and tenants retain native
+sun fallback. Owned clipping resources and maps release on world/device lifecycle.
+
+Known GLASS optical data comes from the transparent registry, excluding its
+error material and unresolved textures. The descriptor carries unpremultiplied
+linear color/opacity, texture/UV, sidedness, category and revision. SE-RT implements
+bounded eight-surface RGB transmission, custom 32/4/2-frame histories, finite
+emitters and capped sparse full-resolution transport. Shared contracts remain
+Anomaly-owned; SE-RT adds no Keen lighting patches. Generic instance buffers,
+individual GPU particle geometry and full refractive/media transport remain
+coverage/design limits. See Docs/RayTracing.md and SE-RT/Docs/ShadowQuality.md.
+WARP and numerical gates do not establish live shader-hook completeness, image
+quality or combined GPU performance; those scene/hardware acceptance gates remain.

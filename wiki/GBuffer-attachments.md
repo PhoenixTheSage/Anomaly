@@ -23,6 +23,8 @@ Request("objectid", "R32_UINT");           // or RequestAttachment(...)
 
 Same name + same format from two packs share the slot. Mismatched formats fail closed. Depth permutations never see extra targets.
 
+On Vulkan the stock pass stays three color targets plus depth. `GBuffer/<name>.hlsl` (or `"file"`) is the write shader: entry `__pixel_shader`, `SV_Target0` out, no descriptors and no push constants. The vertex shader passes `SV_Position` and `nointerpolation` object rows `row0`–`row2` on `TEXCOORD0`–`TEXCOORD2` (the same `object_.matrix_row*` layout). A shader that only declares `SV_Position` still links. The return type matches the format (`uint` for `R32_UINT`, `float2` for `R16G16_FLOAT`, `float4` for `R8G8B8A8_UNORM` and `R16G16B16A16_FLOAT`). `GBufferTargetRegistry.Request` is the C# form in `Anomaly.dll`. The catalog name is the attachment name. Sentinel `0xFFFF000000000009` is slot 0 (`SV_Target4`). `RequestSrv` samples it. Packed `GBuffer1.a` is DX11 only. Skinned characters, voxels, foliage, and decals stay clear.
+
 ## What gets generated
 
 Struct fields in `Anomaly/Extras/GBufferAttachmentFields.hlsli`. `AnomalyInitAttachments` zeros the whole `GbufferOutput` (FXC X3508 if any `SV_Target` field is left unwritten). Lighting samples `AnomalyAttach_objectid` at t6+ when `ANOMALY_ATTACH_OBJECTID` is defined. Packed extras use format `GBuffer1.a`.

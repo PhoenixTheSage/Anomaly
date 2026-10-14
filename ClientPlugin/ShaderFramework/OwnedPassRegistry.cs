@@ -341,6 +341,7 @@ public static class OwnedPassRegistry
 
     internal static void BeginFrame()
     {
+        OpaqueLightingOwnership.BeginFrame();
         lock (Gate)
         {
             upscaleNotified = false;
@@ -698,6 +699,8 @@ public static class OwnedPassRegistry
         {
             var reg = snapshot[i];
             if (reg.Phase != phase)
+                continue;
+            if (!OpaqueLightingOwnership.ShouldRun(reg.Id))
                 continue;
             RenderTrace.Begin(reg.Id);
             try

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-In-game: Anomaly settings → **Show Status** for framework health. Use Velocity Debug → **Velocity Status** for motion-vector output and opt-in proofing. Also check `SpaceEngineers.log` and Anomaly’s debug log. Compile errors include `pack=id`.
+In-game: Anomaly settings → **Show Status** for framework health. Use Velocity Debug → **Velocity Status** for motion-vector output and opt-in proofing. On Vulkan those pages keep the same section labels and fill them from the guest bus. Also check `SpaceEngineers.log` and Anomaly’s debug log. Compile errors include `pack=id`.
 
 Known renderer-plugin conflicts and migration requirements are tracked in [[Compatibility]]. Test Anomaly's renderer work with unrelated render plugins disabled.
 

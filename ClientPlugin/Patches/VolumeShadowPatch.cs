@@ -13,5 +13,6 @@ static class VolumeShadowPatch
         VolumetricIntegrator.PollTimings(VRageRender.MyRender11.RC.DeviceContext);
         SharedVolumetricRenderer.BeforeScheduler();
         DirectionalVolumeShadows.RenderBeforeScheduler();
+        FarSunShadows.RenderBeforeScheduler();
     }
 }

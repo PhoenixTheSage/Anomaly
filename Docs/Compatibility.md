@@ -2,6 +2,10 @@
 
 Anomaly is the shared renderer-extension framework. Plugins that need motion vectors, extra GBuffer data, shader injection, or scheduled fullscreen work integrate through Anomaly instead of installing a parallel compiler or render-pipeline interception layer.
 
+## Renderer backends
+
+Anomaly core is the Pulsar plugin on both renderers. It does not reference `VRage.Render11` or SharpDX. The settings dialog and `Anomaly.cfg` load from this assembly, including when the renderer is Vulkan. `Anomaly.Dx11` is a sibling assembly, loaded only after the live renderer is `MyDX11Render`. A Pulsar source session resolves it from the plugin's `ClientPlugin\bin` output when `DevFolder` does not contain it. It is not an `IPlugin` and not a second Pulsar plugin. `RenderHost.StatusLine` reports the pending, committed, or disagreed choice. Packs read `ClientPlugin.Backend.RendererRoute` for the same choice and for which path is open (`shared`, `dx11-device`, `guest`). A call on a closed path is refused. On Vulkan, fullscreen programs on the fixed bus composite onto the world HDR target. See [Vulkan.md](Vulkan.md). A pack assembly that still references `VRage.Render11` or SharpDX forces a DX11 launch. SE-DLSS, SE-FRS, SE-FG, and HdrRender stay on that path. Aurora, Volumetric Clouds, and Prism.SSGI allocate through the catalog; Prism's SVGF stack lives in `Prism.SSGI.Dx11` and loads only on DX11.
+
 ## Ownership rules
 
 - Anomaly owns the Keen shader compile interception route.

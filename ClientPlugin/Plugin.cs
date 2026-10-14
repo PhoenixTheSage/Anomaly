@@ -9,21 +9,35 @@ using ClientPlugin.Shaders;
 using ClientPlugin.Velocity;
 using HarmonyLib;
 using Sandbox.Graphics.GUI;
-using VRage.Plugins;
 using VRage.Utils;
 
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("1.10.1.0")]
-[assembly: AssemblyFileVersion("1.10.1.0")]
+[assembly: AssemblyVersion("1.11.0.0")]
+[assembly: AssemblyFileVersion("1.11.0.0")]
 #endif
 
 namespace ClientPlugin;
 
 // ReSharper disable once UnusedType.Global
-public sealed class Plugin : IPlugin
+public sealed class Plugin
 {
     public const string Name = "Anomaly";
     public static Plugin Instance { get; private set; }
+    static bool installRequested;
+    static bool frameworkInstalled;
+
+    /// <summary>
+    /// Called by the DX11-free Anomaly core after the operational renderer is DX11.
+    /// This type is not an <c>IPlugin</c>. Pulsar loads Anomaly.dll, not this assembly.
+    /// </summary>
+    public static void InstallFramework(object gameInstance)
+    {
+        installRequested = true;
+        if (frameworkInstalled)
+            return;
+        frameworkInstalled = true;
+        new Plugin().Init(gameInstance);
+    }
 
     // Pulsar injects this before LoadAssets. (name, extension) → Data/{name}[/ or .{ext}].
     public static Func<string, string, string> GetConfigPath;
@@ -35,8 +49,11 @@ public sealed class Plugin : IPlugin
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     public void Init(object gameInstance)
     {
+        if (!installRequested || Instance != null)
+            return;
         disposed = false;
         Instance = this;
+        Config.OpenVelocityDebug = () => Instance?.OpenVelocityDebugDialog();
         settingsGenerator = new SettingsGenerator(Config.Current.Title, new[]
         {
             nameof(Config.VelocitySource),
@@ -87,6 +104,7 @@ public sealed class Plugin : IPlugin
             return;
 
         disposed = true;
+        RayScene.Clear();
         DebugLog.Write("Dispose");
         ConfigStorage.FlushPending(true);
         PlanetAtmosphere.Clear();
@@ -94,9 +112,11 @@ public sealed class Plugin : IPlugin
         VolumetricInteriorSnapshot.Clear();
         VolumetricMediumRegistry.Release();
         DirectionalVolumeShadows.Release();
+        FarSunShadows.Release();
         VolumetricIntegrator.Release();
         SharedVolumetricRenderer.Release();
         RichHudSupport.Shutdown();
+        InteractiveOverlayRegistry.Update();
         CameraVelocityPass.Enabled = false;
         OwnedBuffersPass.Enabled = false;
         GBufferVelocity.Enabled = false;
@@ -118,7 +138,9 @@ public sealed class Plugin : IPlugin
         if (disposed)
             return;
 
+        SceneSnapshot.Capture();
         RichHudSupport.TryInitialize();
+        InteractiveOverlayRegistry.Update();
         ConfigStorage.FlushPending();
         PlanetAtmosphere.UpdateFromGameThread();
         LocalCharacter.UpdateFromGameThread();

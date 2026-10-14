@@ -93,10 +93,17 @@ float4 PS(float4 p : SV_Position) : SV_Target { return FrameTint * Atlas.SampleL
         native.ClearState(); device.ImmediateContext.ClearState();
         Console.WriteLine((deferred ? "Deferred" : "Immediate") + ": missing b0 zeros emission; restored frame/samplers recover exact probe pixels");
     }
-    static void Main()
+    static void Main(string[] args)
     {
         using var device = new Device(DriverType.Warp,DeviceCreationFlags.None);
         Run(device,false); Run(device,true);
+        if (args.Length > 0)
+        {
+            var code = System.IO.File.ReadAllBytes(args[0]);
+            NativeBillboardProbe.Run(device,code,false,Check);
+            NativeBillboardProbe.Run(device,code,true,Check);
+        }
+        if (args.Length > 2) HookChecks.Run(args[1],args[2],Check);
         Console.WriteLine("PASS: " + checks + " transparent binding assertions; runtime " + Environment.Version);
     }
 }

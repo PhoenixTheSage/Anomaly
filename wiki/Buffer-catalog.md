@@ -4,12 +4,12 @@ Resolve `ClientPlugin.Buffers.BufferCatalog` by type name. `Active(name)` never 
 
 | Name | When it exists | Format |
 |------|----------------|--------|
-| `velocity` | After GBuffer / camera pass | RG16F, internal resolution |
+| `velocity` | After the depth-equal object pass and the camera fill | RG16F, internal resolution. Non-zero object motion is kept. Sky, skinned characters, voxels, foliage, and decals are camera fill. DX11 still writes object motion on GBuffer `SV_Target3`. |
 | `linearDepth` | After scheduler Done, only if a pack is live or Debug buffer is Linear depth / Hi-Z | R32_Float, full res, positive view Z |
 | `hiZ` | Right after linearDepth, only if a pack is live or Debug buffer is Hi-Z | R32_Float, half res, 2×2 min (not GenerateMips) |
 | `historyColor` | After DrawGameScene postfix, only if a pack is live or Debug buffer is History color | RGBA16F HDR LBuffer copy; unpublished until one copy |
 | `reactiveMask` | When an owned pass or IsolatedAdd program sets `TemporalPolicy.Reactive` | R8, full res; IsolatedAdd auto-stamps dilated luma **on the slot `rc`** (transparent deferred worker for AfterAtmosphere). Anomaly redirects `MyRender11.RC` during those callbacks. White = do not trust history |
-| `objectId` (or any attachment name) | If a pack requested it | Pack format; also `GBufferAttachments.TryGet` |
+| `objectId` (or any attachment name) | If a pack requested it | Pack format. DX11: `GBufferAttachments.TryGet`, `SV_Target4`–`6`. Vulkan: catalog `Active(name)`, sentinel `0xFFFF000000000009` plus the slot (`SV_Target4` is slot 0). |
 | `fullscreenIsolated` | After a `Fullscreen/` program runs | Last isolated RT (slot res, or 1/2 / 1/4 when that program set `scale`); reserved |
 | `hdrColor` | When GBuffer exists | Aliases Keen `LBuffer` (internal HDR) |
 | `pointLights` | After `PreparePointLights` when point lights are on and last-frame visible | Structured 48-byte `AnomalyPointLight`; `Width` = element count, `Height` = 1. Wrap, no copy. Dummy 1-element SRV on HDR t10 when empty |

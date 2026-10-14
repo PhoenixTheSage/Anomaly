@@ -381,6 +381,18 @@ public sealed class PublishedBuffer : ISharedBuffer
         IsStructured = false;
         Uav = null;
     }
+
+    public void PublishRgba8(byte[] rgba, int width, int height) =>
+        CatalogImages.PublishRgba8(this, rgba, width, height);
+
+    public void PublishVolumeRgba8(byte[] rgba, int width, int height, int depth) =>
+        CatalogImages.PublishVolumeRgba8(this, rgba, width, height, depth);
+
+    public void PublishVolumeMips(byte[][] mips, int dim) =>
+        CatalogImages.PublishVolumeMips(this, mips, dim);
+
+    public void PublishStructuredFloats(float[] values, int stride) =>
+        CatalogImages.PublishStructuredFloats(this, values, stride);
 }
 
 sealed class CatalogTexture : ISharedBuffer

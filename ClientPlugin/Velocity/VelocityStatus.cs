@@ -18,6 +18,7 @@ public static class VelocityStatus
             var buf = VelocityRegistry.Active;
             var sb = new StringBuilder();
             sb.AppendLine("Anomaly Shader Framework");
+            sb.AppendLine(RendererStatus());
             sb.Append("Compile intercept: ").AppendLine(FormatInterceptSummary());
             sb.Append("Keen GBuffer patch: ").AppendLine(KeenShaderGuard.StatusLine);
             sb.Append("Rich HUD: ").AppendLine(RichHudSupport.StatusLine);
@@ -173,5 +174,20 @@ public static class VelocityStatus
         if (!GBufferVelocity.IsLive)
             return "not live";
         return "live";
+    }
+
+    static string RendererStatus()
+    {
+        foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
+        {
+            System.Type type;
+            try { type = assembly.GetType("ClientPlugin.Backend.RenderHost", false); }
+            catch { continue; }
+            var line = type?.GetProperty("StatusLine", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)?.GetValue(null) as string;
+            if (!string.IsNullOrEmpty(line))
+                return line;
+        }
+
+        return "Renderer: pending | waiting for the operational renderer";
     }
 }

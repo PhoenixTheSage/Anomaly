@@ -54,6 +54,7 @@ public static class RichHudSupport
         {
             TerminalConfigRegistry.Unmount();
             HudOverlayRegistry.Unmount();
+            InteractiveOverlayRegistry.Unmount();
             sessionToken = session;
             initAttempted = false;
             ready = false;
@@ -91,6 +92,7 @@ public static class RichHudSupport
             ready = false;
             TerminalConfigRegistry.Unmount();
             HudOverlayRegistry.Unmount();
+            InteractiveOverlayRegistry.Unmount();
             DebugLog.Write("RichHudClient lost Master; will re-handshake");
         }
 
@@ -131,6 +133,7 @@ public static class RichHudSupport
     {
         TerminalConfigRegistry.Unmount();
         HudOverlayRegistry.Unmount();
+        InteractiveOverlayRegistry.Unmount();
         try
         {
             RichHudClient.Reset();
@@ -159,6 +162,7 @@ public static class RichHudSupport
         ready = false;
         TerminalConfigRegistry.Unmount();
         HudOverlayRegistry.Unmount();
+        InteractiveOverlayRegistry.Unmount();
         DebugLog.Write("RichHudClient reset");
     }
 
@@ -167,5 +171,6 @@ public static class RichHudSupport
         AnomalyTerminalPages.Install();
         TerminalConfigRegistry.Mount();
         HudOverlayRegistry.Mount();
+        InteractiveOverlayRegistry.Mount();
     }
 }

@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using ClientPlugin.Settings;
 using ClientPlugin.Settings.Elements;
@@ -111,22 +113,60 @@ public class Config : INotifyPropertyChanged
     // ReSharper disable once UnusedMember.Global
     public static void ShowStatus()
     {
-        MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Status", "AnomalyStatus", VelocityStatus.CurrentText));
+        MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Status", "AnomalyStatus", StatusText("CurrentText")));
     }
 
     [Button(label: "Velocity Debug", description: "Open velocity visualization, persistence, and audit settings")]
     // ReSharper disable once UnusedMember.Global
-    public static void ShowVelocityDebug()
-    {
-        Plugin.Instance?.OpenVelocityDebugDialog();
-    }
+    public static void ShowVelocityDebug() => OpenVelocityDebug?.Invoke();
+
+    /// <summary>
+    /// Set by the core plugin when this Config is the Pulsar assembly's copy.
+    /// The DX11 plugin opens the same page through OpenVelocityDebugDialog.
+    /// </summary>
+    internal static Action OpenVelocityDebug;
 
     [Separator("Status")]
     [Button(label: "Velocity Status", description: "Concise motion-vector health and active proofing results")]
     // ReSharper disable once UnusedMember.Global
     public static void ShowVelocityStatus()
     {
-        MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Velocity Status", "AnomalyVelocityStatus", VelocityStatus.VelocityText));
+        MyGuiSandbox.AddScreen(new StatusScreen("Anomaly Velocity Status", "AnomalyVelocityStatus", StatusText("VelocityText")));
+    }
+
+    static string StatusText(string property)
+    {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type status;
+            try { status = assembly.GetType("ClientPlugin.Velocity.VelocityStatus", false); }
+            catch { continue; }
+            var text = status?.GetProperty(property, BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as string;
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type guest;
+            try { guest = assembly.GetType("ClientPlugin.Backend.FrameworkStatus", false); }
+            catch { continue; }
+            var text = guest?.GetProperty(property, BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as string;
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type host;
+            try { host = assembly.GetType("ClientPlugin.Backend.RenderHost", false); }
+            catch { continue; }
+            var line = host?.GetProperty("StatusLine", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as string;
+            if (!string.IsNullOrEmpty(line))
+                return line;
+        }
+
+        return "Anomaly settings are loaded. Framework status appears after the renderer is chosen.";
     }
 
     #endregion

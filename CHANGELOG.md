@@ -2,6 +2,16 @@
 
 Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage below is reconstructed from repository history so the current version reflects shipped capability rather than the inherited SE-DLSS version.
 
+## 1.11.0 — 2026-10-14
+
+- Split the Pulsar plugin from the DX11 satellite. `Anomaly.dll` keeps registries, pack scan, settings, and the HLSL bus. `Anomaly.Dx11.dll` loads only after the live renderer is Keen DX11.
+- `RendererRoute` is pending, DX11, or Vulkan. The shared bus stays open on all three. DX11 device work and Vulkan guest images stay mutually exclusive.
+- Guest fullscreen packets carry slot, SPIR-V, bindings, uniforms, and compose mode. Native replay runs at the six existing marks. Catalog `velocity`, `volumeReactive`, and `reactiveMask` use the same names as DX11.
+- Catalog publish gains `PublishRgba8`, `PublishVolumeRgba8`, `PublishStructuredFloats`, and `PublishVolumeMips`. Display services request an FP16 swapchain, the frame-generation warp, and the temporal upscale.
+- RayScene API v1 captures meshes, lights, and glass optics at AfterLighting, with optional far-sun depth. Opaque lighting ownership stays on the host.
+- Interactive Rich HUD windows (API v1) sit beside the existing corner-text overlay host.
+- Far-sun clip and far-sun shadows publish a shared distant-sun depth product for tenants that opt in.
+
 ## 1.10.1 — 2026-10-01
 
 - Restore inherited frame constants and pixel samplers when AfterAtmosphere exits, including failed tenants. Isolated velocity contribution cleared pixel b0 before Keen's soft-particle billboards, suppressing thruster emission. Linked production D3D11 WARP probes pass on immediate/deferred contexts for net48 and net10; in-game confirmation is pending.

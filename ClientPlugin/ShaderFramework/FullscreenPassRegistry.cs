@@ -736,6 +736,11 @@ public static class FullscreenPassRegistry
     static void DrawOne(MyRenderContext rc, Program prog, IRtvBindable dest, ISrvBindable scene,
         ref ISrvBindable previous, ref Program lastChain, bool outputRes)
     {
+        if (!OpaqueLightingOwnership.ShouldRun(prog.Id))
+        {
+            NoteDraw(prog, "opaque-lighting-owned");
+            return;
+        }
         if (!EnsureHelpers(rc))
         {
             NoteDraw(prog, "helpers-missing");

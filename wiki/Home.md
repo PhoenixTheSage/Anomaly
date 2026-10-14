@@ -8,6 +8,8 @@ This wiki is the public copy of the in-editor shader developer canvas. When the 
 
 Anomaly intercepts Space Engineers’ DX11 shader compiler and publishes shared GPU textures. Other plugins bind those textures. Shader packs add or replace HLSL through the same compile door. You never Harmony-patch `MyShader`, `DrawGameScene`, atmosphere, or tonemap from a pack — ship `Fullscreen/<Slot>/*.hlsl` or register an owned-pass draw instead.
 
+On Vulkan the same catalog names are renderer images. `velocity` keeps object motion from a depth-equal geometry pass and fills sky, skinned characters, voxels, foliage, and decals from depth. An extra GBuffer target is `GBuffer/<name>.hlsl`, not a fourth stock color attachment.
+
 | | |
 |--|--|
 | **1** compile hook | Anomaly owns `MyShaderCompiler` |

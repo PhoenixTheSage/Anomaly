@@ -39,7 +39,7 @@ public static class CelestialBackgroundRegistry
     static Provider mainDrawnProvider;
     static uint mainDrawnFrame;
 
-    /// <summary>Suppress only the game's solar flare after successful main-view replacement.</summary>
+    /// <summary>Suppress only the game's solar flare once main-view replacement is healthy.</summary>
     public static void SetNativeSunGlare(string id, bool enabled)
     { lock (Gate) if (Providers.TryGetValue(id, out var p)) p.NativeSunGlare = enabled; }
 
@@ -48,7 +48,10 @@ public static class CelestialBackgroundRegistry
         get
         {
             lock (Gate)
-                return mainDrawnProvider != null && mainDrawnFrame == FrameTemporal.FrameIndex &&
+                // Transparency records on a worker before lighting ConsumeWork
+                // may draw this frame's sky. Retain the last successful main draw
+                // for one frame, rather than requiring a future worker dependency.
+                return mainDrawnProvider != null && unchecked(FrameTemporal.FrameIndex - mainDrawnFrame) <= 1 &&
                     Providers.Count == 1 && Providers.TryGetValue(mainDrawnProvider.Id, out var p) &&
                     ReferenceEquals(p, mainDrawnProvider) && p.Enabled && !p.Failed && !p.NativeSunGlare;
         }
@@ -145,9 +148,10 @@ public static class CelestialBackgroundRegistry
 
     static void DrawMain(MyRenderContext rc)
     {
-        lock (Gate) { DrainRetiredArt(); mainDrawnProvider = null; }
+        lock (Gate) { DrainRetiredArt(); }
         var gbuffer = MyGBuffer.Main;
-        if (gbuffer?.ResolvedDepthStencil?.SrvDepth == null) return;
+        if (gbuffer?.ResolvedDepthStencil?.SrvDepth == null)
+        { lock (Gate) mainDrawnProvider = null; return; }
         Draw(rc, gbuffer.LBuffer, gbuffer.ResolvedDepthStencil.SrvDepth, false, Matrix.Identity, Matrix.Identity);
     }
 
@@ -156,7 +160,8 @@ public static class CelestialBackgroundRegistry
 
     static void Draw(MyRenderContext rc, IRtvBindable target, ISrvBindable depth, bool probe, Matrix view, Matrix projection)
     {
-        if (rc == null || !rc.IsInitialized || target == null || depth == null) return;
+        if (rc == null || !rc.IsInitialized || target == null || depth == null)
+        { if (!probe) { lock (Gate) mainDrawnProvider = null; } return; }
         lock (Gate)
         {
             DrainRetiredArt();
@@ -164,12 +169,12 @@ public static class CelestialBackgroundRegistry
             Provider p = null;
             foreach (var candidate in Providers.Values) p = candidate;
             if (!p.Enabled) { status = "disabled: " + p.Id; return; }
-            if (!ProbeHookAvailable) { status = "vanilla fallback: probe hook unavailable"; return; }
+            if (!ProbeHookAvailable) { if (!probe) mainDrawnProvider = null; status = "vanilla fallback: probe hook unavailable"; return; }
             if (ShaderPackRegistry.TryResolveOverlay("Lighting/LightDir.hlsl", out _) ||
                 ShaderPackRegistry.TryResolveOverlay("EnvProbe/ForwardPostprocess.hlsl", out _))
-            { status = "vanilla fallback: conflicting lighting/probe overlay"; return; }
+            { if (!probe) mainDrawnProvider = null; status = "vanilla fallback: conflicting lighting/probe overlay"; return; }
             // A single-sample pass must not overwrite mixed foreground/background MSAA pixels.
-            if (MyRender11.MultisamplingEnabled) { status = "vanilla fallback: MSAA is not supported"; return; }
+            if (MyRender11.MultisamplingEnabled) { if (!probe) mainDrawnProvider = null; status = "vanilla fallback: MSAA is not supported"; return; }
             if (p.Failed) return;
             try
             {

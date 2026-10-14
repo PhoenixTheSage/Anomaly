@@ -29,14 +29,36 @@ Main-view stars, sun and guides deliberately share the scene projection, includi
 
 No provider, disabled provider, missing probe hook, multiple providers, explicit `LightDir.hlsl`/`ForwardPostprocess.hlsl` pack overlays, MSAA, or a compile/resource failure retains the original background. Unsupported MSAA currently falls back in both main and probe views; mixed-sample edge preservation needs its own implementation. Arbitrary custom lighting injection is not automatically conflict-detectable. Non-finite shader output discards that pixel. Actual device loss is rethrown rather than hidden as an ordinary fallback. Existing probe caches update on Keen's schedule, so reflection changes/restoration may lag the main view.
 
-Use `StatusLine` for a cached HUD status. It describes resource/provider state, not proof that every camera path or on-screen result is correct. Disable the provider to restore vanilla without recompilation. The initial provider leaves the vanilla sun flare intact. Sun-only glare isolation is available; analytic effects, partial-disc visibility and projected labels remain deferred to FinalFrontier phases 4/5. Native/MSAA/upscaler temporal behavior still needs in-game validation; the depth-zero velocity fallback has not been changed speculatively.
+Use `StatusLine` for a cached HUD status. It describes resource/provider state, not proof that every camera path or on-screen result is correct. Disable the provider to restore vanilla without recompilation. Native sun glare defaults on for providers; FinalFrontier now claims it for one configurable optical glow and animated plasma strands. Partial-disc visibility and projected labels remain deferred to FinalFrontier phases 4/5. Native/MSAA/upscaler temporal behavior still needs in-game validation; the depth-zero velocity fallback has not been changed speculatively.
 
 Validation: Anomaly builds on net48/net10.0; FinalFrontier's `Tests/Run-CelestialSmokeTests.ps1` compiles both actual provider variants against installed Keen headers and executes them with D3D11 WARP. The harness validates sky/foreground separation, sun alignment, probe sun exclusion, fog, main/probe direction agreement, translation invariance, narrow-FOV finite output, rotated probes and live uniforms. It does not initialize Keen's renderer or validate its Harmony hooks/deferred scheduling.
 
-Sun-glare isolation (2026-09-18): SetNativeSunGlare(false) suppresses only the
-exact MySector solar light during MyFlareRenderer.Draw, after a successful main
-celestial draw in the current FrameTemporal frame. Disabled/unregistered,
-conflicting or failed providers and device release restore the native path.
-The solar render ID is cleared on sector unload. Other distant lights, ship
-flares, light intensity and world flare definitions are unchanged. This hook
-requires in-game validation; it is an isolation control, not an analytic corona.
+## Native solar-glare ownership (updated 2026-10-02)
+
+`SetNativeSunGlare(false)` suppresses only the exact MySector solar light during
+`MyFlareRenderer.Draw`, once main-view replacement has succeeded. Keen records
+transparent flares on an independent worker before lighting `ConsumeWork` may
+draw the current celestial background. Requiring a successful draw in the same
+frame lets that worker retain the native solar flare alongside a replacement.
+
+The certificate now accepts the current or immediately previous
+`FrameTemporal.FrameIndex`, using unsigned subtraction across counter wrap.
+`DrawMain` retains the previous certificate during recording. Missing depth,
+missing probe hook, conflicting lighting/probe overlays and unsupported MSAA
+clear it on main-pass fallback. The ownership query also requires the same sole,
+enabled, nonfailed provider with native glare disabled. Device release clears
+readiness; sector unload clears the solar render ID. Other distant lights, ship
+flares, light intensity and world flare definitions are unchanged.
+
+First activation keeps native glare until the first successful draw. Work already
+recorded before a failure cannot be revised retroactively; activation/failure can
+therefore have a transition frame. A certificate older than one frame expires.
+This is bounded worker readiness, not a synchronous dependency between workers.
+
+`Tests/CelestialGlare` executes 24 checks against the actual built registry and
+Harmony prefix on installed game types, on both net48 and net10.0. It verifies
+both worker/draw orders, stale/future/wrapped frames, exact solar identity, other
+lights and restoration. The harness seeds the successful-draw certificate and
+frame clock; it does not run GPU draws or the game's scheduler. Actual in-game
+glare, bloom, lifecycle and upscaler acceptance remain pending. See
+[test commands and limits](../Tests/CelestialGlare/README.md).

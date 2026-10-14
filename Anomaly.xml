@@ -11,13 +11,19 @@
 Does nothing on its own. API that provides a common layer for shaders and advanced rendering.
     </Description>
 
+    <!-- Pulsar compiles every .cs under these directories into Anomaly.dll.
+         Settings holds the versioned config dialog. The same files also compile
+         into Anomaly.Dx11, so they cannot be compiled together with the DX11 plugin. -->
     <SourceDirectories>
-        <Directory>ClientPlugin</Directory>
+        <Directory>ClientPlugin/Backend</Directory>
+        <Directory>ClientPlugin/Settings</Directory>
     </SourceDirectories>
 
     <Asset Name="AssetFolder" Path="Assets/" />
 
     <Hidden>false</Hidden>
+
+    <Platforms>Windows,Linux</Platforms>
 
     <!-- Pin this to a reviewed commit when registering on PluginHub. -->
 

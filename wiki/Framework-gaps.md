@@ -1,5 +1,10 @@
 # Framework gaps
 
+## Rich HUD host parity and status navigation (2026-10-14, Slice AI, implemented)
+
+The terminal/overlay host previously lived only in Anomaly.Dx11. It now lives in the shared core, so Vulkan queues and mounts the same terminal pages and interactive windows without loading device code. Each runtime plugin has a dedicated Status page, registered independently of Settings/assets/device initialization, and a matching config report. PluginHub is excluded. DX11 uses the live shared registry and retains native settings persistence; Vulkan retains shared settings persistence. Legacy/Interim registration, delayed retry, renderer isolation and Pulsar source identity tests pass. In-world Master interaction/visual acceptance remains pending. See `Docs/TerminalConfig.md` and `Tests/StatusNavigation`.
+
+
 ## Vulkan volumeReactive mask (2026-10-14, open)
 
 DX11 frame generation reads catalog `volumeReactive`, the screen reject mask written by the shared froxel renderer. On Vulkan that renderer does not run. Frame generation samples guest image `0xFFFF00000000000B` when a program publishes `volumeReactive`, and otherwise interpolates without a mask. Catalog `velocity` (`0xFFFF00000000000A`) is the live CameraVelocity image and is what the Vulkan warp uses, matching the DX11 convention-15 path. `FrameTemporal.InvalidateHistory` clears the guest history bit so the next warp seeds.

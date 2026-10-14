@@ -175,6 +175,6 @@ public static class PlanetAtmosphere
             + (airTop / 1000f).ToString("0.#") + " km, visualCeil "
             + (visualCeil / 1000f).ToString("0.#") + " km";
         MyLog.Default.WriteLine("Anomaly " + line);
-        ClientPlugin.DebugLog.Write(line);
+        DebugLog.Write(line);
     }
 }

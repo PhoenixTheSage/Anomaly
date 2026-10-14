@@ -1,4 +1,7 @@
 <Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'ClientPlugin.Dx11'">
+    <BaseIntermediateOutputPath>obj/Dx11/</BaseIntermediateOutputPath>
+  </PropertyGroup>
   <!-- Folders overridable by Directory.Build.props.user -->
   <PropertyGroup>
     <!-- Folder containing SpaceEngineers.exe.

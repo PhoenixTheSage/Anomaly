@@ -11,12 +11,13 @@
 Does nothing on its own. API that provides a common layer for shaders and advanced rendering.
     </Description>
 
-    <!-- Pulsar compiles every .cs under these directories into Anomaly.dll.
-         Settings holds the versioned config dialog. The same files also compile
-         into Anomaly.Dx11, so they cannot be compiled together with the DX11 plugin. -->
+    <!-- The shared plugin owns settings and the renderer-independent Rich HUD host.
+         DX11 GPU code remains in Anomaly.Dx11 and binds this live shared assembly. -->
     <SourceDirectories>
         <Directory>ClientPlugin/Backend</Directory>
         <Directory>ClientPlugin/Settings</Directory>
+        <Directory>ClientPlugin/RichHud</Directory>
+        <Directory>ClientPlugin/RichHudFramework</Directory>
     </SourceDirectories>
 
     <Asset Name="AssetFolder" Path="Assets/" />

@@ -23,6 +23,8 @@ What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.m
 
 ## Ground rules (do not skip)
 
+Shared HUD parity (2026-10-14, Slice AI): terminal pages, corner overlays, and interactive windows now live in Anomaly's renderer-independent core on DX11 and Vulkan. Consumers queue a separate Status page independently of settings/device initialization. DX11 binds its settings callbacks and persistence to that one shared registry through the live Pulsar core identity. Legacy/Interim registration and source-name rebinding checks pass; visible in-world Master acceptance remains pending. See [TerminalConfig.md](TerminalConfig.md).
+
 Interactive map/window tenant (2026-10-02, Slice AI shared HUD capability):
 `ClientPlugin.RichHud.InteractiveOverlayRegistry` API v1 now hosts resizable
 modal RHUD windows, standard controls, viewport input/resize, projected geometry

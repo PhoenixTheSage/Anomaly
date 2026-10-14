@@ -17,6 +17,9 @@ public static class RenderHost
     const string RuntimeType = "ClientPlugin.Bootstrap.BackendRuntime";
     static readonly object Gate = new object();
     static readonly List<string[]> Pending = new List<string[]>();
+    static readonly List<HeldOwnedPass> PendingOwned = new List<HeldOwnedPass>();
+    static readonly Dictionary<string, bool> PendingEnabled =
+        new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
     static object gameInstance;
     static Type runtime;
     static bool runtimeBound;
@@ -102,6 +105,75 @@ public static class RenderHost
 
         if (IsDx11)
             Dx11Call.Call("ClientPlugin.Shaders.ShaderPackRegistry", "Register", id, root);
+    }
+
+    /// <summary>
+    /// <c>LoadAssets</c> runs before the renderer choice. Hold the callback
+    /// until DX11 commits. A dropped register leaves json Replace programs at
+    /// their default-on state and they overwrite the world HDR target.
+    /// Returns true when the call was held. Vulkan discards the hold.
+    /// </summary>
+    public static bool HoldOwnedPass(string id, string slot, int priority, int policy, Action<object> draw, int phase)
+    {
+        if (string.IsNullOrEmpty(id) || draw == null)
+            return true;
+        lock (Gate)
+        {
+            if (committed)
+                return false;
+            for (var i = PendingOwned.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(PendingOwned[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                    PendingOwned.RemoveAt(i);
+            }
+
+            PendingOwned.Add(new HeldOwnedPass
+            {
+                Id = id,
+                Slot = slot,
+                Priority = priority,
+                Policy = policy,
+                Draw = draw,
+                Phase = phase
+            });
+            return true;
+        }
+    }
+
+    /// <summary>Same hold as <see cref="HoldOwnedPass"/>. Last write for an id wins.</summary>
+    public static bool HoldEnabled(string id, bool enabled)
+    {
+        if (string.IsNullOrEmpty(id))
+            return true;
+        lock (Gate)
+        {
+            if (committed)
+                return false;
+            PendingEnabled[id] = enabled;
+            return true;
+        }
+    }
+
+    /// <summary>True when a pending unregister consumed the hold.</summary>
+    public static bool DropHeldOwnedPass(string id)
+    {
+        lock (Gate)
+        {
+            if (committed)
+                return false;
+            if (!string.IsNullOrEmpty(id))
+            {
+                for (var i = PendingOwned.Count - 1; i >= 0; i--)
+                {
+                    if (string.Equals(PendingOwned[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                        PendingOwned.RemoveAt(i);
+                }
+
+                PendingEnabled.Remove(id);
+            }
+
+            return true;
+        }
     }
 
     public static void SubmitVulkan()
@@ -211,6 +283,8 @@ public static class RenderHost
     static void Commit()
     {
         string[][] queued;
+        HeldOwnedPass[] owned;
+        KeyValuePair<string, bool>[] enabled;
         lock (Gate)
         {
             if (committed)
@@ -219,12 +293,19 @@ public static class RenderHost
             committed = true;
             queued = Pending.ToArray();
             Pending.Clear();
+            owned = PendingOwned.ToArray();
+            PendingOwned.Clear();
+            enabled = new KeyValuePair<string, bool>[PendingEnabled.Count];
+            var n = 0;
+            foreach (var pair in PendingEnabled)
+                enabled[n++] = pair;
+            PendingEnabled.Clear();
         }
 
         SceneView.BackendName = BackendName(choice);
         if (choice == 0)
         {
-            LoadDx11(queued);
+            LoadDx11(queued, owned, enabled);
             global::ClientPlugin.Buffers.BufferCatalog.ApplyDeferred();
             return;
         }
@@ -234,7 +315,7 @@ public static class RenderHost
         SetStatus("Renderer: Vulkan | " + Summary() + " | guest listener " + (listenersAttached ? "attached" : "missing"));
     }
 
-    static void LoadDx11(string[][] queued)
+    static void LoadDx11(string[][] queued, HeldOwnedPass[] owned, KeyValuePair<string, bool>[] enabled)
     {
         string path = SatelliteLookup.Find("Anomaly.Dx11.dll", typeof(RenderHost).Assembly);
         if (!File.Exists(path))
@@ -247,7 +328,7 @@ public static class RenderHost
         {
             try
             {
-                var assembly = Assembly.LoadFrom(path);
+                var assembly = SatelliteAssembly.Load(path, typeof(RenderHost).Assembly);
                 Dx11Call.Bind(assembly);
                 Dx11Call.Call("ClientPlugin.Plugin", "InstallFramework", gameInstance);
             }
@@ -260,9 +341,29 @@ public static class RenderHost
 
         foreach (var item in queued)
             Dx11Call.Call("ClientPlugin.Shaders.ShaderPackRegistry", "Register", item[0], item[1]);
+        // Programs exist first, then checkbox state, then the callbacks that
+        // keep writing that state. A Replace left at the json default paints
+        // over the lit scene.
+        foreach (var pair in enabled)
+            Dx11Call.Call("ClientPlugin.Shaders.FullscreenPassRegistry", "SetEnabled", pair.Key, pair.Value);
+        foreach (var pass in owned)
+            Dx11Call.Call("ClientPlugin.Shaders.OwnedPassRegistry", "Register",
+                pass.Id, pass.Slot, pass.Priority, pass.Policy, pass.Draw, pass.Phase);
         if (!string.IsNullOrEmpty(assetFolder))
             CallPlugin("LoadAssets", assetFolder);
-        SetStatus("Renderer: DX11 | " + Summary() + " | guest listener " + (listenersAttached ? "attached" : "not required") + " | Anomaly.Dx11 loaded");
+        SetStatus("Renderer: DX11 | " + Summary() + " | guest listener " +
+                  (listenersAttached ? "attached" : "not required") +
+                  " | Anomaly.Dx11 loaded | held passes=" + owned.Length + " enabled=" + enabled.Length);
+    }
+
+    sealed class HeldOwnedPass
+    {
+        public string Id;
+        public string Slot;
+        public int Priority;
+        public int Policy;
+        public Action<object> Draw;
+        public int Phase;
     }
 
     static void PullScene()

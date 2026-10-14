@@ -12,8 +12,8 @@ using Sandbox.Graphics.GUI;
 using VRage.Utils;
 
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("1.11.0.0")]
-[assembly: AssemblyFileVersion("1.11.0.0")]
+[assembly: AssemblyVersion("1.12.0.0")]
+[assembly: AssemblyFileVersion("1.12.0.0")]
 #endif
 
 namespace ClientPlugin;
@@ -115,7 +115,6 @@ public sealed class Plugin
         FarSunShadows.Release();
         VolumetricIntegrator.Release();
         SharedVolumetricRenderer.Release();
-        RichHudSupport.Shutdown();
         InteractiveOverlayRegistry.Update();
         CameraVelocityPass.Enabled = false;
         OwnedBuffersPass.Enabled = false;
@@ -130,7 +129,6 @@ public sealed class Plugin
         velocityDebugGenerator = null;
         if (ReferenceEquals(Instance, this))
             Instance = null;
-        DebugLog.Close();
     }
 
     public void Update()
@@ -139,8 +137,6 @@ public sealed class Plugin
             return;
 
         SceneSnapshot.Capture();
-        RichHudSupport.TryInitialize();
-        InteractiveOverlayRegistry.Update();
         ConfigStorage.FlushPending();
         PlanetAtmosphere.UpdateFromGameThread();
         LocalCharacter.UpdateFromGameThread();

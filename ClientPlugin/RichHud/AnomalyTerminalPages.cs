@@ -9,11 +9,30 @@ namespace ClientPlugin.RichHud;
 static class AnomalyTerminalPages
 {
     static bool installed;
+    static bool statusInstalled;
 
     public static void Install()
     {
+        var route = typeof(AnomalyTerminalPages).Assembly.GetType("ClientPlugin.Backend.RendererRoute");
+        // The shared plugin always owns diagnostics, including pending/failed DX11 startup.
+        // Settings still bind the native Config on DX11 and the shared Config on Vulkan.
+        if (route != null && !statusInstalled)
+        {
+            var status = TerminalConfigRegistry.RequestReservedPage(TerminalConfigRegistry.StatusTitle);
+            if (status != null)
+            {
+                status.Category("Status")
+                    .Button("Show Status", Config.ShowStatus, "Framework health for the active renderer.")
+                    .Button("Velocity Status", Config.ShowVelocityStatus, "Motion-vector health for the active renderer.");
+                statusInstalled = true;
+            }
+        }
+        if (route != null && (!(bool)route.GetProperty("Decided").GetValue(null) ||
+                              (bool)route.GetProperty("UseDx11Device").GetValue(null)))
+            return;
         if (installed)
             return;
+        TerminalConfigRegistry.SetHostConfigSaver(() => ConfigStorage.Save(Config.Current));
         installed = true;
 
         var settings = TerminalConfigRegistry.RequestReservedPage(TerminalConfigRegistry.SettingsTitle);
@@ -25,7 +44,6 @@ static class AnomalyTerminalPages
                     "GBuffer writes object motion on Keen's geometry pixels. CameraOnly is fullscreen depth reprojection.")
                 .Checkbox("Load local shader packs", () => Config.Current.ScanLocalPacks, v => Config.Current.ScanLocalPacks = v,
                     "Scan Data/Anomaly/Packs for unsigned folders and zips. Off for PluginHub builds. Requires a restart.")
-                .Button("Show Status", Config.ShowStatus, "Compile intercept, Rich HUD handshake, packs, passes, and published buffers.")
                 .Button("Velocity Debug", Config.ShowVelocityDebug, "Open the Pulsar Velocity Debug dialog. The same options are also a page in this terminal.");
         }
 
@@ -48,8 +66,7 @@ static class AnomalyTerminalPages
                 .Dropdown("Velocity probe", () => Config.Current.VelocityProbe, v => Config.Current.VelocityProbe = v,
                     "Developer diagnostic. Return to Off after testing.")
                 .Dropdown("Target3 checkpoint", () => Config.Current.Target3Checkpoint, v => Config.Current.Target3Checkpoint = v,
-                    "Developer diagnostic for GBufferVelocityRaw.")
-                .Button("Velocity Status", Config.ShowVelocityStatus, "Concise motion-vector health and active proofing results.");
+                    "Developer diagnostic for GBufferVelocityRaw.");
         }
     }
 }

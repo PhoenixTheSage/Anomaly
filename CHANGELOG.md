@@ -2,9 +2,18 @@
 
 Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage below is reconstructed from repository history so the current version reflects shipped capability rather than the inherited SE-DLSS version.
 
+## 1.12.0 — 2026-10-14
+
+- Move the terminal registry, Rich HUD client, corner overlays, interactive windows, and logging into the renderer-independent core; register session components on live sessions.
+- Add a reserved framework Status page and renderer-neutral diagnostics; bind DX11 settings callbacks and deferred persistence to the live shared registry.
+- Hold owned-pass registrations and enabled state until DX11 programs exist, preventing default-on replacement passes from overwriting world HDR.
+- Rebind the DX11 companion to the live Pulsar source assembly; isolate intermediate outputs, declare valid access grants, and build/deploy matching companions.
+- Document shared terminal ownership and renderer parity; add Legacy/Interim status-navigation and source-identity regression harnesses.
+
 ## 1.11.0 — 2026-10-14
 
-- Split the Pulsar plugin from the DX11 satellite. `Anomaly.dll` keeps registries, pack scan, settings, and the HLSL bus. `Anomaly.Dx11.dll` loads only after the live renderer is Keen DX11.
+- Split the Pulsar plugin from the DX11 satellite. `Anomaly.dll` keeps registries, pack scan, settings, and the HLSL bus. `Anomaly.Dx11.dll` loads only after the live renderer is Keen DX11. Rich HUD’s session host is registered on that live session, because Keen has already scanned assemblies by the time the satellite loads.
+
 - `RendererRoute` is pending, DX11, or Vulkan. The shared bus stays open on all three. DX11 device work and Vulkan guest images stay mutually exclusive.
 - Guest fullscreen packets carry slot, SPIR-V, bindings, uniforms, and compose mode. Native replay runs at the six existing marks. Catalog `velocity`, `volumeReactive`, and `reactiveMask` use the same names as DX11.
 - Catalog publish gains `PublishRgba8`, `PublishVolumeRgba8`, `PublishStructuredFloats`, and `PublishVolumeMips`. Display services request an FP16 swapchain, the frame-generation warp, and the temporal upscale.

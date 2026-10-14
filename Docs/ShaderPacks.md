@@ -53,6 +53,8 @@ Anomaly Init
   consume static registry → overlay include dirs + replace table
 ```
 
+`OwnedPassRegistry.Register` and `FullscreenPassRegistry.SetEnabled` from that same `LoadAssets` are held with the pack register until DX11 commits. Json programs are created first, then the held checkbox, then the held callbacks. A Replace that stays at the json default paints over the lit scene.
+
 Anomaly’s **own** shaders stay Anomaly assets (`Shaders`). Packs never write into Anomaly’s folder.
 
 ### Checked registration for packs with required programs

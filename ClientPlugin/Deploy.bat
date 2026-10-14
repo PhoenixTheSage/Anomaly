@@ -75,11 +75,22 @@ if /i "%EDITION%"=="Interim" (
 if not exist "!PLUGIN_DIR!" mkdir "!PLUGIN_DIR!"
 
 :copy
+if /i "%NAME%"=="Anomaly.dll" if not exist "%SOURCE%\Anomaly.Dx11.dll" (
+    echo error : Matching Anomaly.Dx11.dll not found. Build ClientPlugin before deploying.
+    exit /b 1
+)
 echo Copying "%SRCFILE%" to "!PLUGIN_DIR!\"
 copy /y "%SRCFILE%" "!PLUGIN_DIR!\"
 if !ERRORLEVEL! NEQ 0 (
     echo error : Could not copy "%NAME%", make sure the game does not run and try again.
     exit /b 1
+)
+if /i "%NAME%"=="Anomaly.dll" (
+    copy /y "%SOURCE%\Anomaly.Dx11.dll" "!PLUGIN_DIR!\" >nul
+    if !ERRORLEVEL! NEQ 0 (
+        echo error : Could not copy Anomaly.Dx11.dll, close the game and try again.
+        exit /b 1
+    )
 )
 
 if not "%ASSETS%"=="" if exist "%ASSETS%\Shaders" (

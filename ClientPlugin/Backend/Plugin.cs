@@ -1,9 +1,12 @@
 using System.Reflection;
 using VRage.Plugins;
+using ClientPlugin.RichHud;
+
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Anomaly.Dx11")]
 
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("1.11.0.0")]
-[assembly: AssemblyFileVersion("1.11.0.0")]
+[assembly: AssemblyVersion("1.12.0.0")]
+[assembly: AssemblyFileVersion("1.12.0.0")]
 #endif
 
 namespace ClientPlugin;
@@ -21,13 +24,27 @@ public sealed class Plugin : IPlugin
     public void Init(object gameInstance)
     {
         Instance = this;
+        DebugLog.Open();
         Backend.FrameworkSettings.Load();
         Backend.RenderHost.Start(gameInstance);
     }
 
-    public void Update() => Backend.RenderHost.Update();
+    public void Update()
+    {
+        Backend.RenderHost.Update();
+        ClientPlugin.Settings.ConfigStorage.FlushPending();
+        AnomalyTerminalPages.Install();
+        RichHudSupport.TryInitialize();
+        InteractiveOverlayRegistry.Update();
+    }
 
-    public void Dispose() => Backend.RenderHost.Dispose();
+    public void Dispose()
+    {
+        Backend.RenderHost.Dispose();
+        RichHudSupport.Shutdown();
+        Backend.SatelliteAssembly.Reset();
+        DebugLog.Close();
+    }
 
     public void OpenConfigDialog()
     {

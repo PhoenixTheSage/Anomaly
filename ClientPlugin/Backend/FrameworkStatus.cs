@@ -22,7 +22,7 @@ public static class FrameworkStatus
             sb.AppendLine(RenderHost.StatusLine);
             sb.Append("Compile intercept: ").AppendLine(GuestPassList.CompileStatus());
             sb.Append("Keen GBuffer patch: ").AppendLine(RendererRoute.UseGuestImages ? "guest attachments" : "pending");
-            sb.Append("Rich HUD: ").AppendLine("Pulsar dialog");
+            sb.Append("Rich HUD: ").AppendLine(global::ClientPlugin.RichHud.RichHudSupport.StatusLine);
             sb.Append("Shader packs: ").AppendLine(GuestPassList.PackStatus());
             sb.Append("GBuffer attachments: ").AppendLine(GuestPassList.AttachmentStatus());
             sb.Append("Pass binds: ").AppendLine(GuestPassList.BindStatus());

@@ -29,6 +29,10 @@ public static class FullscreenPassRegistry
     public static bool SetEnabled(string programId, bool enabled)
     {
         GuestPassList.SetEnabled(programId, enabled);
+        // LoadAssets runs before DX11 exists. Hold the checkbox and apply it
+        // after the json programs are created, or a default-on Replace stays live.
+        if (RenderHost.HoldEnabled(programId, enabled))
+            return true;
         return RenderHost.IsDx11 ? ForwardBool("SetEnabled", programId, enabled) : true;
     }
 
@@ -162,12 +166,22 @@ public static class OwnedPassRegistry
     public static bool HasSlot(string slot) => Call("HasSlot", slot) is true;
 
     public static void Register(string id, string slot, int priority, int temporalPolicy, Action<object> draw) =>
-        Device("Register", id, slot, priority, temporalPolicy, draw);
+        Register(id, slot, priority, temporalPolicy, draw, 1);
 
-    public static void Register(string id, string slot, int priority, int temporalPolicy, Action<object> draw, int phase) =>
+    public static void Register(string id, string slot, int priority, int temporalPolicy, Action<object> draw, int phase)
+    {
+        // Phase 1 is AfterFullscreen, matching the DX11 5-arg Register.
+        if (RenderHost.HoldOwnedPass(id, slot, priority, temporalPolicy, draw, phase))
+            return;
         Device("Register", id, slot, priority, temporalPolicy, draw, phase);
+    }
 
-    public static void Unregister(string id) => Device("Unregister", id);
+    public static void Unregister(string id)
+    {
+        if (RenderHost.DropHeldOwnedPass(id))
+            return;
+        Device("Unregister", id);
+    }
     public static void NotifyUpscaleComplete()
     {
         if (GuestColor.Open) { GuestColor.Notify(); return; }

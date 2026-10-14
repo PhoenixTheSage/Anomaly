@@ -17,6 +17,7 @@ static class FrameworkSettings
     public static void Load()
     {
         var config = Config.Current;
+        Config.OpenVelocityDebug = () => { Ensure(); OpenVelocity(); };
         try
         {
             VRage.Utils.MyLog.Default.WriteLine(

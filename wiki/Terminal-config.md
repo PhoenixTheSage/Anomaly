@@ -6,16 +6,19 @@ When [Rich HUD Master](https://steamcommunity.com/sharedfiles/filedetails/?id=19
 Anomaly Shaders
   ├── Anomaly
   │     ├── Settings            Pulsar options
-  │     └── Velocity Debug      Visualization / probe page
+  │     ├── Velocity Debug      Visualization / probe page
+  │     └── Status              Show Status / Velocity Status
   ├── <your title>              One page per RequestPage(title)
   └── <your folder>             RequestFolderPage(folder, page)
         ├── Settings            Typical consumer page name
-        ├── Status              Optional pack debug dialog (Show Status)
+        ├── Status              Diagnostics and Show Status
         └── <nested>            RequestFolderPage(page, folders)
               └── <page>        Types / deck pages under that folder
 ```
 
-> **Note — Reserved titles fail closed on `RequestPage`.** `Anomaly`, `Settings`, and `Velocity Debug` belong to the framework. Pick your pack or plugin display name so it sits beside **Anomaly**. `RequestFolderPage` may use `Settings` as the page name inside a consumer folder. Folder titles cannot be reserved. The same title (or folder + page) is idempotent (append more controls). Two packs should not share a title.
+> **Note — Reserved titles fail closed on `RequestPage`.** `Anomaly`, `Settings`, `Status`, and `Velocity Debug` belong to the framework. Pick your pack or plugin display name so it sits beside **Anomaly**. `RequestFolderPage` may use `Settings` as the page name inside a consumer folder. Folder titles cannot be reserved. The same title (or folder + page) is idempotent (append more controls). Two packs should not share a title.
+
+The Rich HUD client, terminal registry, corner overlays, and interactive windows live in Anomaly's shared assembly on both DX11 and Vulkan. Each plugin puts its diagnostic labels and report buttons on **its own Status page**, separate from settings. The config dialog's **Show Status** opens the same active-renderer report. Status registration retries independently of settings/assets/device startup, and reports pending or failed initialization rather than disappearing. Master remains optional. PluginHub is excluded from this convention.
 
 ## Register without referencing Anomaly.dll
 
@@ -99,8 +102,8 @@ Well-known type: `ClientPlugin.RichHud.TerminalConfigRegistry`.
 | `UnregisterWindowResized(handler)` | Drop a global resize handler. |
 | `WindowSize` / `Columns` | Live HUD-pixel size (including mid-drag) and the default **internal** column count. Zero size until the first `HandleInput` sample. |
 | `RootName` | `"Anomaly Shaders"` |
-| `FrameworkTitle` | `"Anomaly"` — folder that holds Settings and Velocity Debug |
-| `StatusLine` | `pages=N (Settings, Velocity Debug, …) window=WxH cols=N` |
+| `FrameworkTitle` | `"Anomaly"` — folder that holds Settings, Velocity Debug, and Status |
+| `StatusLine` | `pages=N (Settings, Velocity Debug, Status, …) window=WxH cols=N` |
 
 `ITerminalConfigPage`: `Category`, `Label` (`text` plus optional `Func<string> get` — applied at mount and again on `Refresh()`), `Checkbox` (optional `Func<bool> enabled` — visible but not settable when false), `Slider`, `IntSlider`, `Dropdown` / `Dropdown<T>`, `Button`, `Color` (`Func<Color>` / `Action<Color>`, Rich HUD RGB picker), `Refresh()`, `OnResized(Action<float, float>)`. Optional arguments are explicit overloads so reflection can match arity. Each category is one full-width tile. Controls flow left-to-right into **internal** columns sized around a preferred width (~300px) from the live window. Call `SeparateAt(width)` after `Category` to change that wrap width. `Columns(n)` forces a count (`1` is one full-width column). The next category starts below. Master’s page scrolls when the stack is taller than the window. Color pickers take a full row inside the tile. Prefer a short category header; put detail in control tooltips.
 
@@ -126,7 +129,7 @@ t.GetMethod("OnResized")?.Invoke(page, new object[]
 
 - Do not take a compile-time reference to Anomaly or RichHudFramework.
 - Do not ship another Rich HUD client, or list Master as a Pulsar `DependencyId`, from a pack.
-- Do not request `Anomaly`, `Settings`, or `Velocity Debug` from `RequestPage`. `RequestFolderPage` may use `Settings` as the page name.
+- Do not request `Anomaly`, `Settings`, `Status`, or `Velocity Debug` from `RequestPage`. `RequestFolderPage` may use `Settings` as the page name.
 - Do not hide the pack from Pulsar to “keep the list clean.” Packs are normal plugins that depend on Anomaly.
 - Do not serialize XML or write a config file inside a slider / color / checkbox setter. Cache one `XmlSerializer`, debounce, and flush on a worker.
 - Do not serialize or write a `.cfg` from `OnResized` / `RegisterWindowResized`. Those run on the HUD input thread after mouse-up.

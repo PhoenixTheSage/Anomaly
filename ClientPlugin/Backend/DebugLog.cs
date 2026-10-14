@@ -11,7 +11,7 @@ using VRage.Utils;
 namespace ClientPlugin;
 
 /// <summary>
-/// Writes a debug-only log beside SpaceEngineers.log; call sites are omitted from Release builds.
+/// Shared debug log for the framework and HUD host; call sites are omitted from Release builds.
 /// </summary>
 public static class DebugLog
 {

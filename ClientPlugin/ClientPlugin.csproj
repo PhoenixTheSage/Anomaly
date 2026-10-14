@@ -14,8 +14,8 @@
     <TargetFramework Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net10.0</TargetFramework>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <NoWarn>$(NoWarn);CS0811</NoWarn>
-    <AssemblyVersion>1.11.0.0</AssemblyVersion>
-    <FileVersion>1.11.0.0</FileVersion>
+    <AssemblyVersion>1.12.0.0</AssemblyVersion>
+    <FileVersion>1.12.0.0</FileVersion>
     <PathSeparator Condition="$([MSBuild]::IsOSPlatform('Windows'))">\</PathSeparator>
     <PathSeparator Condition="!$([MSBuild]::IsOSPlatform('Windows'))">/</PathSeparator>
     <_SteamAppInstallLocation Condition=" '$(Bin64)' == '' AND $([MSBuild]::IsOSPlatform('Windows')) ">$(registry:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 244850@InstallLocation)</_SteamAppInstallLocation>
@@ -54,6 +54,8 @@
          different types. Pulsar must compile this directory or the plugin
          version and config dialog stay on the DX11 assembly. -->
     <Compile Include="Settings\**\*.cs" />
+    <Compile Include="RichHud\**\*.cs" />
+    <Compile Include="RichHudFramework\**\*.cs" />
   </ItemGroup>
   <!-- Core is the Pulsar plugin. It must not reference VRage.Render11 or SharpDX.
        Those stay on Anomaly.Dx11, loaded only after the renderer choice is DX11. -->
@@ -96,5 +98,12 @@
     <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))"
           Command="sh &quot;$(MSBuildProjectDirectory)/Deploy.sh&quot; &quot;$(AssemblyName).dll&quot; &quot;$(DeploySourceDir)&quot; &quot;$(TargetFramework)&quot;" />
   </Target>
+  <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+    <Reference Include="Sandbox.Common"><HintPath>$(Bin64Dir)Sandbox.Common.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="SpaceEngineers.Game"><HintPath>$(Bin64Dir)SpaceEngineers.Game.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="VRage.Render"><HintPath>$(Bin64Dir)VRage.Render.dll</HintPath><Private>False</Private></Reference>
+  </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 </Project>

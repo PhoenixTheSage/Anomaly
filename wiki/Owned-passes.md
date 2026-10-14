@@ -2,6 +2,8 @@
 
 Two layers: Anomaly-drawn fullscreen products, and a scheduler packs register into. Resolve `ClientPlugin.Shaders.OwnedPassRegistry`. Anomaly owns the Harmony. Packs do not patch atmosphere or tonemap. Prefer [[Fullscreen-programs|Fullscreen programs]] (`Fullscreen/<Slot>/*.hlsl`) so the pack does not own a draw. Order at each slot: BeforeFullscreen C# → data-driven Fullscreen → AfterFullscreen C# (default).
 
+`LoadAssets` often runs before the renderer choice. `Register`, `Unregister`, and `FullscreenPassRegistry.SetEnabled` are held and applied when DX11 commits, after json programs exist. That is what turns a default-on debug or studio Replace off before it can replace the lit scene. Vulkan discards the DX11 hold.
+
 On a GPU hang, search `SpaceEngineers.log` for `Anomaly RenderTrace dump at`. That line lists the last owned slots and fullscreen program ids Anomaly queued (`>` begin, `<` end). It does not name the hung HLSL by itself.
 
 ## Anomaly products

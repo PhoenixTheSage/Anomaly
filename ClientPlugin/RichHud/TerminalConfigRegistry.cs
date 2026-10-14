@@ -18,7 +18,7 @@ namespace ClientPlugin.RichHud;
 /// <see cref="RequestFolderPage"/> from <c>LoadAssets</c> or <c>Init</c>.
 /// Pages appear under the Rich HUD root <see cref="RootName"/> when Master
 /// is in the world. Anomaly's Pulsar mirrors live under
-/// <see cref="FrameworkTitle"/> as <c>Settings</c> and <c>Velocity Debug</c>.
+/// <see cref="FrameworkTitle"/> as <c>Settings</c>, <c>Velocity Debug</c>, and <c>Status</c>.
 /// Those titles plus <see cref="FrameworkTitle"/> fail closed on
 /// <see cref="RequestPage"/>. <see cref="RequestFolderPage"/> may use
 /// <c>Settings</c> as the page name inside a consumer folder.
@@ -28,6 +28,7 @@ public static class TerminalConfigRegistry
     public const string RootName = "Anomaly Shaders";
     public const string FrameworkTitle = "Anomaly";
     public const string SettingsTitle = "Settings";
+    public const string StatusTitle = "Status";
     public const string VelocityDebugTitle = "Velocity Debug";
 
     static readonly object Gate = new();
@@ -35,6 +36,9 @@ public static class TerminalConfigRegistry
     static readonly Dictionary<string, Folder> Folders = new(StringComparer.OrdinalIgnoreCase);
     static readonly List<Page> Order = new();
     static readonly List<Action<float, float>> ResizeHandlers = new();
+    // Device settings live in the companion on DX11; guest settings live here.
+    static Action saveHostConfig = () => ConfigStorage.Save(Config.Current);
+    internal static void SetHostConfigSaver(Action save) => saveHostConfig = save;
     static TerminalPageCategory frameworkGroup;
     static bool mounted;
     static bool mountFailed;
@@ -438,6 +442,7 @@ public static class TerminalConfigRegistry
     static bool IsReservedPage(string title)
     {
         return string.Equals(title, SettingsTitle, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(title, StatusTitle, StringComparison.OrdinalIgnoreCase)
             || string.Equals(title, VelocityDebugTitle, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1057,7 +1062,7 @@ public static class TerminalConfigRegistry
                 }
 
                 if (persistHostConfig)
-                    ConfigStorage.Save(Config.Current);
+                    saveHostConfig?.Invoke();
             };
             spec.Pull = () =>
             {
@@ -1204,7 +1209,7 @@ public static class TerminalConfigRegistry
                 if (!TryRun(() => set(selected), "dropdown set"))
                     return;
                 if (persistHostConfig)
-                    ConfigStorage.Save(Config.Current);
+                    saveHostConfig?.Invoke();
                 PullMounted();
             };
             spec.Pull = () =>
@@ -1303,7 +1308,7 @@ public static class TerminalConfigRegistry
         void PersistHostIfNeeded()
         {
             if (persistHostConfig)
-                ConfigStorage.Save(Config.Current);
+                saveHostConfig?.Invoke();
         }
 
         sealed class CategorySpec

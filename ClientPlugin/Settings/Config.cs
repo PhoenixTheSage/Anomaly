@@ -141,7 +141,9 @@ public class Config : INotifyPropertyChanged
             Type status;
             try { status = assembly.GetType("ClientPlugin.Velocity.VelocityStatus", false); }
             catch { continue; }
-            var text = status?.GetProperty(property, BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as string;
+            string text;
+            try { text = status?.GetProperty(property, BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as string; }
+            catch (Exception e) { return StatusFallback("DX11 diagnostics unavailable: " + e.GetBaseException().Message); }
             if (!string.IsNullOrEmpty(text))
                 return text;
         }
@@ -151,7 +153,9 @@ public class Config : INotifyPropertyChanged
             Type guest;
             try { guest = assembly.GetType("ClientPlugin.Backend.FrameworkStatus", false); }
             catch { continue; }
-            var text = guest?.GetProperty(property, BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as string;
+            string text;
+            try { text = guest?.GetProperty(property, BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as string; }
+            catch (Exception e) { return StatusFallback("Shared diagnostics unavailable: " + e.GetBaseException().Message); }
             if (!string.IsNullOrEmpty(text))
                 return text;
         }
@@ -167,6 +171,21 @@ public class Config : INotifyPropertyChanged
         }
 
         return "Anomaly settings are loaded. Framework status appears after the renderer is chosen.";
+    }
+
+    static string StatusFallback(string error)
+    {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            try
+            {
+                var host = assembly.GetType("ClientPlugin.Backend.RenderHost", false);
+                var line = host?.GetProperty("StatusLine")?.GetValue(null) as string;
+                if (!string.IsNullOrEmpty(line)) return line + "\n" + error;
+            }
+            catch { }
+        }
+        return "Anomaly Status\n" + error;
     }
 
     #endregion

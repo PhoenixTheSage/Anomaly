@@ -81,7 +81,14 @@ public static class SatelliteLookup
             if (!match.Success)
                 return false;
             string id = match.Groups["id"].Value.Trim();
-            return devId.StartsWith(id, StringComparison.OrdinalIgnoreCase);
+            // Pulsar Tools.CleanFileName replaces invalid filename characters.
+            // Repository IDs such as StarCpt/Prism.SSGI therefore use a dash
+            // in DevFolder, unlike the GUID IDs used by most other packs.
+            var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
+            var clean = id.ToCharArray();
+            for (int i = 0; i < clean.Length; i++)
+                if (invalid.Contains(clean[i])) clean[i] = '-';
+            return devId.StartsWith(new string(clean) + "-", StringComparison.OrdinalIgnoreCase);
         }
         catch (IOException)
         {

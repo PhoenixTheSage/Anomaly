@@ -128,6 +128,8 @@ public static class BufferCatalog
                 !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase))
                 return false;
             Owners[name] = packId;
+            if (ByName.TryGetValue(name, out var previous) && !ReferenceEquals(previous, buffer))
+                (previous as PublishedBuffer)?.ReleaseUpload();
             ByName[name] = buffer;
             return true;
         }
@@ -143,6 +145,8 @@ public static class BufferCatalog
                 !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase))
                 return;
             Owners.Remove(name);
+            if (ByName.TryGetValue(name, out var previous))
+                (previous as PublishedBuffer)?.ReleaseUpload();
             ByName.Remove(name);
         }
     }
@@ -163,6 +167,8 @@ public static class BufferCatalog
             for (var i = 0; i < drop.Count; i++)
             {
                 Owners.Remove(drop[i]);
+                if (ByName.TryGetValue(drop[i], out var previous))
+                    (previous as PublishedBuffer)?.ReleaseUpload();
                 ByName.Remove(drop[i]);
             }
         }
@@ -282,6 +288,19 @@ public static class BufferCatalog
 /// </summary>
 public sealed class PublishedBuffer : ISharedBuffer
 {
+    IDisposable ownedUpload;
+
+    internal void PublishUpload(IDisposable upload, IntPtr native, int width, int height, int depth, int stride)
+    {
+        if (stride > 0) PublishStructured(upload, native, width, stride);
+        else ApplyRaster(upload, native, width, height, depth, 0, null);
+        ownedUpload = upload;
+    }
+
+    internal void ReleaseUpload()
+    {
+        if (ownedUpload != null) Clear();
+    }
     public bool IsAvailable => Srv != null && Width > 0 && Height > 0 && Depth > 0 &&
         (IsStructured || NativeResource != IntPtr.Zero);
     public object Srv { get; private set; }
@@ -341,6 +360,7 @@ public sealed class PublishedBuffer : ISharedBuffer
     void ApplyRaster(object srv, IntPtr nativeResource, int width, int height, int depth, int format,
         object uav)
     {
+        ReleaseUpload();
         Srv = srv;
         NativeResource = nativeResource;
         Width = width;
@@ -358,6 +378,7 @@ public sealed class PublishedBuffer : ISharedBuffer
     public void PublishStructured(object srv, IntPtr nativeResource, int elementCount, int stride,
         object uav = null)
     {
+        ReleaseUpload();
         Srv = srv;
         NativeResource = nativeResource;
         Width = elementCount;
@@ -371,6 +392,9 @@ public sealed class PublishedBuffer : ISharedBuffer
 
     public void Clear()
     {
+        var retired = ownedUpload;
+        ownedUpload = null;
+        retired?.Dispose();
         Srv = null;
         NativeResource = IntPtr.Zero;
         Width = 0;

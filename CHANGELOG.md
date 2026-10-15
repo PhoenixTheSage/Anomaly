@@ -2,6 +2,16 @@
 
 Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage below is reconstructed from repository history so the current version reflects shipped capability rather than the inherited SE-DLSS version.
 
+## 1.12.1 — 2026-10-15
+
+- Sanitize Pulsar repository IDs when locating source-cache companions, preserve GUID lookup, and require the matching pack ID boundary.
+- Wrap CPU catalog uploads in Keen ISrvBindable, retire only host-owned uploads on replacement/clear/unpublish, and forward deferred resolution/device lifetime callbacks.
+- Validate lighting and atmosphere wrapper hashes independently; retain original game includes and skip reserved bindings when wrappers are unrecognized.
+- Limit Rich HUD nested-page recursion to Anomaly-owned categories and cache reflection metadata.
+- Build volume diagnostic strings only when requested; gate sample logging behind DEBUG and ANOMALY_VOLUME_SAMPLES=1.
+- Extract pack archives beneath the game user-data Anomaly/Packs/Extracted directory instead of the shared system temporary directory.
+- Document pack compatibility fixes and add dual-runtime upload/companion fixtures plus shader-guard, volume-status, and terminal-isolation regressions.
+
 ## 1.12.0 — 2026-10-14
 
 - Move the terminal registry, Rich HUD client, corner overlays, interactive windows, and logging into the renderer-independent core; register session components on live sessions.

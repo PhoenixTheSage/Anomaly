@@ -1856,6 +1856,15 @@ public static class ShaderCompileIntercept
         if (!IsUnderRoot(includeRoot, overlayPath))
             return false;
 
+        var wrapperKey = !string.IsNullOrEmpty(relativeKey) ? relativeKey : fileName;
+        if (KeenShaderGuard.IsWrapperBlocked(wrapperKey))
+        {
+            // Refuse only Anomaly's wrapper; let the known game include resolve normally.
+            var original = Path.Combine(MyShaderCompiler.ShadersPath, wrapperKey);
+            stream = new FileStream(original, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return true;
+        }
+
         stream = new FileStream(overlayPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         return true;
     }

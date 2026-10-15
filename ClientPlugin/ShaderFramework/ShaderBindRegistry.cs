@@ -192,8 +192,13 @@ public static class ShaderBindRegistry
         return -1;
     }
 
+    static bool WrapperBlocked(string stage) =>
+        (IsLightingStage(stage) && KeenShaderGuard.IsWrapperBlocked("Lighting/Light.hlsli")) ||
+        (IsAtmosphereStage(stage) && KeenShaderGuard.IsWrapperBlocked("Transparent/Atmosphere/AtmosphereCommon.hlsli"));
+
     internal static void Bind(MyRenderContext rc, string stage)
     {
+        if (WrapperBlocked(stage)) return;
         if (rc == null || !rc.IsInitialized || string.IsNullOrEmpty(stage))
             return;
         lock (Gate)
@@ -211,6 +216,7 @@ public static class ShaderBindRegistry
 
     internal static void Unbind(MyRenderContext rc, string stage)
     {
+        if (WrapperBlocked(stage)) return;
         if (rc == null || !rc.IsInitialized)
             return;
         lock (Gate)

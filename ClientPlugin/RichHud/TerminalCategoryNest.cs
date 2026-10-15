@@ -1,5 +1,7 @@
 using System;
 using System.Reflection;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using RichHudFramework.UI.Client;
 using VRage.Utils;
@@ -15,6 +17,10 @@ namespace ClientPlugin.RichHud;
 static class TerminalCategoryNest
 {
     const string MasterCategoryType = "RichHudFramework.UI.Server.TerminalPageCategoryBase";
+    static readonly ConditionalWeakTable<object, object> Owned = new();
+    static readonly Dictionary<Type, FieldInfo> Trees = new();
+    static readonly Dictionary<Type, PropertyInfo> Values = new(), Pages = new();
+    static readonly object CacheGate = new();
     static bool patched;
     static Harmony harmony;
 
@@ -37,7 +43,13 @@ static class TerminalCategoryNest
     {
         if (parent == null || child == null)
             return false;
-        return TryAddToMasterTree(parent.ID, child.ID);
+        var attached = TryAddToMasterTree(parent.ID, child.ID);
+        if (attached)
+        {
+            Owned.GetValue(parent.ID, _ => new object());
+            Owned.GetValue(child.ID, _ => new object());
+        }
+        return attached;
     }
 
     static bool TryAddToMasterTree(object parentMaster, object childMaster)
@@ -67,7 +79,7 @@ static class TerminalCategoryNest
 
     static void SelectedPagePostfix(object __instance, ref object __result)
     {
-        if (__result != null || __instance == null)
+        if (__result != null || __instance == null || !Owned.TryGetValue(__instance, out _))
             return;
 
         var treeBox = ReadTreeBox(__instance);
@@ -77,7 +89,7 @@ static class TerminalCategoryNest
         object selected;
         try
         {
-            selected = treeBox.GetType().GetProperty("Value", BindingFlags.Instance | BindingFlags.Public)
+            selected = CachedProperty(Values, treeBox.GetType(), "Value")
                 ?.GetValue(treeBox);
         }
         catch
@@ -87,12 +99,12 @@ static class TerminalCategoryNest
 
         if (selected == null || ReferenceEquals(selected, __instance))
             return;
-        if (!IsMasterCategory(selected.GetType()))
+        if (!Owned.TryGetValue(selected, out _) || !IsMasterCategory(selected.GetType()))
             return;
 
         try
         {
-            __result = selected.GetType().GetProperty("SelectedPage", BindingFlags.Instance | BindingFlags.Public)
+            __result = CachedProperty(Pages, selected.GetType(), "SelectedPage")
                 ?.GetValue(selected);
         }
         catch
@@ -142,14 +154,28 @@ static class TerminalCategoryNest
 
     static object ReadTreeBox(object masterCategory)
     {
-        for (var t = masterCategory.GetType(); t != null; t = t.BaseType)
+        var type = masterCategory.GetType();
+        FieldInfo field;
+        lock (CacheGate)
         {
-            var field = t.GetField("treeBox", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            if (field != null)
-                return field.GetValue(masterCategory);
+            if (!Trees.TryGetValue(type, out field))
+            {
+                for (var t = type; t != null && field == null; t = t.BaseType)
+                    field = t.GetField("treeBox", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                Trees[type] = field;
+            }
         }
+        return field?.GetValue(masterCategory);
+    }
 
-        return null;
+    static PropertyInfo CachedProperty(Dictionary<Type, PropertyInfo> cache, Type type, string name)
+    {
+        lock (CacheGate)
+        {
+            if (!cache.TryGetValue(type, out var property))
+                cache[type] = property = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+            return property;
+        }
     }
 
     static MethodInfo FindContainerAdd(Type treeBoxType, Type childType)

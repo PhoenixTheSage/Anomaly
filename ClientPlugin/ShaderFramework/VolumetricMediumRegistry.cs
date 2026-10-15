@@ -67,13 +67,14 @@ public static class VolumetricMediumRegistry
     { lock(Gate) if(Media.ContainsKey(id)) historyRevision++; }
     public static void SetIntervalCallback(string id,Action<float> callback)
     { lock(Gate) if(Media.TryGetValue(id,out var medium)) medium.Interval=callback; }
-    internal static void SetStatus(string value) { lock(Gate) status=value; }
+    internal static void SetStatus(string value) { lock(Gate) { status=value; statusProvider=null; } }
+    internal static void SetActiveStatus(Func<string> provider) { lock(Gate) statusProvider=provider; }
     internal static void ResetIntervals()
     {
         var callbacks = new HashSet<Action<float>>();
         lock(Gate)
         {
-            activeRevision=-1; activeProviders=null;
+            activeRevision=-1; activeProviders=null; statusProvider=null;
             if (activeMedia != null) foreach (var medium in activeMedia) if (medium.Interval != null) callbacks.Add(medium.Interval);
             foreach (var medium in Media.Values) if (medium.Interval != null) callbacks.Add(medium.Interval);
             activeMedia = null;
@@ -93,7 +94,17 @@ public static class VolumetricMediumRegistry
     static Medium[] activeMedia;
     static string status = "Shared volume backend not ready; legacy rendering retained";
 
-    public static string StatusLine { get { lock (Gate) return status; } }
+    static Func<string> statusProvider;
+    public static string StatusLine
+    {
+        get
+        {
+            Func<string> provider;
+            string current;
+            lock (Gate) { provider=statusProvider; current=status; }
+            return provider != null ? provider() : current;
+        }
+    }
     public static long Revision { get { lock (Gate) return revision; } }
 
     /// <summary>shaderFile exports EvaluateMedium; bindings are immutable catalog names.</summary>
@@ -183,7 +194,7 @@ public static class VolumetricMediumRegistry
     {
         lock (Gate)
         {
-            activeRevision = -1; activeProviders=null;
+            activeRevision = -1; activeProviders=null; statusProvider=null;
             var committed = frameMedia ?? Media.Values.Where(m=>m.Enabled).ToArray();
             if ((frameMedia == null && capturedRevision != revision) || !resourcesReady || !shadowsReady || !interiorsReady ||
                 !temporalReady || committed.Length == 0 ||
@@ -201,7 +212,7 @@ public static class VolumetricMediumRegistry
     internal static void Release()
     { lock (Gate) { activeProviders=null; Invalidate("Volume resources released; legacy rendering retained"); } }
 
-    static void Invalidate(string reason) { revision++; historyRevision++; activeRevision = -1; status = reason; }
+    static void Invalidate(string reason) { statusProvider=null; revision++; historyRevision++; activeRevision = -1; status = reason; }
     static bool Finite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
 
     internal sealed class Medium

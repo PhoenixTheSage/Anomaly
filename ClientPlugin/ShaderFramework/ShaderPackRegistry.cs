@@ -1317,7 +1317,7 @@ public static class ShaderPackRegistry
             return null;
         }
 
-        var baseDir = extractRoot ?? Path.Combine(Path.GetTempPath(), "AnomalyPacks");
+        var baseDir = extractRoot ?? Path.Combine(VRage.FileSystem.MyFileSystem.UserDataPath, "Anomaly", "Packs", "Extracted");
         var extract = Path.Combine(baseDir, HashFileName(root));
         if (!Directory.Exists(extract) || Directory.GetFileSystemEntries(extract).Length == 0)
         {

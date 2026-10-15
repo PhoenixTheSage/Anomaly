@@ -48,6 +48,22 @@ public static class BufferCatalog
     public const string HdrColor = "hdrColor";
     public const string UpscaledColor = "upscaledColor";
     static readonly Dictionary<string, object> Local = new Dictionary<string, object>(StringComparer.Ordinal);
+    static readonly Dictionary<string, Action[]> Lifetimes = new Dictionary<string, Action[]>(StringComparer.OrdinalIgnoreCase);
+
+    public static void RegisterLifetime(string packId, Action onResolutionChanged, Action onDeviceEnd)
+    {
+        if (string.IsNullOrWhiteSpace(packId)) return;
+        lock (Local) Lifetimes[packId] = new[] { onResolutionChanged, onDeviceEnd };
+        if (RendererRoute.UseDx11Device)
+            Dx11Call.Call(Dx, "RegisterLifetime", packId, onResolutionChanged, onDeviceEnd);
+    }
+
+    public static void UnregisterLifetime(string packId)
+    {
+        if (string.IsNullOrWhiteSpace(packId)) return;
+        lock (Local) Lifetimes.Remove(packId);
+        if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "UnregisterLifetime", packId);
+    }
 
     public static void Set(string name, object buffer)
     {
@@ -119,8 +135,12 @@ public static class BufferCatalog
     internal static void ApplyDeferred()
     {
         PublishedBuffer[] pending;
+        KeyValuePair<string, Action[]>[] lifetimes;
         lock (Local)
         {
+            lifetimes = new KeyValuePair<string, Action[]>[Lifetimes.Count];
+            int registration = 0;
+            foreach (var pair in Lifetimes) lifetimes[registration++] = pair;
             pending = new PublishedBuffer[Local.Count];
             int index = 0;
             foreach (var value in Local.Values)
@@ -132,6 +152,10 @@ public static class BufferCatalog
             if (index != pending.Length)
                 Array.Resize(ref pending, index);
         }
+
+        if (RendererRoute.UseDx11Device)
+            foreach (var pair in lifetimes)
+                Dx11Call.Call(Dx, "RegisterLifetime", pair.Key, pair.Value[0], pair.Value[1]);
 
         foreach (var buffer in pending)
             buffer.ApplyDeferred();

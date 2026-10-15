@@ -1,5 +1,9 @@
 # Framework gaps
 
+## DX11 pack discovery and catalog uploads (2026-10-14, implemented)
+
+Pulsar sanitizes repository IDs in source-cache directory names. SatelliteLookup now applies the same filename normalization before matching a pack, restoring SSGI's companion discovery while preserving GUID IDs. CPU image uploads now expose Keen ISrvBindable rather than a bare SharpDX view, so fullscreen t7/t8 receive Aurora's noise and ramp. Host-created uploads are retired on replacement/clear/unpublish; borrowed pack resources remain pack-owned. The core forwards lifetime callbacks queued before DX11 commits. Dual-runtime hardware shader readback and source-identity checks pass; in-world SSGI/Aurora visual acceptance remains pending. See Tests/Dx11PackCompatibility.
+
 ## Rich HUD host parity and status navigation (2026-10-14, Slice AI, implemented)
 
 The terminal/overlay host previously lived only in Anomaly.Dx11. It now lives in the shared core, so Vulkan queues and mounts the same terminal pages and interactive windows without loading device code. Each runtime plugin has a dedicated Status page, registered independently of Settings/assets/device initialization, and a matching config report. PluginHub is excluded. DX11 uses the live shared registry and retains native settings persistence; Vulkan retains shared settings persistence. Legacy/Interim registration, delayed retry, renderer isolation and Pulsar source identity tests pass. In-world Master interaction/visual acceptance remains pending. See `Docs/TerminalConfig.md` and `Tests/StatusNavigation`.

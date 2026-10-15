@@ -12,8 +12,8 @@ using Sandbox.Graphics.GUI;
 using VRage.Utils;
 
 #if !LOCAL_BUILD
-[assembly: AssemblyVersion("1.12.0.0")]
-[assembly: AssemblyFileVersion("1.12.0.0")]
+[assembly: AssemblyVersion("1.12.1.0")]
+[assembly: AssemblyFileVersion("1.12.1.0")]
 #endif
 
 namespace ClientPlugin;

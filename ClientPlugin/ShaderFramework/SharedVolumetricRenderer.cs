@@ -41,8 +41,15 @@ internal static class SharedVolumetricRenderer
     static SamplerState linear,wrap,point,comparison;
     static BlendState compositeBlend,maxBlend;
     static string signature,lastError;
-    static int nextShaderAttempt,lastDiagnosticTick;
+    static int nextShaderAttempt;
+#if DEBUG
+    static int lastDiagnosticTick;
+#endif
+#if DEBUG
     static bool diagnosticWritten;
+    static readonly bool LogVolumeSamples = Environment.GetEnvironmentVariable("ANOMALY_VOLUME_SAMPLES") == "1";
+#endif
+    static readonly Func<string> ActiveStatus = BuildActiveStatus;
     static int preparedQuality,preparedProviders;
     static float preparedDistance;
     static bool prepared,history;
@@ -228,10 +235,14 @@ internal static class SharedVolumetricRenderer
             Publish("volumeRepresentativeDepth",new TextureBindable(Volume.RepresentativeDepth,Volume.DepthSrv));
             Publish("volumeSunVisibility",new VolumeBindable(Volume.SunVisibility));
     }
+    static string BuildActiveStatus() => "Shared volume active; "+Interiors.Status+"; GPU shadows/light/inject/integrate/reconstruct ms: "+
+                Timing(DirectionalVolumeShadows.GpuMilliseconds)+" / "+Timing(LightTimer.LastMilliseconds)+" / "+Timing(InjectionTimer.LastMilliseconds)+" / "+Timing(VolumetricIntegrator.GpuMilliseconds)+" / "+Timing(ReconstructionTimer.LastMilliseconds);
+
     static void ReportActive()
     {
-            VolumetricMediumRegistry.SetStatus("Shared volume active; "+Interiors.Status+"; GPU shadows/light/inject/integrate/reconstruct ms: "+
-                Timing(DirectionalVolumeShadows.GpuMilliseconds)+" / "+Timing(LightTimer.LastMilliseconds)+" / "+Timing(InjectionTimer.LastMilliseconds)+" / "+Timing(VolumetricIntegrator.GpuMilliseconds)+" / "+Timing(ReconstructionTimer.LastMilliseconds));
+            VolumetricMediumRegistry.SetActiveStatus(ActiveStatus);
+#if DEBUG
+            if (!LogVolumeSamples) return;
             int now=Environment.TickCount;
             if(!diagnosticWritten || unchecked((uint)(now-lastDiagnosticTick))>=10000) {
                 diagnosticWritten=true; lastDiagnosticTick=now;
@@ -242,6 +253,7 @@ internal static class SharedVolumetricRenderer
                     " injectMs="+Timing(InjectionTimer.LastMilliseconds)+" integrateMs="+Timing(VolumetricIntegrator.GpuMilliseconds)+
                     " reconstructMs="+Timing(ReconstructionTimer.LastMilliseconds)+" interiors="+Interiors.Status);
             }
+#endif
     }
     static void CaptureRecovery(MyRenderContext rc)
     {
@@ -419,7 +431,11 @@ internal static class SharedVolumetricRenderer
     }
     internal static void Release()
     {
-        prepared=history=diagnosticWritten=false; Volume.Dispose(); Interiors.Dispose(); ReleaseShaders(); ReleaseTargets();
+        prepared=history=false;
+#if DEBUG
+        diagnosticWritten=false;
+#endif
+        Volume.Dispose(); Interiors.Dispose(); ReleaseShaders(); ReleaseTargets();
         ColorRecovery.Dispose(); VelocityRecovery.Dispose(); recoveryVelocity = null; recoveryVelocitySrv = null;
         FullscreenPassRegistry.ReleaseVolumeRecovery();
         lightTau?.Dispose();previousCoefficients?.Dispose();previousDepthSrv?.Dispose();previousDepth?.Dispose();

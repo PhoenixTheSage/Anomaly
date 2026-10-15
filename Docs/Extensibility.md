@@ -10,6 +10,8 @@ What to build **after velocity** on the compile hook. Architecture: [ShaderAPI.m
 
 ## Docs map
 
+DX11 pack compatibility (2026-10-14): source-cache companion discovery follows Pulsar's sanitized filenames, CPU catalog uploads fulfill Keen's ISrvBindable shader contract, and the shared facade preserves pending lifetime registrations. These are host fixes shared by packs, not tenant-specific upload workarounds. Dual-runtime hardware readback and source identity checks pass; live SSGI/Aurora visibility remains pending. See Tests/Dx11PackCompatibility and wiki/Framework-gaps.md.
+
 | Doc | Role |
 |-----|------|
 | [ROADMAP.md](ROADMAP.md) | Velocity + hook slices A–L (done except Hub pin / sample pack) |

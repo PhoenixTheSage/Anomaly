@@ -8,6 +8,7 @@ using SharpDX.Mathematics.Interop;
 using VRage.Render11.Common;
 using VRage.Render11.Resources;
 using VRageRender;
+using VRageMath;
 
 namespace ClientPlugin.Buffers;
 
@@ -32,8 +33,7 @@ public static class CatalogImages
         if (target == null || rgba == null || width <= 0 || height <= 0)
             return;
         var texture = CreateTexture2D(width, height, Format.R8G8B8A8_UNorm, rgba, width * 4);
-        var srv = new ShaderResourceView(MyRender11.DeviceInstance, texture);
-        target.Publish(srv, texture.NativePointer, width, height);
+        PublishUpload(target, texture, width, height, 1, 0);
     }
 
     public static void PublishVolumeRgba8(PublishedBuffer target, byte[] rgba, int width, int height, int depth)
@@ -41,8 +41,7 @@ public static class CatalogImages
         if (target == null || rgba == null || width <= 0 || height <= 0 || depth <= 0)
             return;
         var texture = CreateTexture3D(width, height, depth, new[] { rgba });
-        var srv = new ShaderResourceView(MyRender11.DeviceInstance, texture);
-        target.Publish3D(srv, texture.NativePointer, width, height, depth);
+        PublishUpload(target, texture, width, height, depth, 0);
     }
 
     public static void PublishVolumeMips(PublishedBuffer target, byte[][] mips, int dim)
@@ -50,8 +49,7 @@ public static class CatalogImages
         if (target == null || mips == null || mips.Length == 0 || dim <= 0)
             return;
         var texture = CreateTexture3D(dim, dim, dim, mips);
-        var srv = new ShaderResourceView(MyRender11.DeviceInstance, texture);
-        target.Publish3D(srv, texture.NativePointer, dim, dim, dim);
+        PublishUpload(target, texture, dim, dim, dim, 0);
     }
 
     public static void PublishStructuredFloats(PublishedBuffer target, float[] values, int stride)
@@ -68,19 +66,53 @@ public static class CatalogImages
             StructureByteStride = stride,
         };
         var buffer = new SharpDX.Direct3D11.Buffer(MyRender11.DeviceInstance, desc);
-        var handle = GCHandle.Alloc(values, GCHandleType.Pinned);
         try
         {
-            var box = new DataBox(handle.AddrOfPinnedObject(), bytes, 0);
-            MyRender11.DeviceInstance.ImmediateContext.UpdateSubresource(box, buffer, 0);
+            var handle = GCHandle.Alloc(values, GCHandleType.Pinned);
+            try
+            {
+                var box = new DataBox(handle.AddrOfPinnedObject(), bytes, 0);
+                MyRender11.DeviceInstance.ImmediateContext.UpdateSubresource(box, buffer, 0);
+            }
+            finally { handle.Free(); }
         }
-        finally
+        catch
         {
-            handle.Free();
+            buffer.Dispose();
+            throw;
         }
+        PublishUpload(target, buffer, values.Length, 1, 1, stride);
+    }
 
-        var srv = new ShaderResourceView(MyRender11.DeviceInstance, buffer);
-        target.PublishStructured(srv, buffer.NativePointer, values.Length, stride);
+    static void PublishUpload(PublishedBuffer target, SharpDX.Direct3D11.Resource resource,
+        int width, int height, int depth, int stride)
+    {
+        UploadBindable upload = null;
+        try
+        {
+            upload = new UploadBindable(resource, new ShaderResourceView(MyRender11.DeviceInstance, resource), width, height, depth);
+            target.PublishUpload(upload, resource.NativePointer, width, height, depth, stride);
+        }
+        catch
+        {
+            if (upload != null) upload.Dispose();
+            else resource.Dispose();
+            throw;
+        }
+    }
+
+    // Keen's shader stages consume ISrvBindable, not a bare SharpDX SRV.
+    // Keep the resource alive and release only uploads allocated by this host.
+    sealed class UploadBindable : ISrvBindable, IDisposable
+    {
+        public string Name => "Anomaly.CatalogUpload";
+        public SharpDX.Direct3D11.Resource Resource { get; }
+        public ShaderResourceView Srv { get; }
+        public Vector2I Size { get; }
+        public Vector3I Size3 { get; }
+        public UploadBindable(SharpDX.Direct3D11.Resource resource, ShaderResourceView srv, int width, int height, int depth)
+        { Resource = resource; Srv = srv; Size = new Vector2I(width, height); Size3 = new Vector3I(width, height, depth); }
+        public void Dispose() { Srv.Dispose(); Resource.Dispose(); }
     }
 
     public static bool EnsureColorTarget(string packId, string name, int width, int height, int format)

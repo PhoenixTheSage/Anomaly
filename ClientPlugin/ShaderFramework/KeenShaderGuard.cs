@@ -19,6 +19,20 @@ static class KeenShaderGuard
     static readonly Dictionary<string, byte[]> Patched =
         new(StringComparer.OrdinalIgnoreCase);
 
+    static readonly Dictionary<string, string> WrapperHashes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Lighting/Light.hlsli"] = "A3E9ED30E5BB43DE8F5A2092CC04AA2317EAB26F33138A7E8CD7893A37895A8A",
+        ["Transparent/Atmosphere/AtmosphereCommon.hlsli"] = "6779DECC5B4BAEB9456534CF7629AA66E1741EDF3ADD78391A94EE6E8FC9FDC3"
+    };
+    static readonly HashSet<string> ReadyWrappers = new(StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsWrapperBlocked(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return false;
+        key = NormalizeKey(key);
+        lock (Gate) return WrapperHashes.ContainsKey(key) && !ReadyWrappers.Contains(key);
+    }
+
     public static bool GBufferPatchesReady { get; private set; }
     public static string LastError { get; private set; }
     public static string StatusLine { get; private set; } = "not prepared";
@@ -28,6 +42,7 @@ static class KeenShaderGuard
         lock (Gate)
         {
             Patched.Clear();
+            ReadyWrappers.Clear();
             GBufferPatchesReady = false;
             LastError = null;
             StatusLine = "not prepared";
@@ -47,6 +62,23 @@ static class KeenShaderGuard
             {
                 Fail("Keen shader directory missing: " + shadersRoot);
                 return;
+            }
+
+            // Wrapper slots are independent of GBuffer velocity. Validate each original
+            // before exposing Anomaly's fixed-slot additions to the include resolver.
+            foreach (var wrapper in WrapperHashes)
+            {
+                try
+                {
+                    var raw = File.ReadAllBytes(Path.Combine(shadersRoot, wrapper.Key));
+                    if (!string.Equals(Sha256Hex(raw), wrapper.Value, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("unrecognized Keen shader hash");
+                    ReadyWrappers.Add(wrapper.Key);
+                }
+                catch (Exception e)
+                {
+                    MyLog.Default.WriteLine("Anomaly: wrapper disabled for " + wrapper.Key + ": " + e.Message);
+                }
             }
 
             try

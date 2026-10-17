@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading;
 using Sandbox.Game.Entities;
 using Sandbox.Game.World;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
 using VRageMath;
-using ClientPlugin.Shaders;
+using ClientPlugin.Backend;
 
 namespace ClientPlugin.ShaderFramework;
 
@@ -22,34 +23,38 @@ internal static class VolumetricInteriorSnapshot
 
     internal static void UpdateFromGameThread()
     {
-        if (MySession.Static == null || MySector.MainCamera == null || !VolumetricMediumRegistry.Requested || !VolumetricMediumRegistry.HasEnabledMedia)
+        if (MySession.Static == null || MySector.MainCamera == null || !VolumeRegistryState.Requested || !VolumeRegistryState.HasEnabledMedia)
         { Clear(); return; }
         var grids = new List<Grid>();
         var seen = new HashSet<long>();
         bool complete = true;
-        int cellCount = 0;
+        string incompleteReason=null;
+        int cellCount = 0, selectedGrids=0;
         Entities.Clear();
-        var sphere = new BoundingSphereD(MySector.MainCamera.Position, VolumetricMediumRegistry.MaximumDistance);
+        var sphere = new BoundingSphereD(MySector.MainCamera.Position, VolumeRegistryState.MaximumDistance);
         MyGamePruningStructure.GetAllTopMostEntitiesInSphere(ref sphere, Entities);
         foreach (var entity in Entities)
         {
-            if (!(entity is MyCubeGrid grid) || grid.Closed) continue;
+            // Projected/render-only grids cannot contain simulation rooms.
+            if (!(entity is MyCubeGrid grid) || grid.Closed || grid.IsPreview || !grid.CreatePhysics) continue;
+            if(grid.Physics==null){complete=false;incompleteReason="physical grid initialization pending";continue;}
+            if (selectedGrids++ >= MaximumGrids) { complete = false; continue; }
             seen.Add(grid.EntityId);
-            if (grids.Count >= MaximumGrids) { complete = false; continue; }
             var gas = ((IMyCubeGrid)grid).GasSystem;
-            if (gas == null) { complete = false; continue; }
+            if (gas == null) { complete = false; incompleteReason="gas system unavailable (world oxygen="+MySession.Static.Settings.EnableOxygen+", pressurization="+MySession.Static.Settings.EnableOxygenPressurization+")";continue; }
             if (!TrackedGrids.TryGetValue(grid.EntityId, out var tracked) || !ReferenceEquals(tracked.Gas, gas))
             {
                 tracked?.Dispose();
-                tracked = new Tracked(gas);
+                tracked = new Tracked(gas, (IMyCubeGrid)grid);
                 TrackedGrids[grid.EntityId] = tracked;
             }
+            if(tracked.NeedsTopologyRefresh){tracked.RequestInitialTopology();complete=false;continue;}
             long generation = Interlocked.Read(ref tracked.Generation);
             if (gas.IsProcessingData) { tracked.Cells = null; complete = false; continue; }
             if (tracked.Cells == null || tracked.CapturedGeneration != generation)
             {
                 Rooms.Clear();
-                if (!gas.GetRooms(Rooms)) { complete = false; continue; }
+                if (!gas.GetRooms(Rooms)) { tracked.RequestInitialTopology();complete = false; continue; }
                 var cells = new HashSet<Vector3I>();
                 bool ready = true;
                 foreach (var room in Rooms)
@@ -79,7 +84,7 @@ internal static class VolumetricInteriorSnapshot
         foreach (var id in new List<long>(TrackedGrids.Keys))
             if (!seen.Contains(id)) { TrackedGrids[id].Dispose(); TrackedGrids.Remove(id); }
         Volatile.Write(ref current, new Snapshot(grids.ToArray(), complete,
-            complete ? "Current airtight topology" : "Degraded interior exclusion: unavailable, rebuilding or budget exceeded",
+            complete ? "Current airtight topology" : "Degraded interior exclusion: "+(incompleteReason??"unavailable, rebuilding or budget exceeded"),
             Environment.TickCount));
         Entities.Clear(); Rooms.Clear();
     }
@@ -117,10 +122,56 @@ internal static class VolumetricInteriorSnapshot
         internal readonly IMyGridGasSystem Gas;
         internal long Generation, CapturedGeneration = -1;
         internal Vector3I[] Cells;
+        readonly bool restoreForce;
+        readonly IMyCubeGrid grid;
+        readonly HashSet<Sandbox.ModAPI.IMyDoor> doors=new();
+        bool initialRequested;
+        internal bool NeedsTopologyRefresh {get;private set;}=true;
         internal Tracked(IMyGridGasSystem gas)
-        { Gas=gas; Gas.OnProcessingDataStart += Changed; Gas.OnProcessingDataComplete += Changed; }
+        {
+            Gas=gas;restoreForce=!Gas.ForcePressurize;
+            Gas.OnProcessingDataStart += Changed; Gas.OnProcessingDataComplete += Changed;
+            // The engine otherwise discards topology for empty, unvented rooms.
+            // Airtight exclusion must work independently of OxygenAmount.
+            if(restoreForce)Gas.ForcePressurize=true;
+        }
+        internal Tracked(IMyGridGasSystem gas,IMyCubeGrid source):this(gas)
+        {
+            grid=source;
+            grid.OnBlockAdded+=BlockAdded;grid.OnBlockRemoved+=BlockRemoved;grid.OnBlockIntegrityChanged+=BlockChanged;
+            var blocks=new List<IMySlimBlock>();grid.GetBlocks(blocks);
+            foreach(var block in blocks)AttachDoor(block);
+        }
+        void AttachDoor(IMySlimBlock block)
+        {if(block.FatBlock is Sandbox.ModAPI.IMyDoor door && doors.Add(door))door.OnDoorStateChanged+=DoorChanged;}
+        void BlockAdded(IMySlimBlock block){AttachDoor(block);TopologyChanged();}
+        void BlockRemoved(IMySlimBlock block)
+        {if(block.FatBlock is Sandbox.ModAPI.IMyDoor door && doors.Remove(door))door.OnDoorStateChanged-=DoorChanged;TopologyChanged();}
+        void BlockChanged(IMySlimBlock block)=>TopologyChanged();
+        void DoorChanged(Sandbox.ModAPI.IMyDoor door,bool open)=>TopologyChanged();
+        internal void TopologyChanged()
+        {
+            // The engine's ForcePressurize-only incremental removal path has
+            // no deleted-block list; regenerate ventless topology explicitly.
+            initialRequested=false;NeedsTopologyRefresh=true;Cells=null;Changed();
+        }
+        internal void RequestInitialTopology()
+        {
+            if(initialRequested || Gas.IsProcessingData)return;
+            // The ModAPI setter only changes a flag. Initial unvented grids
+            // and their later block/door edits need an explicit full rebuild.
+            var start=Gas.GetType().GetMethod("StartGenerateAirtightData",BindingFlags.Instance|BindingFlags.NonPublic,null,Type.EmptyTypes,null);
+            if(start==null)return; // Keep the snapshot incomplete on unsupported engines.
+            initialRequested=true;NeedsTopologyRefresh=false;
+            try{start.Invoke(Gas,null);}catch{initialRequested=false;NeedsTopologyRefresh=true;throw;}
+        }
         void Changed() => Interlocked.Increment(ref Generation);
         public void Dispose()
-        { Gas.OnProcessingDataStart -= Changed; Gas.OnProcessingDataComplete -= Changed; Changed(); }
+        {
+            if(grid!=null){grid.OnBlockAdded-=BlockAdded;grid.OnBlockRemoved-=BlockRemoved;grid.OnBlockIntegrityChanged-=BlockChanged;}
+            foreach(var door in doors)door.OnDoorStateChanged-=DoorChanged;doors.Clear();
+            Gas.OnProcessingDataStart -= Changed; Gas.OnProcessingDataComplete -= Changed;
+            if(restoreForce && Gas.ForcePressurize)Gas.ForcePressurize=false;Changed();
+        }
     }
 }

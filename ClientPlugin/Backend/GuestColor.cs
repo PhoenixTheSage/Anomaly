@@ -6,14 +6,31 @@ namespace ClientPlugin.Backend;
 /// <summary>
 /// Vulkan color handoff. Bilinear compose stays the default until a pack
 /// claims the upscale slot and notifies completion. Vendor SDKs stay in
-/// those packs. <c>pointShadowAtlas</c> is not published: the renderer has
-/// no local-character cube to alias.
+/// those packs. Character atlas/player-depth products are owned separately by
+/// GuestPointShadows and use the same catalog as the DX11 host.
 /// </summary>
 static class GuestColor
 {
     static string upscaleId = "";
     static bool notified;
     static readonly Dictionary<string, bool> Glare = new Dictionary<string, bool>();
+    sealed class Payload
+    {
+        internal byte[] Bytes;
+        internal int Width,Height,Depth,Kind;
+        internal ulong Upload()=>GuestBridgeClient.AllocateImage(Width,Height,Depth,Bytes,Kind);
+    }
+    static readonly Dictionary<string,Payload> dataPayloads=new Dictionary<string,Payload>();
+    static readonly Dictionary<string,Payload> artPayloads=new Dictionary<string,Payload>();
+
+    internal static void ResetDevice(){Celestial.Data.Clear();Celestial.Art.Clear();notified=false;}
+    internal static void RestoreDevice()
+    {
+        Celestial.Data.Clear();Celestial.Art.Clear();notified=false;
+        foreach(var pair in dataPayloads)Celestial.Data[pair.Key]=pair.Value.Upload();
+        foreach(var pair in artPayloads)Celestial.Art[pair.Key]=pair.Value.Upload();
+        GuestBridgeClient.SetUpscaleOwner(upscaleId);
+    }
 
     public static bool Open => RendererRoute.UseGuestImages;
     public static string UpscaleId => upscaleId ?? "";
@@ -74,7 +91,9 @@ static class GuestColor
             return;
         var bytes = new byte[values.Length * 4];
         System.Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
-        ulong image = GuestBridgeClient.AllocateImage(bytes.Length, 1, 1, bytes, 4);
+        var payload=new Payload{Bytes=bytes,Width=bytes.Length,Height=1,Depth=1,Kind=4};
+        dataPayloads[id]=payload;
+        ulong image = GuestBridgeClient.ResourceEpoch==0?0:payload.Upload();
         if (image != 0)
             Celestial.Data[id] = image;
     }
@@ -84,7 +103,9 @@ static class GuestColor
         if (string.IsNullOrEmpty(id) || rgba == null || width <= 0 || height <= 0)
             return;
         int layers = slices < 1 ? 1 : slices;
-        ulong image = GuestBridgeClient.AllocateImage(width, height, layers, rgba, 5);
+        var payload=new Payload{Bytes=(byte[])rgba.Clone(),Width=width,Height=height,Depth=layers,Kind=5};
+        artPayloads[id]=payload;
+        ulong image = GuestBridgeClient.ResourceEpoch==0?0:payload.Upload();
         if (image != 0)
             Celestial.Art[id] = image;
     }

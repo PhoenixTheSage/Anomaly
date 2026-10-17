@@ -13,6 +13,7 @@ static class GuestFrame
     static int tick = int.MinValue;
     static bool have;
     static uint dropUntil;
+    internal static void ResetDevice(){tick=int.MinValue;have=false;dropUntil=0;Array.Clear(Bytes,0,Bytes.Length);}
 
     public static bool Open
     {

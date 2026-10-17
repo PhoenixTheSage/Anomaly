@@ -11,6 +11,11 @@ static class GuestBridgeClient
 {
     const string TypeName = "ClientPlugin.Rendering.GuestBridge";
     static ulong nextImage = 1;
+    static object[] shadowInputs;
+    static bool haveShadowInputs;
+    internal static void ResetDevice(){haveShadowInputs=false;shadowInputs=null;VolumeIntervalsReady=false;}
+    internal static bool VolumeIntervalsReady { get; private set; }
+    static readonly string[] VolumeProducts={"volumeScatteringTransmittance","volumeMotion","volumeReactive","volumeRepresentativeDepth","volumeSunVisibility"};
 
     public static void Reset()
     {
@@ -27,7 +32,8 @@ static class GuestBridgeClient
     {
         if (string.IsNullOrEmpty(name) || slot < 0 || slot > 2)
             return;
-        ClientPlugin.Buffers.BufferCatalog.Set(name, new ClientPlugin.Buffers.GuestRendererImage(Attach0 + (ulong)slot, SceneView.Width, SceneView.Height, 1));
+        ulong first=SupportsPacketFlags(SharedFrame)?Attach0:0xFFFF000000000009UL;
+        ClientPlugin.Buffers.BufferCatalog.Set(name, new ClientPlugin.Buffers.GuestRendererImage(first + (ulong)slot, SceneView.Width, SceneView.Height, 1));
     }
 
     public static ulong CreatePipeline(byte[] vs, byte[] ps, string vsEntry, string psEntry)
@@ -35,6 +41,20 @@ static class GuestBridgeClient
         var value = Call("CreatePipeline", vs, ps, vsEntry, psEntry);
         return value is ulong id ? id : 0;
     }
+
+    public static ulong CreateExtendedPipeline(byte[] vs, byte[] ps, string vsEntry, string psEntry, int contract)
+    {
+        if (!SupportsPacketFlags(512)) return 0;
+        var value = Call("CreateExtendedPipeline", vs, ps, vsEntry, psEntry, contract);
+        return value is ulong id ? id : 0;
+    }
+
+    public static bool SubmitExtended(int mark, int compose, int width, int height, int depth, ulong pipeline, ulong[] outputs, byte[][] constants, ulong[] sampled, int flags = 0)
+    {
+        if (!SupportsPacketFlags(512)) return false;
+        return Call("SubmitExtended", mark, compose, width, height, depth, pipeline, outputs, constants, sampled, flags) is true;
+    }
+    public static bool SubmitExtendedBatch(object[][] passes)=>SupportsPacketFlags(512) && Call("SubmitExtendedBatch",(object)passes) is true;
 
     public static void CreateImage(ulong id, int width, int height, int depth, int format)
     {
@@ -77,6 +97,9 @@ static class GuestBridgeClient
     }
 
     public static ulong AllocateVolumeMips(int dim, byte[][] mips)
+        =>UploadVolumeMips(0,dim,mips);
+
+    internal static ulong UploadVolumeMips(ulong image,int dim,byte[][] mips)
     {
         if (mips == null || mips.Length == 0 || dim <= 0)
             return 0;
@@ -93,43 +116,85 @@ static class GuestBridgeClient
             offset += mips[i].Length;
         }
         int format = (mips.Length << 16);
-        return AllocateImage(dim, dim, dim, packed, format);
+        if(image==0)return AllocateImage(dim,dim,dim,packed,format);
+        CreateImage(image,dim,dim,dim,format);UpdateImage(image,packed);return image;
     }
 
     public static void Submit(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
     {
-        Reset();
+        GuestVolumes.BeginFrame();
+        VolumeIntervalsReady=false;
+        try { VolumeRegistryState.ResetIntervals(); VolumeIntervalsReady=true; }
+        catch(Exception error) { VolumeRegistryState.SetStatus("Shared volume interval reset failed: "+error.Message); }
+        foreach(string name in VolumeProducts)
+            ClientPlugin.Buffers.BufferCatalog.Set(name,null);
+        try { Reset(); }
+        catch { VolumeIntervalsReady=false;throw; }
+        haveShadowInputs = false; shadowInputs = null;
+        ClientPlugin.Buffers.BufferCatalog.Set("occupancy", null);
+        ClientPlugin.Buffers.BufferCatalog.Set("pointShadowAtlas", null);
+        ClientPlugin.Buffers.BufferCatalog.Set("playerDepth", null);
         if (programs == null)
             return;
+        GuestVolumes.TrySubmit(programs);
+        foreach (var p in programs) if (p != null) p.SubmittedThisFrame = false;
         ulong previous = Hdr;
-        foreach (var program in programs)
+        int litLevels = GuestOwned.LitMipLevels(programs, SceneView.Width, SceneView.Height);
+        if (litLevels == 0) ClientPlugin.Buffers.BufferCatalog.Set("litMips", null);
+        foreach (var program in Ordered(programs))
         {
-            if (program == null || !program.Enabled || program.Pipeline == 0 || program.Mark == 0)
+            if(GuestVolumes.SuppressFallback(program))continue;
+            if (program != null && GuestOccupancy.Handles(program, programs)) continue;
+            if (program != null && GuestPointShadows.Handles(program, programs)) continue;
+            if (program == null || !program.Enabled || program.Pipeline == 0 || program.Mark == 0 || program.ResourceContract != 0)
                 continue;
             int compose = ComposeOf(program.Compose);
             bool catalog = compose == 5 || compose == 3 || (program.Flags & Compute) != 0;
             int width, height;
             PassSize(program, out width, out height);
-            if (catalog && (program.StorageImage == 0 || program.ImageWidth != width || program.ImageHeight != height))
+            bool litMips = program.Id == "anomaly.owned.LitMips";
+            if (litMips && litLevels == 0) continue;
+            if (litMips && !SupportsPacketFlags(GenerateMips))
             {
-                int format = program.Format;
+                ClientPlugin.Buffers.BufferCatalog.Set("litMips", null);
+                program.Status = "capability-missing";
+                program.Error = "SE-Vulkan native guest does not support lit mip generation; update SE-Vulkan";
+                continue;
+            }
+            if (litMips && program.Status == "capability-missing")
+            {
+                program.Status = "pipeline";
+                program.Error = null;
+            }
+            int imageFormat = program.Format | (litMips ? litLevels << 16 : 0);
+            if (catalog && (program.StorageImage == 0 || program.ImageWidth != width || program.ImageHeight != height || (litMips && program.ImageFormat != imageFormat)))
+            {
+                int format = imageFormat;
                 ulong pinned = PinnedStorage(program);
                 program.StorageImage = pinned != 0
                     ? PinImage(pinned, width, height, 1, format)
+                    : program.StorageImage != 0 ? PinImage(program.StorageImage, width, height, 1, format)
                     : AllocateImage(width, height, 1, null, format);
-                program.HistoryImage = string.IsNullOrEmpty(program.HistoryName) ? 0 : AllocateImage(width, height, 1, null, format);
+                program.HistoryImage = string.IsNullOrEmpty(program.HistoryName) ? 0
+                    : program.HistoryImage != 0 ? PinImage(program.HistoryImage, width, height, 1, format)
+                    : AllocateImage(width, height, 1, null, format);
                 program.ImageWidth = width;
                 program.ImageHeight = height;
-                PublishOwned(program);
+                program.ImageFormat = imageFormat;
+                program.HistoryReady = false;
             }
+            if (catalog) PublishOwned(program);
             if (!string.IsNullOrEmpty(program.HistoryName) && program.HistoryImage != 0)
-                ClientPlugin.Buffers.BufferCatalog.Set(program.HistoryName, new ClientPlugin.Buffers.GuestRendererImage(program.HistoryImage, width, height, 1));
+                ClientPlugin.Buffers.BufferCatalog.Set(program.HistoryName, program.HistoryReady
+                    ? new ClientPlugin.Buffers.GuestRendererImage(program.HistoryImage, width, height, 1) : null);
             ulong storage = catalog ? program.StorageImage : Hdr;
             if (storage == 0)
                 continue;
             byte[] uniforms = PackUniforms(program.Uniforms);
             var sampled = ImagesFor(program, previous, compose);
             Call("Submit", program.Mark, compose, width, height, program.Pipeline, storage, uniforms, sampled, program.Flags);
+            program.Submissions++;
+            program.SubmittedThisFrame = true;
             if (catalog)
                 PublishPass(program, storage, width, height);
             if (!string.IsNullOrEmpty(program.HistoryName) && program.HistoryImage != 0)
@@ -137,11 +202,38 @@ static class GuestBridgeClient
                 ulong written = program.StorageImage;
                 program.StorageImage = program.HistoryImage;
                 program.HistoryImage = written;
+                program.HistoryReady = true;
             }
             if (compose == 3)
                 previous = storage;
         }
         Call("SetNativeSunGlare", !OwnsGlare(programs));
+    }
+
+    static System.Collections.Generic.IEnumerable<GuestProgram> Ordered(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
+    {
+        // A consumer can register before Anomaly.LoadAssets. Publish producers
+        // first, then preserve pack order within each native insertion mark.
+        var sorted = new System.Collections.Generic.List<GuestProgram>(programs);
+        // Stable insertion sort retains manifest order when priorities tie.
+        for (int i = 1; i < sorted.Count; i++)
+        {
+            var item = sorted[i];
+            int j = i - 1;
+            while (j >= 0 && (sorted[j]?.Priority ?? 0) > (item?.Priority ?? 0))
+            { sorted[j + 1] = sorted[j]; j--; }
+            sorted[j + 1] = item;
+        }
+        for (int mark = GuestMark.AfterLighting; mark <= GuestMark.AfterUpscale; mark++)
+        {
+            for (int owned = 1; owned >= 0; owned--)
+                for (int i = 0; i < sorted.Count; i++)
+                {
+                    var p = sorted[i];
+                    if (p != null && p.Mark == mark && (p.Id != null && p.Id.StartsWith("anomaly.owned.", StringComparison.Ordinal) ? 1 : 0) == owned)
+                        yield return p;
+                }
+        }
     }
 
     static bool OwnsGlare(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
@@ -165,13 +257,33 @@ static class GuestBridgeClient
     public const ulong Upscale = 0xFFFF000000000006UL;
     public const ulong Display = 0xFFFF000000000007UL;
     public const ulong Motion = 0xFFFF000000000008UL;
-    public const ulong Attach0 = 0xFFFF000000000009UL;
+    public const ulong Attach0 = 0xFFFF000000000010UL;
     public const ulong CatalogVelocity = 0xFFFF00000000000AUL;
     public const ulong CatalogVolumeReactive = 0xFFFF00000000000BUL;
     public const ulong CatalogReactiveMask = 0xFFFF00000000000CUL;
     public const int DepthTest = 1;
     public const int Compute = 2;
     public const int Volume = 4;
+    public const int GenerateMips = 8;
+    public const int ClearCompute = 16;
+    public const int PacketConstants = 32;
+    public const int Geometry = 64;
+    public const int LiveResources = 1024;
+    public const int SceneDepth = 2048;
+    public const int SharedFrame = 4096;
+    internal static long ResourceEpoch=>Convert.ToInt64(Find()?.GetProperty("ResourceEpoch",BindingFlags.Public|BindingFlags.Static)?.GetValue(null)??0L);
+    internal static object[] CaptureVolumeScene()=>Call("CaptureVolumeScene") as object[];
+    internal static bool ConfigureSceneDepthViews(ulong[] images,double[] worldMatrices)=>
+        SupportsPacketFlags(SceneDepth) && Call("ConfigureSceneDepthViews",images,worldMatrices) is true;
+    internal static object[] CaptureSceneDepth()=>Call("CaptureSceneDepth") as object[];
+    public const int Viewport = 128;
+    public const int ClearFar = 256;
+
+    internal static bool SupportsPacketFlags(int flags)
+    {
+        var value = Find()?.GetProperty("SupportedPacketFlags", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+        return value is int supported && (supported & flags) == flags;
+    }
 
     public static bool TryGetFrame(byte[] frame)
     {
@@ -183,7 +295,9 @@ static class GuestBridgeClient
     {
         var sampled = new ulong[14];
         string id = program.Id ?? "";
-        if (id.EndsWith("LinearDepth", StringComparison.Ordinal) || id.EndsWith("HiZ", StringComparison.Ordinal) || id.EndsWith("CameraVelocity", StringComparison.Ordinal))
+        if (id.EndsWith("HiZ", StringComparison.Ordinal))
+            sampled[0] = Catalog("linearDepth");
+        else if (id.EndsWith("LinearDepth", StringComparison.Ordinal) || id.EndsWith("CameraVelocity", StringComparison.Ordinal))
             sampled[0] = Depth;
         else if (id.EndsWith("HistoryCopy", StringComparison.Ordinal))
             sampled[0] = Hdr;
@@ -213,7 +327,9 @@ static class GuestBridgeClient
             {
                 int slot = program.Srvs[i].Slot;
                 if (slot >= 0 && slot < 14)
-                    sampled[slot] = Catalog(program.Srvs[i].Name);
+                    // DX11 publishes shared volume products after the
+                    // AfterAtmosphere fullscreen phase has completed.
+                    sampled[slot] = program.Mark <= GuestMark.AfterAtmosphere && Array.IndexOf(VolumeProducts,program.Srvs[i].Name)>=0 ? 0 : Catalog(program.Srvs[i].Name);
             }
         }
         if ((program.Flags & DepthTest) != 0)
@@ -242,17 +358,27 @@ static class GuestBridgeClient
         return sampled;
     }
 
-    static ulong Catalog(string name)
+    internal static ulong Catalog(string name)
     {
         var active = ClientPlugin.Buffers.BufferCatalog.Active(name);
         if (active is ClientPlugin.Buffers.PublishedBuffer published)
             return published.ImageId;
-        if (active is ClientPlugin.Buffers.GuestRendererImage image)
+        if (active is ClientPlugin.Buffers.GuestRendererImage image && image.IsAvailable)
             return image.ImageId;
         return 0;
     }
 
     public static void SetDisplayFlags(int flags) => Call("SetDisplayFlags", flags);
+
+    internal static object[] CaptureShadowInputs(uint localActor)
+    {
+        if (!haveShadowInputs) { shadowInputs = Call("CaptureShadowInputs", localActor) as object[]; haveShadowInputs = true; }
+        return shadowInputs;
+    }
+    internal static object[] CaptureCharacter(uint localActor) => Call("CaptureCharacter", localActor) as object[];
+
+    internal static void SubmitPacket(int mark, int compose, int width, int height, ulong pipeline, ulong storage, byte[] uniforms, ulong[] sampled, int flags) =>
+        Call("Submit", mark, compose, width, height, pipeline, storage, uniforms, sampled, flags);
 
     public static void SetUpscaleOwner(string id) => Call("SetUpscaleOwner", id ?? "");
 
@@ -295,10 +421,11 @@ static class GuestBridgeClient
         else if (id.EndsWith("HiZ", StringComparison.Ordinal)) name = "hiZ";
         else if (id.EndsWith("HistoryCopy", StringComparison.Ordinal)) name = "historyColor";
         else if (id.EndsWith("ReactiveClear", StringComparison.Ordinal)) name = "reactiveMask";
+        else if (id == "anomaly.owned.LitMips") name = "litMips";
         else if ((program.Flags & Volume) != 0) name = "sharedVolume." + id;
         if (name == null)
             return;
-        ClientPlugin.Buffers.BufferCatalog.Set(name, new ClientPlugin.Buffers.GuestRendererImage(program.StorageImage, SceneView.Width, SceneView.Height, 1));
+        ClientPlugin.Buffers.BufferCatalog.Set(name, new ClientPlugin.Buffers.GuestRendererImage(program.StorageImage, program.ImageWidth, program.ImageHeight, 1));
     }
 
     static ulong Pack(float a, float b)

@@ -105,11 +105,11 @@ public static class FullscreenPassRegistry
         return GuestPassList.TryGetProgramStatus(programId, out status);
     }
 
-    public static void RequestLitMips(int mipLevels = 5) => Device("RequestLitMips", mipLevels);
+    public static void RequestLitMips(int mipLevels = 5) => ClientPlugin.Buffers.BufferCatalog.RequestLitMips(mipLevels);
     public static void RequestPointShadows(int maxLights = 4, int faceResolution = 128) =>
-        Device("RequestPointShadows", maxLights, faceResolution);
-    public static void RequestWorldBoxes(bool enabled = true) => Device("RequestWorldBoxes", enabled);
-    public static void RequestOccupancy(bool enabled = true) => Device("RequestOccupancy", enabled);
+        ClientPlugin.Buffers.BufferCatalog.RequestPointShadows(maxLights, faceResolution);
+    public static void RequestWorldBoxes(bool enabled = true) => ClientPlugin.Buffers.BufferCatalog.RequestWorldBoxes(enabled);
+    public static void RequestOccupancy(bool enabled = true) => ClientPlugin.Buffers.BufferCatalog.RequestOccupancy(enabled);
 
     static void Device(string method, params object[] args)
     {
@@ -210,82 +210,6 @@ public static class OwnedPassRegistry
         return result;
     }
 
-    static void Device(string method, params object[] args)
-    {
-        if (Closed())
-            return;
-        Dx11Call.Call(Dx, method, args);
-    }
-}
-
-public static class PlanetAtmosphere
-{
-    public static bool TryGetRadii(Vector3D worldCenter, float matchMeters, out float airTop, out float visualCeil)
-    {
-        airTop = 0f;
-        visualCeil = 0f;
-        if (RendererRoute.RefuseDx11Device("PlanetAtmosphere.TryGetRadii"))
-            return false;
-        object[] args = { worldCenter, matchMeters, 0f, 0f };
-        if (!Dx11Call.Try(Dx, "TryGetRadii", args, out var result) || result is not true)
-            return false;
-        airTop = args[2] is float a ? a : 0f;
-        visualCeil = args[3] is float b ? b : 0f;
-        return true;
-    }
-
-    const string Dx = "ClientPlugin.Shaders.PlanetAtmosphere";
-}
-
-public static class VolumetricMediumRegistry
-{
-    public static string StatusLine => Closed() ? "" : Dx11Call.Get(Dx, "StatusLine") as string ?? "";
-    public static void RequestRenderer(string id, bool enabled) => Device("RequestRenderer", id, enabled);
-    public static void Configure(int quality, float distance, int debugView) => Device("Configure", quality, distance, debugView);
-    public static void SetOrigin(string id, double x, double y, double z)
-    {
-        if (RendererRoute.UseDx11Device) { Device("SetOrigin", id, x, y, z); return; }
-        GuestPassList.SetOrigin(id, (float)x, (float)y, (float)z);
-    }
-    public static void InvalidateHistory(string id) => Device("InvalidateHistory", id);
-    public static void SetIntervalCallback(string id, Action<float> callback) => Device("SetIntervalCallback", id, callback);
-    public static bool Register(string id, string shaderFile, string[] catalogBindings)
-    {
-        if (RendererRoute.UseDx11Device)
-            return Dx11Call.Try(Dx, "Register", new object[] { id, shaderFile, catalogBindings }, out var result) && result is true;
-        if (!RendererRoute.UseGuestImages || string.IsNullOrEmpty(id) || string.IsNullOrEmpty(shaderFile))
-            return false;
-        if (catalogBindings == null || catalogBindings.Length > 3)
-            return false;
-        GuestPassList.AddProgram(id, "AfterAtmosphere", shaderFile, "PublishOnly");
-        GuestPassList.SetFlags(id, GuestBridgeClient.Compute | GuestBridgeClient.Volume, 1);
-        GuestPassList.SetMedium(id, catalogBindings, 0, 0, 0, 0, 0, 0);
-        return true;
-    }
-    public static void Unregister(string id)
-    {
-        if (RendererRoute.UseDx11Device) { Device("Unregister", id); return; }
-        GuestPassList.SetEnabled(id, false);
-        GuestPassList.SetEnabled(id + ".present", false);
-    }
-    public static void SetEnabled(string id, bool enabled)
-    {
-        if (RendererRoute.UseDx11Device) { Device("SetEnabled", id, enabled); return; }
-        GuestPassList.SetEnabled(id, enabled);
-        GuestPassList.SetEnabled(id + ".present", enabled);
-    }
-    public static void SetParameters(string id, float[] uniforms, double[] bounds, float[] motion)
-    {
-        if (RendererRoute.UseDx11Device) { Device("SetParameters", id, uniforms, bounds, motion); return; }
-        GuestPassList.SetUniforms(id, uniforms);
-        if (motion != null && motion.Length >= 3)
-            GuestPassList.SetMotion(id, motion[0], motion[1], motion[2]);
-    }
-    public static bool OwnsNearInterval(string id, uint frame) =>
-        !Closed() && Dx11Call.Try(Dx, "OwnsNearInterval", new object[] { id, frame }, out var result) && result is true;
-
-    const string Dx = "ClientPlugin.Shaders.VolumetricMediumRegistry";
-    static bool Closed() => RendererRoute.RefuseDx11Device("VolumetricMediumRegistry");
     static void Device(string method, params object[] args)
     {
         if (Closed())

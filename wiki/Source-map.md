@@ -42,6 +42,10 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 
 ## Implementation
 
+Shared volume CPU sources live under ClientPlugin/Backend: FacadeVolumes routes pending/guest/companion calls; VolumeRegistryState owns validation and frame transactions; VolumetricShaderSource composes provider kernels; VolumetricInteriorSnapshot captures airtight topology; VolumeInteriorData packs common grid/cell buffers. Anomaly.Dx11 compiles the same device-free state/composer/snapshot/packing sources explicitly and retains its device wrappers under ShaderFramework.
+
+VolumeShadowViews owns shared directional projection policy. GuestVolumeShadows requests Anomaly-owned D32 targets through the renderer's early copied scene callback. SE-Vulkan VulkanGuestDepth and VulkanVoxels.GuestDepth collect real engine sources independently of main culling; CaptureSceneDepth exposes current collection provenance. Shared volume activation is still pending.
+
 | File | Role |
 |------|------|
 | [ShaderCompileIntercept.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/ShaderCompileIntercept.cs) | Include dirs + macros + Keen patch serve |
@@ -53,7 +57,9 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | [RenderTrace.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/RenderTrace.cs) | Last-N GPU-submit breadcrumbs; dump on lost-device |
 | [FullscreenPassRegistry.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/FullscreenPassRegistry.cs) | Pack `Fullscreen/` compile + merge (IsolatedSub `dest*(1-src)` blend onto dest) |
 | [PointLightCatalog.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/PointLightCatalog.cs) | Wrap Keen tiled `pointLights` / `tileIndices`; dummy SRVs for HDR t10/t11 |
-| [PointShadowPass.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/PointShadowPass.cs) | Occupancy clipmap + light-view mesh/AABB atlas (`RequestOccupancy` / `RequestPointShadows` / `RequestWorldBoxes`) |
+| [PointShadowPass.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/PointShadowPass.cs) | DX11 occupancy clipmap + light-view mesh/AABB atlas (`RequestOccupancy` / `RequestPointShadows` / `RequestWorldBoxes`) |
+| [GuestOccupancy.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Backend/GuestOccupancy.cs) | Vulkan occupancy owner, copied scene inputs, stable light selection and bounded AABB policy |
+| [GuestPointShadows.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Backend/GuestPointShadows.cs) | Vulkan character cube atlas, player depth, copied skinned triangles and shared catalog headers |
 | [FullscreenHlslLint.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/FullscreenHlslLint.cs) | Warn on `Fullscreen/` `while` / uncapped `for` |
 | [TemporalParticipation.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/TemporalParticipation.cs) | `reactiveMask` clear / IsolatedAdd luma stamp / IsolatedAdd hit-distance MVs / ContributeVelocity |
 | [IsolatedVelocity.hlsl](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/IsolatedVelocity.hlsl) | Isolated.a (meters) → camera MVs at curtain depth |
@@ -61,8 +67,8 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | [AnomalyFullscreen.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/AnomalyFullscreen.hlsli) | Fullscreen bus t0–t13 / b0 `frame_` via `Frame.hlsli` (HDR slots) / b6 / b7; `ANOMALY_PACK_SRVn_TYPE` for t7–t9 and t12–t13; `AnomalyScenePixel` / `AnomalySceneUvOffset` / `AnomalyLightingUv` / `AnomalyLightingViewPos` / `AnomalyLightingViewPosUnjittered` / `AnomalyViewToLightingUv` / `AnomalyViewToDepthUv` / `AnomalyLightingN` / `AnomalyIgn` / `AnomalyIgnWorld` / `AnomalyIsolatedSub` / `AnomalyIsolatedSubEnergy` / `AnomalyVolumeSunShadow` / `AnomalyVolumeCeil` / `AnomalyClampRadialToCeil` / `AnomalyVolumeCeilFade` |
 | [MeshDepth.hlsl](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/MeshDepth.hlsl) | Light-space skinned VS + euclidean distance PS (no Depth z-clamp) |
 | [FrameTemporal.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/FrameTemporal.cs) | Jitter + unjittered VP + `SafetyScale` + sun / sky / planet air extras |
-| [PlanetAtmosphere.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Shaders/PlanetAtmosphere.cs) | Game-thread air-top / visual ceil snapshot |
-| [LocalCharacter.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Shaders/LocalCharacter.cs) | Game-thread local player actor id |
+| [PlanetAtmosphere.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Backend/PlanetAtmosphere.cs) | Device-free game-thread planet/terrain/air snapshot compiled by core and DX11 companion |
+| [LocalCharacter.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Backend/LocalCharacter.cs) | Device-free game-thread local player actor id; compiled by the shared core and DX11 companion |
 | [CameraVelocityPass.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/CameraVelocityPass.cs) | Camera MV |
 | [Anomaly.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Anomaly.hlsli) | Geometry velocity CB / prev-world (VS reconstruct) |
 | [LightingSlots.hlsli](https://github.com/PhoenixTheSage/Anomaly/blob/main/Assets/Shaders/Anomaly/LightingSlots.hlsli) | Lighting t5 / b6 |
@@ -74,3 +80,5 @@ Open these from the [Anomaly repo](https://github.com/PhoenixTheSage/Anomaly) wh
 | [ResizableWindow.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/RichHud/ResizableWindow.cs) | Host HUD `WindowBase` subclass with `Resizing` / `Resized` |
 | [HudOverlayRegistry.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/RichHud/HudOverlayRegistry.cs) | Rich HUD corner overlay lines |
 | [AnomalyTerminalPages.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/RichHud/AnomalyTerminalPages.cs) | Mirrors Pulsar Settings + Velocity Debug |
+
+GuestVolumes owns Vulkan shared provider kernel composition, frame transactions, history, composite/reactive/motion scheduling and product lifetime. Native feature 4096 supplies generic pass phases and current recorded catalog validity; the integrated real-core GPU fixture passes 268 controlled renderer/recreation/resize/snapshot checks. GuestDevice resets device-owned caches and restores cloned pack/celestial uploads. Loaded-world device-loss, live-pack/world, dynamic-resolution and performance acceptance remain open.

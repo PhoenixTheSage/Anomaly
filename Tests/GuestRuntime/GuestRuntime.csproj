@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <VulkanRoot Condition="'$(VulkanRoot)' == ''">../../../SE-Vulkan</VulkanRoot>
+    <Bin64 Condition="'$(Bin64)' == ''">T:/SteamLibrary/steamapps/common/SpaceEngineers/Bin64</Bin64>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="NativeProbe.cs" />
+    <Compile Include="OccupancyProbe.cs" />
+    <Compile Include="PointShadowProbe.cs" />
+    <Compile Include="ExtendedVolumeProbe.cs" />
+    <Compile Include="../../ClientPlugin/Backend/VolumetricShaderSource.cs" />
+    <Compile Include="../../ClientPlugin/Backend/VolumeRegistryState.cs" />
+    <Compile Include="../../ClientPlugin/Backend/VolumeInteriorData.cs" />
+    <Compile Include="../../ClientPlugin/Backend/VolumeShadowViews.cs" />
+    <Compile Include="../../ClientPlugin/Backend/VolumeFrameData.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestVolumeShadows.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestVolumes.cs" />
+    <Compile Include="GuestVolumeWorldFixture.cs" />
+    <Compile Include="../../ClientPlugin/Backend/FacadeVolumes.cs" />
+    <Compile Include="../../ClientPlugin/Backend/Dx11Call.cs" />
+    <Compile Include="VolumeRouteProbe.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestBridgeClient.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestCompiler.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestPassList.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestOwned.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestOccupancy.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestPointShadows.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Rendering/Scene/GuestCharacterGeometry.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Rendering/Interop/NativeBackend.GuestExtended.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestMark.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Rendering/Shaders/VulkanShaderCompiler.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Rendering/Shaders/ShaderMetadata.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Rendering/Shaders/SpirvMetadataReader.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Rendering/Shaders/SpirvRuntimeModule.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Rendering/Shaders/VanillaHlslCompatibility.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Rendering/Shaders/GpuOpaqueShaderAdapter.cs" />
+    <Compile Include="$(VulkanRoot)/ClientPlugin/Bootstrap/BootstrapAssets.cs" />
+  </ItemGroup>
+  <ItemGroup><Reference Include="VRage.Math"><HintPath>$(Bin64)/VRage.Math.dll</HintPath></Reference></ItemGroup>
+  <ItemGroup><ProjectReference Include="Dx11VolumeFixture/Dx11VolumeFixture.csproj" Aliases="volumedx" /></ItemGroup>
+</Project>

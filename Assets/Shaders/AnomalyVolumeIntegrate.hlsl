@@ -3,7 +3,7 @@
 // Source.rgb already contains emission + shadowed single scattering (/metre).
 Texture3D<float4> VolumeCoefficients : register(t0);
 Texture3D<float4> VolumeSource : register(t1);
-RWTexture3D<float4> IntegratedVolume : register(u0);
+ANOMALY_VOLUME_RGBA_UAV RWTexture3D<float4> IntegratedVolume : register(u0);
 cbuffer Integration : register(b0)
 {
     uint3 VolumeSize;

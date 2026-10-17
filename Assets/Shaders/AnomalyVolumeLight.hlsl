@@ -1,4 +1,4 @@
-RWTexture3D<float> LightOpticalDepth : register(u0);
+ANOMALY_VOLUME_SCALAR_UAV RWTexture3D<float> LightOpticalDepth : register(u0);
 [numthreads(8,8,1)] void __compute_shader(uint3 id:SV_DispatchThreadID)
 {
     uint size=(uint)VolumeControl.z,slices=(uint)VolumeControl.w;

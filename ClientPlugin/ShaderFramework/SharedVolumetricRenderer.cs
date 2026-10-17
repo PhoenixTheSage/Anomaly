@@ -16,6 +16,8 @@ using VRage.Utils;
 using VRageMath;
 using VRageRender;
 using Resource = SharpDX.Direct3D11.Resource;
+using Frame = ClientPlugin.Backend.VolumeFrameData.Frame;
+using Shadows = ClientPlugin.Backend.VolumeFrameData.Shadows;
 
 namespace ClientPlugin.ShaderFramework;
 
@@ -59,19 +61,6 @@ internal static class SharedVolumetricRenderer
     static int outputWidth,outputHeight;
     static double previousTime;
     static readonly string[] ProductNames={"volumeScatteringTransmittance","volumeMotion","volumeReactive","volumeRepresentativeDepth","volumeSunVisibility"};
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct Frame
-    {
-        public Matrix CameraToWorld,CurrentProjection,PreviousProjection,LightToCamera;
-        public Vector4 Grid,Screen,Sun,SunEnergy,Ambient,Temporal,CameraDelta,Control;
-    }
-    [StructLayout(LayoutKind.Sequential)]
-    struct Shadows
-    {
-        public Matrix A,B,C;
-        public Vector4 Radii,Planet;
-    }
 
     internal static void Install()
     {
@@ -174,7 +163,7 @@ internal static class SharedVolumetricRenderer
             // Capture the scene before legacy fullscreen programs clip their near interval.
             // On a failed composite, restore it and replay those programs unsuppressed.
             CaptureRecovery(rc);
-            if(!VolumetricMediumRegistry.Commit(FrameTemporal.FrameIndex,revision,true,true,true,true,media)) return;
+            if(!VolumetricMediumRegistry.Commit(FrameTemporal.FrameIndex,revision,true,true,Interiors.Complete,true,media)) return;
             // Only change legacy intervals after every shared draw has recorded successfully.
             foreach(var m in media) m.Interval?.Invoke(distance);
             prepared=true; preparedFrame=FrameTemporal.FrameIndex;
@@ -297,21 +286,12 @@ internal static class SharedVolumetricRenderer
     }
     static void Write<T>(MyRenderContext rc,IConstantBuffer buffer,ref T data) where T:struct
     { var map=MyMapping.MapDiscard(rc,buffer); try { map.WriteAndPosition(ref data); } finally { map.Unmap(); } }
-    static void WriteProviders(MyRenderContext rc,VolumetricMediumRegistry.Medium[] media,Vector3D camera)
+    static void WriteProviders(MyRenderContext rc,ClientPlugin.Backend.VolumeRegistryState.Medium[] media,Vector3D camera)
     {
-        var values=new Vector4[80];
-        for(int i=0;i<media.Length;i++)
-        {
-            var m=media[i];
-            for(int j=0;j<16;j++) values[i*16+j]=new Vector4(m.Uniforms[j*4],m.Uniforms[j*4+1],m.Uniforms[j*4+2],m.Uniforms[j*4+3]);
-            values[64+i]=new Vector4((float)(m.Origin[0]-camera.X),(float)(m.Origin[1]-camera.Y),(float)(m.Origin[2]-camera.Z),0);
-            values[68+i]=new Vector4((float)(m.Bounds[0]-camera.X),(float)(m.Bounds[1]-camera.Y),(float)(m.Bounds[2]-camera.Z),0);
-            values[72+i]=new Vector4((float)(m.Bounds[3]-camera.X),(float)(m.Bounds[4]-camera.Y),(float)(m.Bounds[5]-camera.Z),0);
-            values[76+i]=new Vector4(m.Motion[0],m.Motion[1],m.Motion[2],0);
-        }
+        var values=ClientPlugin.Backend.VolumeFrameData.ProviderRows(media,camera);
         var map=MyMapping.MapDiscard(rc,providerCb); try { foreach(var item in values) { var value=item; map.WriteAndPosition(ref value); } } finally { map.Unmap(); }
     }
-    static void Bind(MyRenderContext rc,VolumetricMediumRegistry.Medium[] media,bool pixel)
+    static void Bind(MyRenderContext rc,ClientPlugin.Backend.VolumeRegistryState.Medium[] media,bool pixel)
     {
         var srvs=new ShaderResourceView[44];
         srvs[0]=MyGBuffer.Main.ResolvedDepthStencil.SrvDepth.Srv;
@@ -378,7 +358,7 @@ internal static class SharedVolumetricRenderer
     }
     static byte[] Compile(string source,string entry,string profile,string root)
     { using(var include=new VolumeShaderInclude(root)) using(var bytecode=ShaderBytecode.Compile(source,entry,profile,ShaderFlags.OptimizationLevel3,EffectFlags.None,null,include)) return bytecode.Bytecode.Data; }
-    static void EnsureShaders(VolumetricMediumRegistry.Medium[] media)
+    static void EnsureShaders(ClientPlugin.Backend.VolumeRegistryState.Medium[] media)
     {
         var root=ShaderCompileIntercept.IncludeDirectory;
         var key=string.Join("|",media.Select(m=>m.ShaderFile+File.GetLastWriteTimeUtc(m.ShaderFile).Ticks));

@@ -18,23 +18,33 @@ public sealed class GuestProgram
     public string File;
     public string Compose;
     public int Mark;
+    public int Priority;
     public bool Enabled = true;
     public float[] Uniforms;
     public string Status = "registered";
+    public string Error;
+    public ulong Submissions;
+    public bool SubmittedThisFrame;
+    public bool HistoryReady;
     public byte[] VertexSpirv;
     public byte[] PixelSpirv;
     public string PixelEntry = "main";
+    public string VertexFile;
+    public string VertexEntry = "main";
+    public int ResourceContract;
     public ulong Pipeline;
     public ulong StorageImage;
     public ulong HistoryImage;
     public int ImageWidth;
     public int ImageHeight;
+    public int ImageFormat;
     public float Scale = 1f;
     public string HistoryName;
     public string OutputName;
     public int Flags;
     public int Format;
     public string SourceFile;
+    public string IncludeRoot;
     public string[] MediumTextures;
     public float OriginX, OriginY, OriginZ, MotionX, MotionY, MotionZ;
     public List<SrvBind> Srvs;
@@ -262,6 +272,17 @@ public static class GuestPassList
             return Find(id) != null;
     }
 
+    public static bool SetHistory(string id, string catalogName)
+    {
+        lock (Gate)
+        {
+            var program = Find(id);
+            if (program == null) return false;
+            program.HistoryName = catalogName;
+            return true;
+        }
+    }
+
     public static float SnapScale(float scale)
     {
         if (scale <= 0.375f)
@@ -405,6 +426,19 @@ public static class GuestPassList
             id = slot + "." + list.Count.ToString(CultureInfo.InvariantCulture);
         string path = string.IsNullOrEmpty(file) ? null : Path.Combine(root, file.Replace('/', Path.DirectorySeparatorChar));
         bool publish = string.Equals(compose, "PublishOnly", StringComparison.OrdinalIgnoreCase);
+        var binds = new List<SrvBind>();
+        var bindArray = Regex.Match(block, "\"binds\"\\s*:\\s*\\[(?<items>[^\\]]*)\\]", RegexOptions.Singleline);
+        foreach (Match item in Regex.Matches(bindArray.Groups["items"].Value, "\\{[^{}]*\\}"))
+        {
+            var catalog = Regex.Match(item.Value, "\"catalog\"\\s*:\\s*\"(?<name>[^\"]+)\"");
+            var bindSlot = Regex.Match(item.Value, "\"slot\"\\s*:\\s*(?<slot>[0-9]+)");
+            if (!catalog.Success || !bindSlot.Success) continue;
+            int register = int.Parse(bindSlot.Groups["slot"].Value, CultureInfo.InvariantCulture);
+            if ((register == 7 || register == 8 || register == 9 || register == 12 || register == 13)
+                && !binds.Exists(b => b.Slot == register))
+                binds.Add(new SrvBind { Name = catalog.Groups["name"].Value, Slot = register });
+        }
+        var priority = Regex.Match(block, "\"priority\"\\s*:\\s*(?<priority>-?[0-9]+)");
         ReplaceOrAdd(list, new GuestProgram
         {
             Id = id,
@@ -415,6 +449,9 @@ public static class GuestPassList
             Scale = scale,
             HistoryName = history,
             OutputName = output,
+            IncludeRoot = root,
+            Srvs = binds,
+            Priority = priority.Success ? int.Parse(priority.Groups["priority"].Value, CultureInfo.InvariantCulture) : 0,
             Format = publish ? 1 : 0,
             Status = path != null && File.Exists(path) ? "source" : "missing-source",
         });
@@ -442,6 +479,7 @@ public static class GuestPassList
                     Id = id,
                     Slot = slot,
                     File = file,
+                    IncludeRoot = root,
                     Compose = "IsolatedAdd",
                     Mark = mark,
                     Status = "source",
@@ -692,9 +730,17 @@ public static class GuestPassList
     {
         int pipelines, failures;
         CountPrograms(out pipelines, out failures);
-        if (pipelines == 0)
-            return failures == 0 ? "not live" : "not live (" + failures + " compile failures)";
-        return failures == 0 ? "live" : "live (" + failures + " compile failures)";
+        int pending = 0, submitted = 0;
+        string error = null;
+        foreach (var p in Snapshot())
+        {
+            if (p.Pipeline == 0 && p.Status != "compile-failed" && p.Status != "pipeline-failed") pending++;
+            if (p.Submissions > 0) submitted++;
+            if (error == null && !string.IsNullOrEmpty(p.Error))
+                error = p.Id + ": " + p.Error.Split('\r', '\n')[0];
+        }
+        return "ready=" + pipelines + " pending=" + pending + " failed=" + failures + " submitted=" + submitted
+            + (error == null ? "" : " | " + error);
     }
 
     public static void CountPrograms(out int pipelines, out int failures)
@@ -706,9 +752,11 @@ public static class GuestPassList
             for (int i = 0; i < Programs.Count; i++)
             {
                 var program = Programs[i];
-                if (program.Pipeline != 0 || program.Status == "pipeline")
+                if (program.Status == "capability-missing")
+                    failures++;
+                else if (program.Pipeline != 0 || program.Status == "pipeline")
                     pipelines++;
-                else if (program.Status == "compile-failed")
+                else if (program.Status == "compile-failed" || program.Status == "pipeline-failed")
                     failures++;
             }
         }
@@ -884,11 +932,19 @@ public static class GuestPassList
             if (!any)
                 return "disabled";
             return "linearDepth " + Tex("LinearDepth")
-                + "; historyDepth " + Tex("HistoryDepth")
+                + "; historyDepth " + HistoryDepthStatus()
                 + "; hiZ " + Tex("HiZ")
                 + "; historyColor " + Tex("HistoryCopy")
-                + "; litMips " + Tex("LitMips");
+                + "; litMips " + Tex("LitMips")
+                + "; occupancy " + GuestOccupancy.StatusLine
+                + "; point shadows " + GuestPointShadows.Status;
         }
+    }
+
+    static string HistoryDepthStatus()
+    {
+        var p = FindSuffix("LinearDepth");
+        return p != null && p.HistoryReady && p.HistoryImage != 0 ? p.ImageWidth + "x" + p.ImageHeight : "pending";
     }
 
     public static string CameraStatus()
@@ -902,7 +958,7 @@ public static class GuestPassList
                 return "error (compile)";
             if (program.Pipeline != 0 || program.Status == "pipeline")
                 return "live";
-            return "shaders not ready";
+            return program.Status ?? "shaders not ready";
         }
     }
 
@@ -922,6 +978,10 @@ public static class GuestPassList
         var program = FindSuffix(suffix);
         if (program == null)
             return "none";
+        if (program.Status == "capability-missing")
+            return "capability missing";
+        if (suffix == "LitMips" && ClientPlugin.Buffers.BufferCatalog.Active("litMips") == null)
+            return "not requested";
         if (program.Status == "compile-failed")
             return "error";
         if (program.ImageWidth > 0 && program.ImageHeight > 0)

@@ -23,21 +23,7 @@ cbuffer FaceCb : register(b0)
 
 StructuredBuffer<BoxGpu> Boxes : register(t0);
 
-static const float3 kCube[36] =
-{
-    float3(1, -1, -1), float3(1, 1, -1), float3(1, 1, 1),
-    float3(1, -1, -1), float3(1, 1, 1), float3(1, -1, 1),
-    float3(-1, -1, 1), float3(-1, 1, 1), float3(-1, 1, -1),
-    float3(-1, -1, 1), float3(-1, 1, -1), float3(-1, -1, -1),
-    float3(-1, 1, -1), float3(-1, 1, 1), float3(1, 1, 1),
-    float3(-1, 1, -1), float3(1, 1, 1), float3(1, 1, -1),
-    float3(-1, -1, 1), float3(-1, -1, -1), float3(1, -1, -1),
-    float3(-1, -1, 1), float3(1, -1, -1), float3(1, -1, 1),
-    float3(-1, -1, 1), float3(1, -1, 1), float3(1, 1, 1),
-    float3(-1, -1, 1), float3(1, 1, 1), float3(-1, 1, 1),
-    float3(1, -1, -1), float3(-1, -1, -1), float3(-1, 1, -1),
-    float3(1, -1, -1), float3(-1, 1, -1), float3(1, 1, -1)
-};
+#include "AnomalyBoxCorners.hlsli"
 
 void __vertex_shader(uint id : SV_VertexID, out float4 clip : SV_Position, out float3 world : TEXCOORD0)
 {

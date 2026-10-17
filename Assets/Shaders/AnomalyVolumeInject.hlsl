@@ -1,7 +1,7 @@
-RWTexture3D<float4> Coefficients : register(u0);
-RWTexture3D<float4> Source : register(u1);
-RWTexture3D<float4> Motion : register(u2);
-RWTexture3D<float> Visibility : register(u3);
+ANOMALY_VOLUME_RGBA_UAV RWTexture3D<float4> Coefficients : register(u0);
+ANOMALY_VOLUME_RGBA_UAV RWTexture3D<float4> Source : register(u1);
+ANOMALY_VOLUME_RGBA_UAV RWTexture3D<float4> Motion : register(u2);
+ANOMALY_VOLUME_SCALAR_UAV RWTexture3D<float> Visibility : register(u3);
 RWTexture2D<float> RepresentativeDepth : register(u4);
 [numthreads(4,4,4)] void __compute_shader(uint3 id:SV_DispatchThreadID)
 {

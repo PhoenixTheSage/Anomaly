@@ -24,10 +24,10 @@ internal static class DirectionalVolumeShadows
     // The shared renderer must explicitly enable this after all shaders and
     // composition/temporal products are ready. Registration alone does not run it.
     internal static bool Requested;
-    internal const int Resolution = 2048;
+    internal const int Resolution = VolumeShadowViews.Resolution;
     static readonly VolumetricGpuTimer Timer = new();
     internal static double GpuMilliseconds => Timer.LastMilliseconds;
-    internal static readonly double[] ReceiverRadii = {128, 1000, 8000};
+    internal static readonly double[] ReceiverRadii = VolumeShadowViews.ReceiverRadii;
     internal static readonly MatrixD[] WorldToShadow = new MatrixD[3];
     internal static readonly IDepthTexture[] Maps = new IDepthTexture[3];
     static readonly MyCullQueries Queries = new();
@@ -45,12 +45,12 @@ internal static class DirectionalVolumeShadows
         FrameTemporal.EnsureSnapshot();
         var sun = (Vector3D)FrameTemporal.SunToward;
         if (sun.LengthSquared() < 0.5) { Status = "Sun direction unavailable"; return; }
-        sun.Normalize();
         var camera = MyRender11.Environment.Matrices.CameraPosition;
         bool culler = false, oldStarted = false, newStarted = false;
         try
         {
             Timer.Begin(MyRender11.RC.DeviceContext);
+            var views=VolumeShadowViews.Build(camera,sun);
             for (int i = 0; i < 3; i++)
             {
                 if (Maps[i] == null) Maps[i] = MyManagers.RwTextures.CreateDepth(
@@ -58,21 +58,9 @@ internal static class DirectionalVolumeShadows
                     Format.R32_Typeless, Format.R32_Float, Format.D32_Float);
                 // Include off-screen casters towards the light. Planet-body
                 // occultation is evaluated analytically in the volume shader.
-                var radius = ReceiverRadii[i];
-                var up = Math.Abs(Vector3D.Dot(sun, Vector3D.Up)) > .95 ? Vector3D.Right : Vector3D.Up;
-                var right = Vector3D.Normalize(Vector3D.Cross(up, sun));
-                up = Vector3D.Normalize(Vector3D.Cross(sun, right));
-                double texel = 2 * radius / Resolution;
-                var center = camera;
-                center += right * (Math.Round(Vector3D.Dot(center, right) / texel) * texel - Vector3D.Dot(center, right));
-                center += up * (Math.Round(Vector3D.Dot(center, up) / texel) * texel - Vector3D.Dot(center, up));
-                double reach = 32000 + radius;
-                var eye = center + sun * reach;
-                var view = MatrixD.CreateLookAt(eye, center, up);
-                var projection = Matrix.CreateOrthographic((float)(radius*2), (float)(radius*2), 1, (float)(reach+radius));
-                var world = view * (MatrixD)projection;
+                var world=views[i].WorldToShadow;
                 WorldToShadow[i] = world;
-                var local = MatrixD.CreateTranslation(camera) * world;
+                var local=views[i].CameraToShadow;
                 Queries.AddDepthPass(new MyShadowmapQuery {
                     DepthBuffer = Maps[i], DepthBufferRo = Maps[i].DsvRo,
                     Viewport = new MyViewport(Resolution, Resolution),
@@ -80,7 +68,7 @@ internal static class DirectionalVolumeShadows
                     ProjectionInfo = new MyProjectionInfo {
                         WorldCameraOffsetPosition = camera, WorldToProjection = world,
                         LocalToProjection = local, LocalToProjectionExtruded = local,
-                        Projection = projection, ViewOrigin = eye
+                        Projection = views[i].Projection, ViewOrigin = views[i].Eye
                     }
                 });
                 MyRender11.RC.ClearDsv(Maps[i], DepthStencilClearFlags.Depth, 1, 0);

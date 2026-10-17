@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using ClientPlugin.Backend;
 
 namespace ClientPlugin.Buffers;
@@ -28,8 +29,12 @@ public static class CatalogImages
 
 public sealed class GuestRendererImage
 {
+    readonly Func<bool> available;
+    readonly long resourceEpoch;
+    internal GuestRendererImage(ulong imageId,int width,int height,int depth,Func<bool> available):this(imageId,width,height,depth){this.available=available;}
     public GuestRendererImage(ulong imageId, int width, int height, int depth)
     {
+        resourceEpoch=GuestBridgeClient.ResourceEpoch;
         ImageId = imageId;
         Width = width;
         Height = height;
@@ -37,7 +42,7 @@ public sealed class GuestRendererImage
     }
 
     public ulong ImageId { get; }
-    public bool IsAvailable => ImageId != 0;
+    public bool IsAvailable => ImageId != 0 && resourceEpoch!=0 && resourceEpoch==GuestBridgeClient.ResourceEpoch && (available==null || available());
     public int Width { get; }
     public int Height { get; }
     public int Depth { get; }
@@ -111,25 +116,29 @@ public static class BufferCatalog
         Dx11Call.Call(Dx, "UnpublishAll", packId);
     }
 
-    public static void RequestLitMips(int mipLevels)
+    public static void RequestLitMips(int mipLevels = 5)
     {
-        if (RendererRoute.RefuseDx11Device("BufferCatalog.RequestLitMips"))
-            return;
-        Dx11Call.Call(Dx, "RequestLitMips", mipLevels);
+        GuestOwned.RequestLitMips(mipLevels);
+        if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "RequestLitMips", mipLevels);
     }
 
-    public static void RequestPointShadows(int maxLights, int faceResolution)
+    public static void RequestPointShadows(int maxLights = 4, int faceResolution = 128)
     {
-        if (RendererRoute.RefuseDx11Device("BufferCatalog.RequestPointShadows"))
-            return;
-        Dx11Call.Call(Dx, "RequestPointShadows", maxLights, faceResolution);
+        GuestOccupancy.RequestPointShadows(maxLights, faceResolution);
+        if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "RequestPointShadows", maxLights, faceResolution);
     }
 
-    public static void RequestOccupancy(bool enabled)
+    public static string PointShadowStatus => RendererRoute.UseDx11Device ? Dx11Call.Get(Dx, "PointShadowStatus") as string ?? "" : GuestPointShadows.Status;
+    public static void RequestWorldBoxes(bool enabled = true)
     {
-        if (RendererRoute.RefuseDx11Device("BufferCatalog.RequestOccupancy"))
-            return;
-        Dx11Call.Call(Dx, "RequestOccupancy", enabled);
+        GuestPointShadows.RequestWorldBoxes(enabled);
+        if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "RequestWorldBoxes", enabled);
+    }
+
+    public static void RequestOccupancy(bool enabled = true)
+    {
+        GuestOccupancy.Request(enabled);
+        if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "RequestOccupancy", enabled);
     }
 
     internal static void ApplyDeferred()
@@ -154,6 +163,13 @@ public static class BufferCatalog
         }
 
         if (RendererRoute.UseDx11Device)
+        {
+            Dx11Call.Call(Dx, "RequestLitMips", GuestOwned.ExplicitLitMipLevels);
+            Dx11Call.Call(Dx, "RequestOccupancy", GuestOccupancy.Requested);
+            Dx11Call.Call(Dx, "RequestPointShadows", GuestOccupancy.PointCap, GuestOccupancy.PointFace);
+            Dx11Call.Call(Dx, "RequestWorldBoxes", GuestPointShadows.WorldBoxes);
+        }
+        if (RendererRoute.UseDx11Device)
             foreach (var pair in lifetimes)
                 Dx11Call.Call(Dx, "RegisterLifetime", pair.Key, pair.Value[0], pair.Value[1]);
 
@@ -161,6 +177,17 @@ public static class BufferCatalog
             buffer.ApplyDeferred();
     }
 
+    internal static void ResetGuestDevice(bool notifyEnd)
+    {
+        Action[] callbacks;lock(Local)callbacks=notifyEnd?Lifetimes.Values.Select(v=>v[1]).Where(v=>v!=null).ToArray():Array.Empty<Action>();
+        var errors=new List<Exception>();
+        foreach(var callback in callbacks)try{callback();}catch(Exception error){errors.Add(error);}
+        lock(Local) {
+            foreach(string key in Local.Where(v=>v.Value is GuestRendererImage).Select(v=>v.Key).ToArray())Local.Remove(key);
+            foreach(var buffer in Local.Values.OfType<PublishedBuffer>().Distinct())buffer.ResetGuestDevice();
+        }
+        if(errors.Count!=0)throw new AggregateException("Guest device-end callbacks failed",errors);
+    }
     const string Dx = "ClientPlugin.Buffers.BufferCatalog";
 }
 
@@ -188,6 +215,7 @@ public sealed class PublishedBuffer
     int structuredStride;
     int uploadKind;
     bool deviceApplied;
+    int guestWidth,guestHeight,guestDepth,guestFormat;
 
     public PublishedBuffer() => EnsureInner();
 
@@ -220,7 +248,7 @@ public sealed class PublishedBuffer
 
     public void PublishRgba8(byte[] rgba, int width, int height)
     {
-        Rgba = rgba;
+        Rgba = rgba==null?null:(byte[])rgba.Clone();
         Width = width;
         Height = height;
         Depth = 1;
@@ -231,7 +259,7 @@ public sealed class PublishedBuffer
 
     public void PublishVolumeRgba8(byte[] rgba, int width, int height, int depth)
     {
-        Rgba = rgba;
+        Rgba = rgba==null?null:(byte[])rgba.Clone();
         Width = width;
         Height = height;
         Depth = depth;
@@ -242,8 +270,8 @@ public sealed class PublishedBuffer
 
     public void PublishVolumeMips(byte[][] mips, int dim)
     {
-        mipData = mips;
-        Rgba = mips != null && mips.Length > 0 ? mips[0] : null;
+        mipData = mips?.Select(m=>m==null?null:(byte[])m.Clone()).ToArray();
+        Rgba = mipData != null && mipData.Length > 0 ? mipData[0] : null;
         Width = dim;
         Height = dim;
         Depth = dim;
@@ -254,7 +282,7 @@ public sealed class PublishedBuffer
 
     public void PublishStructuredFloats(float[] values, int stride)
     {
-        structured = values;
+        structured = values==null?null:(float[])values.Clone();
         structuredStride = stride;
         Width = values?.Length ?? 0;
         Height = 1;
@@ -279,6 +307,7 @@ public sealed class PublishedBuffer
         ImageId = 0;
     }
 
+    internal void ResetGuestDevice(){ImageId=0;deviceApplied=false;}
     internal void ApplyDeferred()
     {
         if (deviceApplied || uploadKind == 0)
@@ -300,16 +329,33 @@ public sealed class PublishedBuffer
             return;
         }
 
-        if (!RendererRoute.UseGuestImages || uploadKind == 4)
+        if (!RendererRoute.UseGuestImages || GuestBridgeClient.ResourceEpoch==0)
             return;
-        if (uploadKind == 3)
-            ImageId = GuestBridgeClient.AllocateVolumeMips(Math.Max(Width, 1), mipData);
+        if(uploadKind==4) {
+            if(structured==null || structured.Length==0 || structuredStride<=0 || structuredStride%4!=0 || (structured.Length*4)%structuredStride!=0)return;
+            var bytes=new byte[structured.Length*4];System.Buffer.BlockCopy(structured,0,bytes,0,bytes.Length);
+            UploadGuest(bytes.Length,1,1,bytes,4);
+        }
+        else if (uploadKind == 3)
+            ImageId = GuestBridgeClient.UploadVolumeMips(ImageId,Math.Max(Width, 1), mipData);
         else
         {
             int depth = uploadKind == 1 ? 1 : Depth;
-            ImageId = GuestBridgeClient.AllocateImage(Math.Max(Width, 1), Math.Max(Height, 1), Math.Max(depth, 1), Rgba);
+            UploadGuest(Math.Max(Width,1),Math.Max(Height,1),Math.Max(depth,1),Rgba,0);
         }
         deviceApplied = ImageId != 0;
+        if(uploadKind==3 && ImageId!=0 && mipData!=null){guestWidth=Width;guestHeight=Height;guestDepth=Depth;guestFormat=(mipData.Length<<16);}
+    }
+
+    void UploadGuest(int width,int height,int depth,byte[] bytes,int format)
+    {
+        if(ImageId==0)ImageId=GuestBridgeClient.AllocateImage(width,height,depth,bytes,format);
+        else {
+            if(guestWidth!=width || guestHeight!=height || guestDepth!=depth || guestFormat!=format)
+                GuestBridgeClient.CreateImage(ImageId,width,height,depth,format);
+            if(bytes!=null)GuestBridgeClient.UpdateImage(ImageId,bytes);
+        }
+        guestWidth=width;guestHeight=height;guestDepth=depth;guestFormat=format;
     }
 
     void EnsureInner()

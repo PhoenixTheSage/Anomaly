@@ -2,6 +2,16 @@
 
 Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage below is reconstructed from repository history so the current version reflects shipped capability rather than the inherited SE-DLSS version.
 
+## 1.13.0 — 2026-10-17
+
+- Add feature-gated guest pipelines, extended resources/constants, atomic batch submission, format validation, and recovery-aware compiler/pipeline diagnostics.
+- Produce requested lit mip pyramids, depth-derived voxel occupancy, copied-geometry point-shadow atlases/player depth, and the shared froxel scattering/reactive chain on Vulkan.
+- Share CPU volume registration, frame/shadow/interior layouts, planet/character snapshots, and provider shader generation between the core and DX11 companion.
+- Restore CPU-backed catalog images, volume mips, structured buffers, retained demand, and pack lifetime callbacks across guest context replacement; expire stale renderer handles.
+- Add independent scene-depth prerequisites, current-frame validity, resize/history rejection, attachment aliases, volume staging, and transactional fallback to legacy provider rendering.
+- Track authoritative gas topology and grid/door edits for sealed zero-oxygen interiors; retain explicit depth-buffer demand for public occupancy/volume requests on DX11.
+- Document contracts, producer acceptance provenance and remaining limits; add actual-core, topology, compiler, GPU producer and recovery regression coverage.
+
 ## 1.12.1 — 2026-10-15
 
 - Sanitize Pulsar repository IDs when locating source-cache companions, preserve GUID lookup, and require the matching pack ID boundary.

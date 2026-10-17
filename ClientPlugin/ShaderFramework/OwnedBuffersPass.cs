@@ -259,6 +259,11 @@ public static class OwnedBuffersPass
 
     static bool WantDepthBuffers()
     {
+        // Public producer requests also own their depth dependency when no
+        // manifest pack happens to be registered (for example a dynamic medium).
+        if (PointShadowPass.NeedsOccupancyDepth ||
+            (ClientPlugin.Shaders.VolumetricMediumRegistry.Requested && ClientPlugin.Shaders.VolumetricMediumRegistry.HasEnabledMedia))
+            return true;
         if (ShaderPackRegistry.LivePackCount > 0)
             return true;
         var dbg = Config.Current?.DebugBuffer ?? DebugBuffer.Off;

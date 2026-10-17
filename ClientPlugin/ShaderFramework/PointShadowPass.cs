@@ -200,6 +200,8 @@ public static class PointShadowPass
             occupancyRequested = enabled;
     }
 
+    internal static bool NeedsOccupancyDepth { get { lock (Gate) return occupancyRequested; } }
+
     /// <summary>
     /// Stamp actor AABB boxes into <c>pointShadowAtlas</c> in addition to
     /// the local character mesh. Off = mesh only (grates stay open). The

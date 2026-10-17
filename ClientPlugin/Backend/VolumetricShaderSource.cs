@@ -8,7 +8,7 @@ namespace ClientPlugin.ShaderFramework;
 /// <summary>Host-owned shader composition; providers export EvaluateMedium in a local origin frame.</summary>
 internal static class VolumetricShaderSource
 {
-    internal static string Build(string includes,VolumetricMediumRegistry.Medium[] media,string kernel)
+    internal static string Build(string includes,ClientPlugin.Backend.VolumeRegistryState.Medium[] media,string kernel)
     {
         var result=new StringBuilder();
         result.AppendLine("#include \""+Path.Combine(includes,"AnomalyVolumeCommon.hlsli").Replace('\\','/')+"\"");

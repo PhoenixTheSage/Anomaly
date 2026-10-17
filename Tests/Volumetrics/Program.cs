@@ -246,8 +246,8 @@ RWStructuredBuffer<float4> R:register(u0);
 
     static void TestProductionShaders(string root,string fog,string clouds)
     {
-        var a=new VolumetricMediumRegistry.Medium("fog",fog,Array.Empty<string>());
-        var b=new VolumetricMediumRegistry.Medium("clouds",clouds,new[]{"shape","detail","weather"});
+        var a=new ClientPlugin.Backend.VolumeRegistryState.Medium("fog",fog,Array.Empty<string>());
+        var b=new ClientPlugin.Backend.VolumeRegistryState.Medium("clouds",clouds,new[]{"shape","detail","weather"});
         foreach(var media in new[]{new[]{a},new[]{b},new[]{a,b},new[]{b,a}})
         foreach(var kernel in new[]{"AnomalyVolumeLight.hlsl","AnomalyVolumeInject.hlsl","AnomalyVolumeReconstruct.hlsl"})
         {

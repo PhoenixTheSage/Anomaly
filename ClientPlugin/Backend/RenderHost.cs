@@ -31,6 +31,8 @@ public static class RenderHost
     static string conflict;
     static string mismatchSeen;
     static string loggedStatus = "";
+    static int nextGuestCompile;
+    static bool guestCompileAttempted;
 
     public static bool IsDx11 => committed && choice == 0;
     public static bool IsVulkan => committed && choice == 1;
@@ -46,6 +48,12 @@ public static class RenderHost
 
     public static void Update()
     {
+        global::ClientPlugin.Shaders.LocalCharacter.UpdateFromGameThread();
+        global::ClientPlugin.Shaders.PlanetAtmosphere.UpdateFromGameThread();
+        GuestOccupancy.LocalActorId = global::ClientPlugin.Shaders.LocalCharacter.Copy().ActorId;
+        if (IsVulkan) {
+            global::ClientPlugin.ShaderFramework.VolumetricInteriorSnapshot.UpdateFromGameThread();
+        }
         if (!committed)
         {
             BindRuntime();
@@ -54,14 +62,24 @@ public static class RenderHost
 
         if (IsDx11)
             CallPlugin("Update");
+        else if (IsVulkan)
+            SetStatus("Renderer: Vulkan | " + Summary() + " | guest listener " + (listenersAttached ? "attached" : "missing"));
         PullScene();
     }
 
     public static void Dispose()
     {
         FrameworkSettings.Flush();
+        global::ClientPlugin.Shaders.PlanetAtmosphere.Clear();
         if (IsDx11)
             CallPlugin("Dispose");
+        else
+        {
+            global::ClientPlugin.ShaderFramework.VolumetricInteriorSnapshot.Clear();
+            try { VolumeRegistryState.ResetIntervals(); }
+            catch(Exception error) { System.Diagnostics.Trace.WriteLine(error); }
+            finally { VolumeRegistryState.Release(); }
+        }
         GuestBridgeClient.Reset();
     }
 
@@ -82,7 +100,6 @@ public static class RenderHost
         if (IsVulkan)
         {
             GuestColor.Publish();
-            GuestCompiler.CompilePending(folder);
         }
     }
 
@@ -180,6 +197,28 @@ public static class RenderHost
     {
         if (!IsVulkan)
             return;
+        if(!GuestDevice.Synchronize())return;
+        // Native resources belong to this frame callback, after GuestBridge.Bind.
+        // Asset loading/renderer selection can precede the device by many seconds.
+        if (string.IsNullOrEmpty(assetFolder) || !GuestFrame.Open)
+            return;
+        if (!GuestBridgeClient.SupportsPacketFlags(GuestBridgeClient.LiveResources))
+        {
+            GuestBridgeClient.Submit(null);
+            VolumeRegistryState.SetStatus("Shared volume unavailable: update SE-Vulkan native guest live-frame resources");
+            SetStatus("Renderer: Vulkan | update SE-Vulkan native library: guest live-frame resource support missing");
+            return;
+        }
+        PullGuestScene();
+        GuestVolumes.PreparePrograms(assetFolder);
+        int now = Environment.TickCount;
+        if (GuestCompiler.HasPending && (!guestCompileAttempted || unchecked(now - nextGuestCompile) >= 0))
+        {
+            guestCompileAttempted = true;
+            nextGuestCompile = unchecked(now + 1000);
+            GuestCompiler.CompilePending(assetFolder);
+        }
+        GuestOwned.DebugLitMips = global::ClientPlugin.Config.Current?.DebugBuffer == global::ClientPlugin.DebugBuffer.LitMips;
         GuestBridgeClient.Submit(GuestPassList.Snapshot());
     }
 
@@ -201,7 +240,13 @@ public static class RenderHost
         runtimeBound = true;
         addGuest.Invoke(null, new object[] { (Action<int>)NoteBackend });
         addFrame.Invoke(null, new object[] { (Action)SubmitVulkan });
+        var addScene=runtime.GetMethod("AddSceneListener",BindingFlags.Public|BindingFlags.Static);
+        addScene?.Invoke(null,new object[]{(Action<double[],float[]>)PrepareSceneVulkan});
         listenersAttached = true;
+    }
+    static void PrepareSceneVulkan(double[] camera,float[] sunToward)
+    {
+        if(IsVulkan && !string.IsNullOrEmpty(assetFolder))GuestVolumeShadows.Prepare(camera,sunToward);
     }
 
     static void NoteBackend(int backend)
@@ -310,7 +355,6 @@ public static class RenderHost
             return;
         }
 
-        GuestCompiler.CompilePending(assetFolder);
         global::ClientPlugin.Buffers.BufferCatalog.ApplyDeferred();
         SetStatus("Renderer: Vulkan | " + Summary() + " | guest listener " + (listenersAttached ? "attached" : "missing"));
     }
@@ -351,6 +395,7 @@ public static class RenderHost
                 pass.Id, pass.Slot, pass.Priority, pass.Policy, pass.Draw, pass.Phase);
         if (!string.IsNullOrEmpty(assetFolder))
             CallPlugin("LoadAssets", assetFolder);
+        global::ClientPlugin.Shaders.VolumetricMediumRegistry.ApplyDeferred();
         SetStatus("Renderer: DX11 | " + Summary() + " | guest listener " +
                   (listenersAttached ? "attached" : "not required") +
                   " | Anomaly.Dx11 loaded | held passes=" + owned.Length + " enabled=" + enabled.Length);
@@ -379,6 +424,15 @@ public static class RenderHost
         float sy = Convert.ToSingle(Dx11Call.Get("ClientPlugin.ShaderFramework.SceneSnapshot", "SunY") ?? 0f);
         float sz = Convert.ToSingle(Dx11Call.Get("ClientPlugin.ShaderFramework.SceneSnapshot", "SunZ") ?? 0f);
         SceneView.Set(width, height, x, y, z, sx, sy, sz);
+    }
+
+    static void PullGuestScene()
+    {
+        // Guest frame camera-to-world translation; sun_toward has the opposite
+        // convention to SceneView.SunLightDirection, just as on the DX11 path.
+        SceneView.Set((int)GuestFrame.U32(8), (int)GuestFrame.U32(12),
+            GuestFrame.F32(312), GuestFrame.F32(316), GuestFrame.F32(320),
+            -GuestFrame.F32(88), -GuestFrame.F32(92), -GuestFrame.F32(96));
     }
 
     static string LiveRendererName()

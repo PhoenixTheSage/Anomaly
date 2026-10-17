@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using ClientPlugin.Velocity;
 
@@ -21,6 +22,8 @@ public static class FrameworkStatus
             sb.AppendLine("Anomaly Shader Framework");
             sb.AppendLine(RenderHost.StatusLine);
             sb.Append("Compile intercept: ").AppendLine(GuestPassList.CompileStatus());
+            if (GuestCompiler.HasPending && !string.IsNullOrEmpty(GuestCompiler.LastError))
+                sb.Append("Guest compiler: ").AppendLine(GuestCompiler.LastError.Split('\r', '\n')[0]);
             sb.Append("Keen GBuffer patch: ").AppendLine(RendererRoute.UseGuestImages ? "guest attachments" : "pending");
             sb.Append("Rich HUD: ").AppendLine(global::ClientPlugin.RichHud.RichHudSupport.StatusLine);
             sb.Append("Shader packs: ").AppendLine(GuestPassList.PackStatus());
@@ -30,6 +33,7 @@ public static class FrameworkStatus
             sb.Append("Color bus: ").AppendLine(GuestColor.Open ? GuestColor.ColorStatus : "upscale=none upscaledColor=none display=no dest=none");
             sb.Append("Fullscreen: ").AppendLine(GuestPassList.FullscreenStatus());
             sb.Append("Owned buffers: ").AppendLine(GuestPassList.OwnedBufferStatus());
+            sb.Append("Shared volumes: ").AppendLine(global::ClientPlugin.Shaders.VolumetricMediumRegistry.StatusLine);
             sb.Append("Velocity service: ").Append(cfg != null ? cfg.VelocitySource.ToString() : "GBuffer")
                 .Append(" | GBuffer ").Append(FormatGBuffer(cfg))
                 .Append(" | camera ").AppendLine(GuestPassList.CameraStatus());
@@ -91,7 +95,7 @@ public static class FrameworkStatus
     {
         if (cfg != null && cfg.VelocitySource == VelocitySource.CameraOnly)
             return "disabled";
-        return GuestFrame.Open ? "live" : "not live";
+        return GuestFrame.Open ? "frame bus connected (writes unverified)" : "not live";
     }
 
     static string FormatDebug(global::ClientPlugin.Config cfg)
@@ -134,6 +138,8 @@ public static class FrameworkStatus
             return;
         }
         sb.Append("Velocity ").Append(width).Append('x').Append(height)
+            .Append(GuestPassList.Snapshot().Any(p => p.Id == "anomaly.owned.CameraVelocity" && p.Submissions > 0)
+                ? " | catalog submitted" : " | renderer motion fallback")
             .Append(" | history=").Append(history ? "yes" : "no")
             .AppendLine(" | Unjittered, PixelSpace, MatchesRenderResolution, CurrentToPrevious");
     }

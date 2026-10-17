@@ -1,6 +1,16 @@
 #ifndef ANOMALY_MEDIUM_HLSLI
 #define ANOMALY_MEDIUM_HLSLI
 
+// DX11 chooses typed UAV formats at allocation; SPIR-V records them in the
+// shader. Guest compilation defines this before its immutable preprocessing.
+#if defined(ANOMALY_SPIRV) || defined(__spirv__)
+#define ANOMALY_VOLUME_RGBA_UAV [[vk::image_format("rgba16f")]]
+#define ANOMALY_VOLUME_SCALAR_UAV [[vk::image_format("r16f")]]
+#else
+#define ANOMALY_VOLUME_RGBA_UAV
+#define ANOMALY_VOLUME_SCALAR_UAV
+#endif
+
 // Linear HDR source terms per metre. Extinction is scalar in v1; coloured
 // transparent surfaces are not approximated by independent RGB opacity.
 struct AnomalyMediumSample

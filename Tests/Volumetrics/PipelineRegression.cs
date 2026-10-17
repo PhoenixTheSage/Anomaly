@@ -52,7 +52,7 @@ static class PipelineRegression
             m.extinction=MediumUniforms[0].x;
             m.scattering=m.extinction;m.anisotropy=MediumUniforms[0].y;m.velocity=MediumVelocity;return m; }");
         try {
-            var medium=new VolumetricMediumRegistry.Medium("fixture",provider,Array.Empty<string>());
+            var medium=new ClientPlugin.Backend.VolumeRegistryState.Medium("fixture",provider,Array.Empty<string>());
             string source=VolumetricShaderSource.Build(root,new[]{medium},"AnomalyVolumeInject.hlsl");
             var frame=new float[96];
             Matrix(frame,0,Identity);Matrix(frame,16,Identity);

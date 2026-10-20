@@ -11,6 +11,39 @@ The missing Vulkan implementations for **occupancy**, **pointShadowAtlas/playerD
 
 This closes the four named missing-producer gaps, not whole-renderer image equality: baseline lighting still differs. Wider adapter/vendor-upscale, actual device-loss fault injection, expanded scene/material and performance acceptance remains separate work. Earlier implementation-stage results below are historical where superseded by this acceptance block. Logs, captures and run manifests are under `SE-Vulkan/TestResults/GuestDepthGpuTests` and `SE-Vulkan/TestResults/CreativeFixture`.
 
+The subsequent lighting/PBR audit is active in `SE-Vulkan/Docs/LightingParity.md`.
+The accepted standard is stock features and appearance with documented GPU
+tolerances. Controlled static lighting and overlapping OLD/NEW glass now have
+reviewed paired images; the latter exposed and corrected a false two-sided
+OLD-glass assumption. Published material multipliers/shifts and non-default
+transparent gloss mapping are also corrected with GPU checks. Full lighting
+feature parity is still unproven. The former 64-local-light cap is now replaced
+by stock's 256–4096 point-light quality budgets and a separate 32-spot budget,
+with dense GPU/managed-scene checks and an unchanged-scale static comparison.
+Stock frustum/group discovery and over-budget selection now have 164 installed
+DX11 method comparisons and 35 actual managed-scene GPU checks (validation
+zero). These also caught and corrected hidden-parent submission and missing
+probe-ambient sphere collection. The discovery build's private static run
+`dd9c024bbf4346dbb9b9f0887890e675` completed and exited cleanly, validation zero,
+with reviewed DX11-like appearance. That snapshot predates the ambient edit;
+the combined ambient/spotlight correction now has 46 scene checks and 121
+native-pass GPU checks, validation zero. Canonical static treatment
+`f22ab95117e24228a7000aa23b07d069` contains both fixes; reviewed images retain
+the small documented HDR residual. The wider material audit found unhandled
+`DECAL`/`DECAL_NOPREMULT` mesh-material shader/blend paths, distinct from the
+already tested cutout and screen decals. Those blended mesh paths now have
+an 80-variant implementation and 684 focused GPU checks (validation zero),
+plus passing 534-check WorldPass and 121-check NativePass regressions. Actual
+authored scene admission now passes 94 checks, including the installed DX11
+DDS header reader. The paired sixteen-panel live fixture admits 8 OLD/8 NEW
+actors on stock and 16 blended packets on Vulkan, with matching authored
+assets/settings and validation zero. Its reviewed images still fail appearance
+parity (largest panel mean RGB8 error about 64/66/66); GBuffer/input diagnosis
+is next. Passing standalone blend/submission tests does not close this gap.
+Full lighting/material parity remains
+open. Sparse scene agreement does not establish every light path. These
+lighting changes remain private validation work without normal-profile deployment.
+
 ## DX11 pack discovery and catalog uploads (2026-10-14, implemented)
 
 Pulsar sanitizes repository IDs in source-cache directory names. SatelliteLookup now applies the same filename normalization before matching a pack, restoring SSGI's companion discovery while preserving GUID IDs. CPU image uploads now expose Keen ISrvBindable rather than a bare SharpDX view, so fullscreen t7/t8 receive Aurora's noise and ramp. Host-created uploads are retired on replacement/clear/unpublish; borrowed pack resources remain pack-owned. The core forwards lifetime callbacks queued before DX11 commits. Dual-runtime hardware shader readback and source-identity checks pass; in-world SSGI/Aurora visual acceptance remains pending. See Tests/Dx11PackCompatibility.
@@ -654,3 +687,345 @@ DX11 run a83b4531c5ac4d5883bb4415b68698f7 now passes actual sealed-zero-oxygen/o
 Matched Vulkan run 7c0c93ed3506463ebac77222c6c31f56 passes the same real room transition, current product gate, interval recovery and off/on capture delivery. SDK validation stayed enabled with zero errors/device loss and the managed observer recorded no D3D11 creation attempts. Both captures were reviewed. The controlled enabled sky region [570,170,620,240] differs by approximately [3.00,3.00,2.00] display RGB levels from DX11; raw means and paths are in SE-Vulkan/TestResults/GuestDepthGpuTests/live-producer-comparison.json. This is a bounded volume-background comparison, not identical whole-image rendering: base scene lighting still differs. The Vulkan broader fixture again failed its door cycle; a wall-clock stall can issue open and close in one update. The harness now waits for an actual fully-open ratio before closing, retaining the original final closed/max-open checks. That harness correction still requires a live rerun. Broader plugin adapters, vendor-upscale/device-loss faults, material coverage and performance acceptance remain open.
 
 Door-sequencing rerun 763298d91a0747d29e713c363c934832 passed the Anomaly producer/topology gates and advanced past the door assertion, then failed missing LCD capture delivery. Its capture log proves overview/LCD text/animation/LCD sprite requests all arrived in the same second after cold compilation. Parity scenarios now cap each update's schedule advance to 100 ms, preserving stage separation while retaining a bounded wall-clock timeout. This is a fixture scheduling fix, not a producer quality change; the canonical live rerun is pending.
+
+
+Lighting/material follow-up (2026-10-18): the independent SE-Vulkan mesh-decal
+fixture exposed an sRGB alphamask-view mismatch and OLD first-use shader macro
+aliasing in the installed DX11 cache. The alpha correction now gives exact
+packed metal/gloss/emissive equality on all sixteen matched panels; NEW normal
+inputs and linear HDR closely match. OLD normal/AO still fails in that
+alpha-only live pair. A correction separating authored blend masks from cached
+macros passes 1,325 GPU and 113 authored-scene checks with validation zero; its
+fresh live comparison is in progress. These results do not reopen the closed
+Anomaly occupancy/atlas/lit-mip/shared-volume producer work and do not establish
+full lighting/material parity. Overlap ordering, actor distance-fade shader
+coverage and the wider final audit remain open. Detailed evidence and private
+run identities are in SE-Vulkan/Docs/LightingParity.md.
+
+
+The mesh-decal cache-corrected live pair is now complete and reviewed. All
+sixteen panels agree on packed material channels, depth and screen lighting;
+normal/AO differs only at decode precision. Largest panel mean RGB8 differences
+are .203/.099/.195 (previously 44.72/54.38/54.54), with P95 at most 2/1/2 codes.
+The fixture cleaned up and exited; Vulkan validation and observed managed
+D3D11 creation attempts stayed zero. Current regressions: 1,325 focused GPU,
+113 authored-scene, 534 world and 121 native-pass checks pass. This closes the
+identified alpha-view and OLD cache appearance defects for the fixture.
+Overlapping decal order and instanced distance-fade coverage remain part of
+the open wider lighting/material audit; full parity is not declared.
+
+
+The next material audit added actual overlapping red/blue mesh decals. It found
+NEW importer part sorting and OLD global DECAL/NOPREMULT technique priority
+missing in Vulkan. Both corrections pass 131 authored-scene checks including
+same-GPU before/after controls and cross-actor direct/prepared/indirect overlap.
+A fresh paired live run matches packed material/depth and normal/AO inputs on
+all sixteen panels and was reviewed; largest panel mean RGB8 error is below
+1.92, with scoped bright-specular tolerances recorded in the Vulkan journal.
+Validation remained zero and cleanup/exit completed. Same-technique resource
+ordering, cutout/mixed-model interleaving, instanced distance fade, and the wider
+completion audit remain open. An earlier separate world-load buffer-retirement
+validation failure is retained as unresolved; subsequent clean runs are not
+called its fix. Anomaly producer completion is unchanged.
+
+
+A further material audit reproduced cutout decals being drawn before blended
+mesh decals in Vulkan's fallback path. They now share the late sequence with
+stock DECAL, DECAL_NOPREMULT, DECAL_CUTOUT priority. The new zero/full-mask
+fixture verifies clipping, global OLD ordering against another blended actor,
+exact depth preservation and direct/prepared/indirect agreement. A reviewed
+live pair records 32 blended plus 16 cutout packets, matching packed material,
+depth and normal/AO inputs; largest panel mean RGB8 error is below 1.15.
+Cleanup/exit and validation zero are verified. Current regressions pass 1,325
+GPU, 156 scene, 534 world and 121 native-pass checks. This closes the covered
+fallback cutout-order defect, not the full material audit: accelerated/mixed
+source order, resource ties, raster flags, distance fade and the earlier
+unresolved lifetime failure remain tracked in SE-Vulkan/Docs/LightingParity.md.
+Anomaly producer completion is unchanged.
+
+
+The material raster audit now fixes fallback default backface culling,
+ALPHA_MASKED_SINGLE_SIDED, OLD actor/material no-cull overrides and the
+NEW renderer's fixed technique behavior. OLD depth no-cull also replaces the
+stock view bias; NEW depth parts retain their view defaults. The authored
+GPU matrix passes 189 checks, including opposing cascades and material-driven
+NEW-to-OLD conversion. World/indirect regression passes 536 checks. A reviewed
+live pair verifies actual depth on 16 front halves and exactly 4 reversed
+halves in both backends; material/depth inputs agree exactly, normal/AO agrees
+at decode precision, and largest panel mean RGB8 error is below 1.36. Cleanup,
+exit, zero Vulkan validation and zero observed managed D3D11 attempts are
+verified. The fixture's detailed HDR/display tolerances and binary identities
+are recorded in SE-Vulkan/Docs/LightingParity.md. This closes the measured
+fallback culling defect; the wider view/accelerated audit, resource ties,
+mixed source ordering, instanced distance fade and unresolved buffer lifetime
+failure still prevent full lighting/material parity completion. Anomaly's
+previous producer completion is unchanged.
+
+
+Instanced distance fade now has a source-derived implementation in progress:
+246 OLD macro variants and corresponding pass/selection wiring. Actual GPU
+scene tests verify generic dither disappearance, stock far-cube position
+collapse, unchanged near-cube behavior and unaffected rigid OLD/NEW controls
+(20 checks, validation zero). All 1,274 supplemental stages package and the
+536-check world regression passes. This remains open until deformed,
+intermediate-distance, view/accelerated and paired live evidence is complete;
+see SE-Vulkan/Docs/LightingParity.md. No Anomaly producer semantics changed.
+
+
+Distance-fade coverage has expanded to deformed streams, analytically checked
+intermediate dither, stock cascade execution and actual GPU-resident ownership.
+The audit fixed retained shader-key invalidation and stale cached cascades
+when only the global distance threshold changes; unchanged thresholds still
+reuse their maps. It also corrected OLD indexed default culling and a cutout/
+DF generic-tint adapter policy that differed from fallback. Current results:
+91 focused checks, 103 resident-scene checks, 536 world and 121 native-pass
+checks, validation errors zero. Resident visible and intermediate fades match
+fallback exactly without managed substitution. The remaining forward/spot/
+auxiliary and paired live checks, including stock color semantics for genuine
+generic versus optimized rigid sources, keep this item open. Detailed scoped
+proof, preserved failures and binary identities are in SE-Vulkan/Docs/LightingParity.md.
+Anomaly producer semantics are unchanged; deeper ordering and the existing
+lifetime failure are not claimed fixed.
+
+
+Spotlight fade-cache follow-up now has 120 focused checks: threshold and
+camera-distance changes invalidate only affected CPU-submitted spot maps,
+while steady inputs reuse them. GPU-only/hybrid spot dependencies remain open.
+A separate paired live material audit fixed Vulkan applying legacy entity
+DiffuseColor fields that stock DX11 ignores. All 16 OLD/NEW/generic/inactive-DF
+panels now match exactly in reviewed RGB8/HDR, with validation errors zero;
+46 focused color-contract checks also pass. Actual material tint on genuine
+generic instances is a distinct pending audit. Full light/material parity is
+still open for ordering/resource ties, remaining accelerated/view/fade coverage,
+the earlier lifetime failure and final regressions. Detailed identities and
+scope are in SE-Vulkan/Docs/LightingParity.md; Anomaly producers are unchanged.
+
+
+The genuine-generic material-color audit is now verified separately: DX11 tints
+rigid OLD/NEW sources but ignores the multiplier on genuine generic streams.
+Vulkan now preserves that distinction, including rigid batching and indexed
+resident shaders. Reviewed paired panel RGB8 interiors match exactly; maximum
+HDR channel delta is 3.14713e-5. Current results are 82 focused color checks,
+112 resident checks, 120 distance-fade checks, 536 world checks and 123
+native-pass checks, validation errors zero. The final spot early-return guard
+is included in these reruns. Detailed scoped evidence and remaining ordering,
+view/accelerated and lifetime gaps remain in SE-Vulkan/Docs/LightingParity.md.
+This closes the color audit items, not full parity; Anomaly producer semantics
+are unchanged.
+
+
+The GPU/hybrid spotlight fade-cache reproduction is now fixed and verified.
+The resident path previously retained 578 stale depth texels after a fade
+threshold change. GPU predicates now track selected DF shader inputs, including
+camera-relative translation and the threshold; CPU fade invalidation runs
+before their preparation so CPU-only changes also refresh mixed maps. Tests
+pass 158 checks in each GPU input mode, plus 120 CPU fade, 536 world and 123
+native-pass checks, validation errors zero. Exact depth roundtrips, off-cone
+controls, and a CPU-only fading caster beside a fixed GPU caster are covered.
+These are scoped generic-stream proofs; remaining forward/auxiliary/live fade,
+ordering, accelerated raster and lifetime audit items keep full parity open.
+See SE-Vulkan/Docs/LightingParity.md for binary identities and retained failures.
+Anomaly producer behavior is unchanged.
+
+
+Forward/probe frames now receive current render settings; the missing input
+previously supplied DistanceFade=0 and removed generic geometry even when the
+configured fade should have been inactive. Actual forward captures pass44
+focused checks across generic, cube and deformed streams, including partial
+analytic dither and far-cube scaling; the full482-check probe regression also
+passes with indexed NEW forward coverage. Validation errors are0.
+A paired live active-generic-fade capture confirms exact fade/depth coverage
+and foreground HDR. Small background-sky differences through fade holes are
+quantified under the accepted GPU-tolerance standard. The verifier checks the
+raw frame's actual8.5 threshold rather than the stale proxy settings copy.
+Dedicated indexed OLD DF forward capture, auxiliary history, ordering,
+accelerated raster, lifetime and final-audit items keep full parity open.
+Evidence and binary identities are in SE-Vulkan/Docs/LightingParity.md;
+Anomaly producer semantics remain unchanged.
+
+
+Indexed OLD DF forward captures are now verified across generic, cube and
+deformed streams:116 focused checks pass in each input mode with exact
+fallback radiance in both frame slots. The audit also removed deformed-source
+restrictions incorrectly shared with the standalone numerical reference and
+enabled the normal scene producer's supported class4 path. The numerical
+reference keeps its unsupported-source rejection. Actual MWM/bone-update and
+far-fade scene tests pass180 checks in each input mode, including exact buffers,
+GPU ownership without managed packets, reentry and cleanup. Broad482 probe,
+536 world and123 native-pass regressions pass, validation errors0. Detailed
+failures, corrected fixture oracles and final binary identities are recorded
+in SE-Vulkan/Docs/LightingParity.md. Auxiliary history, ordering, accelerated
+raster, lifetime and final-audit gaps keep full light/material parity active.
+Anomaly producer semantics are unchanged.
+
+The asynchronous previous-frame buffer lifetime gap now has a deterministic
+instance-growth reproduction and a slot-owned history snapshot fix. The
+focused test passes22 checks with an attachment consumer; broader world536
+and native-pass123 regressions pass with zero validation errors. Live
+world-load verification subsequently passed in private Anomaly run
+640fe66a7d844c799963b218ecc3f7e6:7706 submitted frames, zero validation errors,
+no device loss, controlled unload/disposal and actual process exit. All five
+producer inputs were simultaneously ready. Motion/reactive distance-fade
+fidelity, ordering, accelerated raster overrides and the final audit still
+keep full parity open. Detailed evidence is in SE-Vulkan/Docs/LightingParity.md.
+
+The CPU-submitted core motion/attachment path now applies stock instanced
+distance-fade geometry to current and previous positions using their own
+frame thresholds. A negative test found232 surviving pixels missing attachment
+data before the correction. The independent projection/readback lane passes284
+checks across generic/cube/deformed streams, disabled-fade controls, threshold
+restoration and both slots. Final world regression passes536 checks, validation
+errors0. GPU-owned/native-pass auxiliary coverage and a shared-buffer offset
+audit remain open alongside ordering, accelerated raster and final acceptance.
+Binary identities and scoped evidence are in SE-Vulkan/Docs/LightingParity.md.
+
+The shared-buffer auxiliary audit then reproduced a second draw losing its
+motion because the binding cache ignored instance offsets (8.53333-pixel
+error). The cache now includes vertex/index/instance offsets. Expanded497
+focused checks cover independently moving generic/cube/deformed draws and
+distinct vertex/index ranges in shared arena pages; the broad536 world checks
+also pass, validation errors0. GPU-owned/native-pass auxiliary coverage,
+ordering/resource ties, accelerated raster and final acceptance remain open.
+
+Native-pass auxiliary omission is now directly reproduced with a real resident
+actor and zero managed world packets. Its main depth was populated while all
+attachment pixels and actor motion were absent. Native Colour groups now render
+their existing instanced streams into attachments, including the actual
+per-instance transform payload. The focused41 attachment checks cover two
+actors in one group, both frame slots, complete surviving-pixel coverage and
+zero validation errors. CPU-history497 and native-pass123 regressions pass.
+Native-pass motion still fails its independent3.2px expectation, and indexed
+GPU auxiliary coverage remains open. Detailed negative/positive evidence and
+binary identities are recorded in SE-Vulkan/Docs/LightingParity.md.
+
+Native-pass actor motion is now implemented with generational actor history
+matched independently of material/stream order and copied into the current
+fenced slot. The strict156-check lane covers movement, camera movement,
+appearance changes, same-owner recreation, frame gaps, attachment payloads and
+asynchronous growth to4096 actors in one instanced group. The gap test also
+fixed a menu shadow-target dimension mismatch that had caused validation
+errors and device loss. Final validation errors0; CPU-history497,
+native-pass123 and world536 regressions pass. Indexed GPU auxiliary coverage,
+ordering/resource ties, accelerated raster and final lifecycle/whole-scope
+acceptance remain open. Detailed diagnostics and identities are in the parity
+journal; ordinary native assets were not deployed.
+
+Indexed GPU attachment replay now uses the actual GPU-generated records and
+indirect argument/count ranges, preserving GPU ownership with zero managed
+draw packets. The negative control had400 main depth pixels and no attachment
+data. The final262 checks pass in both input modes across NEW and OLD
+rigid/generic/cube/deformed sources, two attachments, both slots and active
+far DF; every surviving pixel has correct translation/basis payloads. Broad180
+GPU-scene,497 CPU-history and156 native-pass history checks also pass with
+validation errors0. The shared auxiliary geometry helper and native binding
+contracts are documented in SE-Vulkan/Docs/LightingParity.md. Indexed GPU
+motion, read-only decal/mixed ordering coverage, resource ties, accelerated
+raster and final whole-scope/lifecycle acceptance remain open.
+
+Indexed GPU motion now reuses the real indirect ranges and stock geometry,
+with generational actor history and immutable prior source snapshots owned
+by the current fenced slot. The negative control missed an independently
+expected3.995px movement. Final429 checks pass in both GPU input modes with
+zero validation errors, including actor/source/deformation/DF/camera/FOV
+motion, frame-gap resets and asynchronous source/actor growth to4096 entries.
+FOV checks document RG16F precision rather than require sub-step accuracy.
+CPU-history497 and native-pass-history156 regressions also pass. Details,
+candidate hashes and diagnostic evidence are in SE-Vulkan/Docs/LightingParity.md.
+Read-only decal/mixed-source ordering, resource ties, accelerated raster and
+the final whole-scene lifecycle/live audit keep full parity open; ordinary
+native assets remain unchanged.
+
+The mixed-owner main-pass audit reproduced an OLD read-only cutout overwriting
+a later NEW solid: Vulkan returned red where stock submission order requires
+blue, with identical depth. Managed, indexed and native-pass draws now share
+the OLD/NEW submission phases, and indirect grouping preserves that boundary.
+The focused141 checks pass in both GPU input modes across actual ownership,
+direct/indirect draws, reversed creation order and the reciprocal managed OLD
+blend/NEW cutout case; all GBuffer/depth channels match the baseline exactly.
+Managed mesh156/raster189/world536 and native-history156 regressions pass,
+validation errors0. Lower resource-key ties, ordering within NEW model groups,
+decal auxiliary outputs, accelerated raster and final live/lifecycle acceptance
+remain open; this is a bounded boundary correction. Detailed evidence is in
+SE-Vulkan/Docs/LightingParity.md.
+
+Final regressions for the OLD/NEW boundary correction also pass180 GPU-scene,
+429 indexed-motion and262 indexed-attachment checks with validation errors0;
+the broad scene's existing unused fragment-output warning remains. The next
+NEW ordering oracle is stock first-seen LodInstance/state groups, each emitting
+its preprocessed parts contiguously. Global per-technique phases alone do not
+prove that behavior, so whole-goal completion remains unproven.
+
+The NEW group audit reproduced red/blue ordering differences first in managed
+submission, then specifically in GPU ownership when both models share one
+geometry arena page. NEW batches now retain family/part identity; native-pass
+groups preserve selected first-seen order, and NEW producers consume stock
+preprocessed part order. The strengthened58 checks pass in both GPU input
+modes, plus180 broad GPU-scene and141 OLD/NEW-boundary regressions, validation
+errors0. Expanding the scene to A/B/A actors still fails managed submission:
+the second A cutout is emitted after B. That group-identity work remains active;
+mixed NEW ownership, per-view/state ordering, lower OLD resource ties, decal
+auxiliaries, accelerated raster and final live/lifecycle acceptance remain open.
+Full details and binary identities are in SE-Vulkan/Docs/LightingParity.md.
+
+Managed A/B/A grouping now carries first-seen group and preprocessed-part order
+through blob, pointer, retained-object and bulk queues, preserving physical
+draw IDs. Per-instance appearance stays grouped; texture-binding variants split
+and rejoin correctly. The expanded147 checks pass in both GPU input modes.
+Actual bulk submission also exposed and corrected rejection of known actor
+raster flags; conflicting raster flags remain rejected. Final regressions pass
+156 mesh/189 raster/538 world/497 CPU-history/156 native-history/141 OLD-NEW
+boundary/180 GPU-scene/429 indexed-motion/262 attachment checks, errors0.
+Mixed NEW owners still render in separate ownership sequences and remain an
+active gap, alongside lower resource ties, per-view/state order, decal
+auxiliaries, broader accelerated raster and final live/lifecycle acceptance.
+
+The mixed NEW-owner gap now has a confirmed pixel witness: actual NEW GPU A
+overwrites actual NEW managed B, producing red[255,0,0] instead of the
+blue-gray reference[162,162,199]. Ownership and NEW-provenance checks pass
+before the pixel assertion fails. Evidence and preserved captures are recorded
+in the parity journal; the next correction must unify NEW group order across
+ownership producers.
+
+Mixed NEW ownership now shares first-seen main-group/part order across managed,
+indexed GPU and native-pass producers. The focused64 checks pass in both GPU
+input modes, including all three owners, direct/indirect draws, owner zero and
+exact covered GBuffer/depth references. Regressions147/141/180/429/262/156/189/
+538/497/156 pass with validation errors0; detailed lanes and candidate hashes
+are in SE-Vulkan/Docs/LightingParity.md. Root versus selected LOD/state order,
+per-view and instance ties remain unverified. Lower OLD resource-key ordering,
+decal auxiliary outputs, broader accelerated raster and final matched live
+acceptance still keep the full goal open. Ordinary native assets remain unchanged.
+
+The cached-cascade menu audit reproduced stale ownership: menu rendering clears
+shared world images, then an update-mask-zero world frame reuses empty contents.
+Native cache invalidation passes338 focused checks, but a stronger frozen GPU
+owner test exposes a second boundary: managed view selection must also see the
+invalidation. A CPU cache-mask query now carries that ownership into scheduling
+before native/GPU depth views are built. Final458 raw-cache checks and204 scene
+checks in each GPU input mode pass, including actual managed/native/GPU owners,
+frozen1/6-cascade scenes and preservation of untouched far images. Regressions
+pass206 scheduling,36 shadow-occlusion,538 world,123 native-pass and156 native
+history checks; validation errors0. The reproduced cached-cascade menu issue
+is closed in these paths. OLD resource-key and NEW dynamic ordering, decal
+auxiliaries, broader accelerated raster and final matched live acceptance still
+keep the full goal open. Details, both negatives and final identities are in
+SE-Vulkan/Docs/LightingParity.md; ordinary native assets remain unchanged.
+
+The OLD resource-order gap now has a matched live witness. Preloaded red A and
+blue B retain stock LOD-mesh/material keys across reversed actor creation and
+A recreation. DX11 renders all four panels blue; Vulkan renders three red,
+with identical depth and metal/gloss/emissive in those ROIs. A dedicated live
+gate verifies stock keys and exact color/depth, then fails columns0,2,3. The
+small standalone64-check control passes the known failing renderer and cannot
+qualify a fix. Actual resource-identity production and propagation remain open;
+no product sort implementation changed in this proof slice. Full evidence and
+the separate HDR/DX11-disposal limitations are in the SE-Vulkan parity journal.
+
+CPU OLD identity building blocks now match the installed stock RK/material
+allocator, bit packing, descriptor conversion and shared LOD-index freelist:
+7959 checks pass on both Framework and .NET10. Production header/path work runs
+without a platform renderer and leaves stock material/proxy/resource queues
+untouched. Retained model/LOD/layout ownership and draw-key propagation still
+need integration; the failing four-panel live ordering gate remains open.
+These CPU checks do not qualify that visible gap. Details and identities are
+recorded in SE-Vulkan/Docs/LightingParity.md; no native/shader ABI changed.

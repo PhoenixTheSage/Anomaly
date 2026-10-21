@@ -23,12 +23,14 @@ public sealed class GuestProgram
     public int Priority;
     public bool Enabled = true;
     public bool ConflictDisabled;
+    public bool Helper;
     public float[] Uniforms;
     public string Status = "registered";
     public string Error;
     public ulong Submissions;
     public bool SubmittedThisFrame;
     public bool HistoryReady;
+    public uint HistoryFrame = uint.MaxValue;
     public byte[] VertexSpirv;
     public byte[] PixelSpirv;
     public string PixelEntry = "main";
@@ -94,6 +96,12 @@ public static class GuestPassList
     {
         lock (Gate)
             return Programs.ToArray();
+    }
+    internal static void SubmitFrame(Action<IReadOnlyList<GuestProgram>> submit)
+    {
+        // Registration, settings and reload cannot change the frame while its
+        // copied native command list and history references are constructed.
+        lock(Gate) submit(Programs.ToArray());
     }
 
     public static void Clear()
@@ -325,6 +333,11 @@ public static class GuestPassList
         {
             var program = Find(id);
             if (program == null) return false;
+            if (!string.Equals(program.HistoryName,catalogName,StringComparison.Ordinal))
+            {
+                if(!string.IsNullOrEmpty(program.HistoryName))ClientPlugin.Buffers.BufferCatalog.Set(program.HistoryName,null);
+                program.HistoryReady=false;
+            }
             program.HistoryName = catalogName;
             return true;
         }

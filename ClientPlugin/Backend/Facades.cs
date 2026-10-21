@@ -98,12 +98,7 @@ public static class FullscreenPassRegistry
             {
                 if (!string.Equals(programs[i].Id, programId, StringComparison.OrdinalIgnoreCase))
                     continue;
-                int sceneW = Math.Max(SceneView.Width, 1);
-                int sceneH = Math.Max(SceneView.Height, 1);
-                float scale = GuestPassList.SnapScale(programs[i].Scale);
-                bool replace = string.Equals(programs[i].Compose, "Replace", StringComparison.OrdinalIgnoreCase);
-                width = replace || scale >= 1f ? sceneW : Math.Max(1, (int)Math.Round(sceneW * scale));
-                height = replace || scale >= 1f ? sceneH : Math.Max(1, (int)Math.Round(sceneH * scale));
+                GuestBridgeClient.PassSize(programs[i],out width,out height);
                 return true;
             }
             return false;

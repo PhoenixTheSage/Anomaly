@@ -228,7 +228,7 @@ public static class RenderHost
             GuestCompiler.CompilePending(assetFolder);
         }
         GuestOwned.DebugLitMips = global::ClientPlugin.Config.Current?.DebugBuffer == global::ClientPlugin.DebugBuffer.LitMips;
-        GuestBridgeClient.Submit(GuestPassList.Snapshot());
+        GuestPassList.SubmitFrame(GuestBridgeClient.Submit);
     }
 
     static void BindRuntime()

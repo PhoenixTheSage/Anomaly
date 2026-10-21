@@ -49,6 +49,17 @@ static class GuestOwned
         string shaders = Path.Combine(assetFolder, "Shaders");
         if (!Directory.Exists(shaders))
             shaders = assetFolder;
+        string merge = Path.Combine(shaders,"FullscreenMerge.hlsl");
+        if(File.Exists(merge))
+            for(int mode=0;mode<4;mode++)
+            {
+                string generated=Path.Combine(Path.GetTempPath(),"anomaly-guest-sources","anomaly-merge-"+mode+".hlsl");
+                Directory.CreateDirectory(Path.GetDirectoryName(generated));
+                File.WriteAllText(generated,"#define MERGE_MODE "+mode+"\n"+File.ReadAllText(merge).Replace("register(s0)","register(s1)"));
+                string id="anomaly.helper.Merge"+mode;
+                GuestPassList.AddProgram(id,"AfterLighting",generated,"PublishOnly");
+                foreach(var program in GuestPassList.Snapshot())if(program.Id==id)program.Helper=true;
+            }
         foreach (var file in Files)
         {
             string path = Path.Combine(shaders, file);

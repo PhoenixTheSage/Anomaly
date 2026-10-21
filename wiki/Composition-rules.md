@@ -49,3 +49,29 @@ Iris packs are exclusive. Pulsar loads many plugins. These rules are the law so 
 > **Warning — Exclusive overlay vs velocity.** Velocity inject still applies to a replaced Standard pixel only if that pixel still includes `Passes/PixelStage.hlsli`. A full-file replace that omits the include opts out of extras.
 
 → [[Framework-gaps|Open gaps]] · [[Troubleshooting|Rollback and Status]]
+
+### Fullscreen isolation, histories and output — 2026-10-21 candidate
+
+Vulkan fullscreen passes now render an isolated product first, publish that
+product and capture its history, then compose using Anomaly's DX11 merge
+shader equations. Add/sub preserve destination alpha; mix saturates source
+opacity. No stock blend mode is changed. Chain state is local to its insertion
+slot and a final Chain is copied into the actual destination. The frame holds
+registration/settings while copying commands, and publishes all previous-frame
+aliases before building any consumer. Disabled/re-enabled and resized histories
+start invalid; production checks native recording/frame age before reuse.
+
+Half/quarter dimensions use DX11 floor division independently of renderer DRS
+rounding. AfterUpscale uses output dimensions. Native feature bit16 supplies
+a renderable, bilinear output for requested AfterUpscale work when no upscaler
+is active, plus exact output readback. Owned HDR history alone does not request
+that extra output path. Renderable display images include color-attachment
+usage. Offscreen consumers snapshot the current tone/upscale image correctly.
+
+Evidence:2,800 independent GPU composition pixel comparisons cover every merge
+equation, negative/over-one alpha, HDR, destination alpha and odd-size scaling.
+Maintained packet tests cover all compose histories, early consumers, Chain
+completion and slot separation. The actual-core324-check lane verifies final
+AfterUpscale Chain pixels and dimensions at50/75/100% without an upscaler in both synchronous and pipelined recording, with
+validation enabled and zero reported errors. Full combined Windows live visual
+and performance acceptance remains pending.

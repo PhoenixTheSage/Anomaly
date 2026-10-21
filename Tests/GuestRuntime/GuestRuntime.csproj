@@ -10,6 +10,7 @@
     <Compile Include="ParityContracts.cs" />
     <Compile Include="TargetContracts.cs" />
     <Compile Include="FrameContracts.cs" />
+    <Compile Include="CompositionContracts.cs" />
     <Compile Include="../../ClientPlugin/Backend/FrameEnvironment.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestFrame.cs" />
     <Compile Include="NativeProbe.cs" />

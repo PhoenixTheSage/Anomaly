@@ -84,9 +84,11 @@ static class GuestColor
     {
         int width = SceneView.Width > 0 ? SceneView.Width : 1;
         int height = SceneView.Height > 0 ? SceneView.Height : 1;
+        int outputWidth=GuestFrame.Open?System.Math.Max(1,(int)GuestFrame.F32(332)):width;
+        int outputHeight=GuestFrame.Open?System.Math.Max(1,(int)GuestFrame.F32(336)):height;
         BufferCatalog.Set(BufferCatalog.HdrColor, new GuestRendererImage(GuestBridgeClient.Hdr, width, height, 1));
-        BufferCatalog.Set(BufferCatalog.UpscaledColor, new GuestRendererImage(GuestBridgeClient.Upscale, width, height, 1));
-        BufferCatalog.Set("displayColor", new GuestRendererImage(GuestBridgeClient.Display, width, height, 1));
+        BufferCatalog.Set(BufferCatalog.UpscaledColor, new GuestRendererImage(GuestBridgeClient.Upscale, outputWidth, outputHeight, 1));
+        BufferCatalog.Set("displayColor", new GuestRendererImage(GuestBridgeClient.Display, outputWidth, outputHeight, 1));
     }
 
     public static void SetCelestialData(string id, float[] values)

@@ -7,5 +7,9 @@ namespace ClientPlugin.Backend
 }
 namespace ClientPlugin.Buffers
 {
-    static class BufferCatalog { internal static object Active(string name) => null; }
+    static class BufferCatalog
+    {
+        internal static object Active(string name) => null;
+        internal static void Set(string name, object value) { }
+    }
 }

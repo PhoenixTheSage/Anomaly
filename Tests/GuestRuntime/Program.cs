@@ -37,6 +37,7 @@ static partial class Program
         Require(!GuestCompiler.HasPending, "ready programs should not trigger repeated compilation");
         ResourceContracts();
         EnvironmentGpu(assets);
+        NativeProbe.CompositionContracts();
         Publication();
         LitMips();
         Occupancy();

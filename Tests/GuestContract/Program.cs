@@ -6,6 +6,7 @@ static class Program
 {
     static int Main()
     {
+        StageSourceContracts.Run();
         string root = Path.Combine(Path.GetTempPath(), "anomaly-guest-contract");
         if (Directory.Exists(root))
             Directory.Delete(root, true);
@@ -55,6 +56,15 @@ static class Program
         File.WriteAllText(Path.Combine(root, "anomaly.json"), validManifest);
         GuestPassList.RegisterRoot("fixture", root, "fixture.color");
         var before = GuestPassList.Snapshot()[0];
+        var captured=GuestPassList.SourceSnapshot()[0];
+        string sourceColor=Path.Combine(slot,"Color.hlsl");
+        var capturedBytes=captured.Bytes("Fullscreen/AfterLighting/Color.hlsl");
+        capturedBytes[0]=0;
+        if(captured.Bytes("Fullscreen/AfterLighting/Color.hlsl")[0]==0)return Fail("captured shader bytes were exposed as mutable arrays");
+        File.AppendAllText(sourceColor,"// registration source changed\n");
+        if(File.ReadAllText(before.File).Contains("source changed"))return Fail("active generation follows mutable pack paths");
+        var nextCapture=PackSourceSnapshot.Capture(root,"fixture");
+        if(nextCapture.Fingerprint==captured.Fingerprint || nextCapture.Root==captured.Root)return Fail("changed pack bytes reused the previous generation");
         try { GuestPassList.RegisterRoot("fixture", root, "fixture.absent"); return Fail("missing required program accepted"); }
         catch (System.IO.InvalidDataException) { }
         try { GuestPassList.RegisterRoot("other-owner", root); return Fail("duplicate program ownership accepted"); }

@@ -9,6 +9,13 @@ static class Dx11Call
     static Assembly dx11;
 
     public static bool Ready => dx11 != null;
+    internal static bool Supports(string typeName,string method,int argumentCount)
+    {
+        var type=dx11?.GetType(typeName);if(type==null)return false;
+        foreach(var candidate in type.GetMethods(BindingFlags.Public|BindingFlags.Static))
+            if(candidate.Name==method && candidate.GetParameters().Length==argumentCount)return true;
+        return false;
+    }
 
     public static void Bind(Assembly assembly) => dx11 = assembly;
 

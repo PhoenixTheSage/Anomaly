@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -103,6 +104,9 @@ public static class GuestPassList
     }
     static readonly List<GuestAttachment> Attachments = new List<GuestAttachment>();
     static readonly Dictionary<string, PackDefinition> Packs = new Dictionary<string, PackDefinition>(StringComparer.OrdinalIgnoreCase);
+    static readonly Dictionary<string,PackSourceSnapshot> Sources=new Dictionary<string,PackSourceSnapshot>(StringComparer.OrdinalIgnoreCase);
+    public static IReadOnlyList<PackSourceSnapshot> SourceSnapshot(){lock(Gate)return Sources.Values.ToArray();}
+    internal static PackSourceSnapshot SourceFor(string id){lock(Gate)return Sources.TryGetValue(id,out var source)?source:null;}
     public static IReadOnlyList<GuestProgram> Snapshot()
     {
         lock (Gate)
@@ -138,6 +142,7 @@ public static class GuestPassList
             Programs.Clear();
             Attachments.Clear();
             Packs.Clear();
+            Sources.Clear();
         }
     }
 
@@ -153,7 +158,8 @@ public static class GuestPassList
         if (string.IsNullOrWhiteSpace(id)) throw new InvalidDataException("Pack registration requires an id.");
         string manifest = Path.Combine(root, "anomaly.json");
         if (!File.Exists(manifest)) throw new InvalidDataException("Pack root requires anomaly.json: " + root);
-        var definition = PackDefinition.Parse(File.ReadAllText(manifest));
+        var sourceSnapshot=PackSourceSnapshot.Capture(root,id);root=sourceSnapshot.Root;
+        var definition = sourceSnapshot.Definition;
         var found = Load(root, id, definition);
         var attachments = LoadAttachments(root, definition);
         if (!string.IsNullOrEmpty(requiredProgram) && !found.Exists(p =>
@@ -179,6 +185,7 @@ public static class GuestPassList
             Attachments.Clear();
             Attachments.AddRange(candidate);
             if (definition != null) Packs[id] = definition;
+            Sources[id]=sourceSnapshot;
             ApplyExclusiveConflicts();
             return found.Count;
         }
@@ -206,6 +213,7 @@ public static class GuestPassList
             Programs.RemoveAll(p => string.Equals(p.Owner, id, StringComparison.OrdinalIgnoreCase));
             Attachments.RemoveAll(a => string.Equals(a.Owner, id, StringComparison.OrdinalIgnoreCase));
             Packs.Remove(id); ApplyExclusiveConflicts();
+            Sources.Remove(id);
         }
     }
 

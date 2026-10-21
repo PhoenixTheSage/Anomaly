@@ -55,6 +55,34 @@ static partial class Program
 
 static partial class NativeProbe
 {
+    public static void CapturedPackGpu(string assets)
+    {
+        if(!Enabled)return;
+        string root=System.IO.Path.Combine(System.IO.Path.GetTempPath(),"AnomalyCapturedGpu-"+Guid.NewGuid().ToString("N"));System.IO.Directory.CreateDirectory(root);
+        int features=ClientPlugin.Rendering.GuestBridge.SupportedPacketFlags;
+        try
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root,"anomaly.json"),"{\"id\":\"captured.fixture\",\"passes\":[{\"id\":\"captured.pixel\",\"slot\":\"AfterLighting\",\"file\":\"pixel.hlsl\",\"compose\":\"PublishOnly\"}]}");
+            string source=System.IO.Path.Combine(root,"pixel.hlsl");System.IO.File.WriteAllText(source,"float4 main():SV_Target{return float4(3,.5,.25,-1);}");
+            GuestPassList.RegisterRoot("captured.fixture",root,"captured.pixel");
+            System.IO.File.WriteAllText(source,"float4 main():SV_Target{return float4(0,1,0,1);}");
+            GuestCompiler.CompilePending(assets);var program=GuestPassList.Snapshot().Single(p=>p.Id=="captured.pixel");
+            if(program.Pipeline==0)throw new Exception("Captured pack pipeline failed: "+program.Error);
+            const ulong output=85420;ImageCreate(output,3,2,1,1);
+            ClientPlugin.Buffers.BufferCatalog.Set("captured.output",new ClientPlugin.Buffers.GuestRendererImage(output,3,2,1));
+            ClientPlugin.Rendering.GuestBridge.SupportedPacketFlags|=131072;ClientPlugin.Rendering.GuestBridge.MirrorGpu=true;
+            ResetQueue();var context=new PortablePassContext("AfterLighting",0,0,3,2,0);context.Fullscreen(program.Id,"captured.output");
+            GuestBridgeClient.ExecutePortable(1,context.Finish(),GuestPassList.Snapshot());Replay(1);
+            var actual=ReadRaw(output,3*2*8);float[] expected={3,.5f,.25f,-1};
+            for(int pixel=0;pixel<6;pixel++)for(int c=0;c<4;c++)if((float)BitConverter.UInt16BitsToHalf(BitConverter.ToUInt16(actual,pixel*8+c*2))!=expected[c])throw new Exception("Compilation followed edited pack paths instead of registered bytes");
+            Console.WriteLine("GPU PASS: registered pack source generation executes captured HDR pixels after original shader bytes are edited");
+        }
+        finally
+        {
+            GuestPassList.UnregisterRoot("captured.fixture");ClientPlugin.Rendering.GuestBridge.SupportedPacketFlags=features;ClientPlugin.Rendering.GuestBridge.MirrorGpu=false;ResetQueue();
+            if(System.IO.Path.GetFullPath(root).StartsWith(System.IO.Path.GetFullPath(System.IO.Path.GetTempPath()),StringComparison.OrdinalIgnoreCase))System.IO.Directory.Delete(root,true);
+        }
+    }
     public static void PortableGpuContracts()
     {
         if(!Enabled)return;

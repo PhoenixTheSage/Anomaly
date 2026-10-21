@@ -43,3 +43,10 @@ pipeline creation alone does not prove loaded-world execution. Stage 5 evidence
 has validation enabled and zero errors. Prism's separate Tests/Regression lane
 executes its production guest Temporal/Moments on WARP for exact history age,
 camera rotation, normal rejection, missing history and configured history caps.
+
+Stage 6's focused `. --gpu --portable-gpu` lane also registers a pack, changes
+its original pixel shader before compilation, then reads back the registered
+generation's original HDR/negative-alpha output. A resource-free pixel shader
+must use the same format-aware pipeline path as a shader with descriptors.
+`ANOMALY_TEST_NATIVE_DLL` selects an isolated native build for this fixture and
+the SE-Vulkan actual-core fixture. It changes only the private test process.

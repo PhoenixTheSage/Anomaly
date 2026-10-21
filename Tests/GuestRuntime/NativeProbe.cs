@@ -42,6 +42,13 @@ static partial class NativeProbe
     {
         string rid = OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
         string built = Path.Combine(root, "Native", "build", "Release", "se_vulkan_native.dll");
+        string isolated=Environment.GetEnvironmentVariable("ANOMALY_TEST_NATIVE_DLL");
+        if(!string.IsNullOrWhiteSpace(isolated))
+        {
+            built=Path.GetFullPath(isolated);
+            if(!File.Exists(built))throw new FileNotFoundException("Requested isolated native test library is missing.",built);
+            Console.WriteLine("GPU native: "+built+" SHA256="+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(built))));
+        }
         module = NativeLibrary.Load(OperatingSystem.IsWindows() && File.Exists(built) ? built
             : Path.Combine(root, "Assets", "Native", rid, OperatingSystem.IsWindows() ? "se_vulkan_native.dll" : "libse_vulkan_native.so"));
         var shaders = Marshal.StringToHGlobalAnsi(Path.Combine(root, "Assets", "Shaders", "Compiled"));

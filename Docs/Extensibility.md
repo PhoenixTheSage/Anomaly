@@ -1335,3 +1335,24 @@ guest preparation now runs before the AfterLighting fullscreen chain, maps
 normal rejection remains valid across camera turns. Production Temporal/Moments
 readback tests cover ages, rejection, rotation, first frame and history caps.
 GPU fixture success does not close matched loaded-world acceptance.
+
+### Stage 6 source/model foundation (native owner activation remains open)
+
+Registration now captures pack manifests/shader/include bytes for both hosts,
+including .h headers. Pending renderer selection retains that captured root.
+The shared model maps all26 stage names and Lighting-family injection and
+preserves ownership and Depth restrictions; DX11's duplicate scanner is removed.
+ShaderPackRegistry.GetCapabilities separates registration/support from actual
+activation/production and explicitly reports Vulkan named-stage/same-draw
+attachment execution as unavailable until those paths are implemented.
+
+The native resource-free fullscreen branch was found to use RGBA8 regardless
+of target format. Resource-free shaders now use the same format-aware pipelines
+as bus shaders. Captured-pack HDR/negative-alpha execution and the full current
+pack pipeline gate pass on a private isolated native build with synchronization
+validation enabled and zero errors. Native17 tests pass without skips; the
+actual-core scene/recreation gate passes329 checks on that binary. The compiler
+gate passes39 checks, and generated GPU-owned stock vertex/pixel variants retain
+stock provenance and identical SPIR-V for a comment-only source override.
+Per-stage raster execution, full attachments and Windows live acceptance remain
+open; source-model fixtures are not counted as stage execution proof.

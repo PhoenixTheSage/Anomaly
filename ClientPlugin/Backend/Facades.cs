@@ -150,6 +150,7 @@ public static class FullscreenPassRegistry
 
 public static class ShaderPackRegistry
 {
+    public static ShaderApiCapabilities GetCapabilities()=>ShaderApiCapabilities.Query();
     public static string StatusLine =>
         RenderHost.IsDx11 ? Dx11Call.Get(Dx, "StatusLine") as string ?? "" : GuestPassList.PackStatus();
     public static string LastError => Dx11Call.Get(Dx, "LastError") as string;
@@ -164,7 +165,7 @@ public static class ShaderPackRegistry
         catch (Exception failure) { error = failure.Message; return false; }
         if (!RenderHost.IsDx11)
             return true;
-        object[] args = { id, root, requiredFullscreenProgramId, null };
+        object[] args = { id, GuestPassList.SourceFor(id)?.Root??root, requiredFullscreenProgramId, null };
         if (!Dx11Call.Try(Dx, "TryRegister", args, out var result))
             return false;
         error = args[3] as string;

@@ -601,3 +601,32 @@ distance reconstruction, portable clear/copy/fullscreen/velocity and odd-sized
 FP16/R16 targets have deterministic GPU readback evidence with zero validation
 errors. DX11 portable context binding/expiry/unregister passes on net48/net10.
 The Windows loaded-world pack/vendor matrix remains a separate open gate.
+
+### Captured pack sources (stage 6 foundation)
+
+Both adapters capture the manifest and shader/include bytes at registration.
+They compile from a content-addressed source directory, so editing a pack does
+not mutate the generation being compiled or executed. Register/reload captures
+the next generation. Required-program and transactional failure checks still
+apply; registration remains distinct from compilation and actual execution.
+Named-stage activation and complete same-invocation attachments are still in
+progress. SE-Vulkan's compiler now accepts immutable virtual source generations
+inside IncludeMirror, authenticates pristine stock inputs before overrides, and
+keys derived artifacts on complete pack/dependency/compiler identity. Existing
+GPU-owned adapter authentication remains enforced.
+
+The shared captured model resolves all26 advertised stage names, the Lighting
+injection family, ownership restrictions and forbidden Depth injection/MRT
+changes. DX11 consumes this model directly. This is source-model coverage;
+Vulkan execution coverage still requires wiring every native owner and the
+complete attachment contract.
+
+`ShaderPackRegistry.GetCapabilities()` returns a device-free snapshot of
+renderer selection, registration, captured-source support and backend contract
+support. `FullscreenExecutionSupported`, `PortablePreparationSupported` and
+`PortableCommandsSupported` check the selected adapter and required native
+features. `NamedStageExecutionSupported` and `SameDrawAttachmentsSupported`
+remain false for the current Vulkan adapter. Support flags never imply an
+activated registration or current-frame production; use program state and
+native execution evidence separately. The legacy DX11 companion's public APIs
+retain their existing signatures.

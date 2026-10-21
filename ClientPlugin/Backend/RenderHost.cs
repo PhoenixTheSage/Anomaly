@@ -120,10 +120,12 @@ public static class RenderHost
     public static void QueueRegister(string id, string root, string requiredProgram)
     {
         GuestPassList.RegisterRoot(id, root, requiredProgram);
+        root=GuestPassList.SourceFor(id).Root;
         lock (Gate)
         {
             if (!Decided)
             {
+                Pending.RemoveAll(item=>string.Equals(item[0],id,StringComparison.OrdinalIgnoreCase));
                 Pending.Add(new[] { id, root });
                 return;
             }

@@ -36,7 +36,7 @@ static partial class Program
             Require(ReferenceEquals(p.PixelSpirv, binaries[i++]), "retry unnecessarily recompiled HLSL");
         }
         Require(!GuestCompiler.HasPending, "ready programs should not trigger repeated compilation");
-        if(Array.IndexOf(args,"--portable-gpu")>=0){PortableContracts();NativeProbe.PortableGpuContracts();NativeProbe.Close();return;}
+        if(Array.IndexOf(args,"--portable-gpu")>=0){PortableContracts();NativeProbe.PortableGpuContracts();NativeProbe.CapturedPackGpu(assets);NativeProbe.Close();return;}
         ResourceContracts();
         EnvironmentGpu(assets);
         NativeProbe.CompositionContracts();

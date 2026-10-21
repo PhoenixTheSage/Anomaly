@@ -1092,6 +1092,9 @@ public static class ShaderPackRegistry
 
     static PendingPack ScanPack(string registerId, string root, Manifest manifest, bool local)
     {
+        var snapshot=ClientPlugin.Backend.PackSourceSnapshot.Capture(root,registerId);
+        root=snapshot.Root;
+        if(!TryReadManifest(Path.Combine(root,ManifestName),out manifest))throw new InvalidDataException("Captured pack manifest is invalid.");
         var pack = new PendingPack
         {
             RegisterId = registerId,
@@ -1110,90 +1113,11 @@ public static class ShaderPackRegistry
         ScanFullscreenFolder(pack);
         ApplyPassManifest(pack, manifest.Passes);
 
-        var overlayRoot = Path.Combine(root, OverlayFolder);
-        if (Directory.Exists(overlayRoot))
-        {
-            overlayRoot = Path.GetFullPath(overlayRoot);
-            foreach (var file in Directory.EnumerateFiles(overlayRoot, "*", SearchOption.AllDirectories))
-            {
-                if (!IsShaderFile(file))
-                    continue;
-                var rel = file.Substring(overlayRoot.Length)
-                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (!TryNormalizeKey(rel, out var overlayRel))
-                {
-                    Warn("pack " + pack.ManifestId + " skipped overlay path: " + rel);
-                    continue;
-                }
-
-                if (!ShaderStages.TryMapOverlayPath(overlayRel, out var key, out var stageName))
-                {
-                    Warn("pack " + pack.ManifestId + " skipped overlay (unknown named-stage file): " +
-                         overlayRel);
-                    continue;
-                }
-
-                if (!string.IsNullOrEmpty(stageName) &&
-                    !string.Equals(overlayRel, key, StringComparison.OrdinalIgnoreCase))
-                    Log("pack " + pack.ManifestId + " stage " + stageName + " '" + overlayRel + "' → " + key);
-
-                if (!CanOverlayOwned(key, pack.Exclusive, pack.ManifestId))
-                    continue;
-
-                var full = Path.GetFullPath(file);
-                if (!IsUnderRoot(overlayRoot, full))
-                    continue;
-                if (IsForbiddenDepthMrt(key, full))
-                {
-                    Warn("pack " + pack.ManifestId + " Depth overlay must not add SV_Target3: " + key);
-                    continue;
-                }
-
-                pack.Overlays.Add(new OverlayFile { Key = key, FullPath = full });
-            }
-        }
-
-        var injectRoot = Path.Combine(root, InjectFolder);
-        if (Directory.Exists(injectRoot))
-        {
-            injectRoot = Path.GetFullPath(injectRoot);
-            foreach (var file in Directory.EnumerateFiles(injectRoot, "*", SearchOption.AllDirectories))
-            {
-                if (!IsShaderFile(file))
-                    continue;
-                var full = Path.GetFullPath(file);
-                if (!IsUnderRoot(injectRoot, full))
-                    continue;
-                var rel = file.Substring(injectRoot.Length)
-                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (!TryNormalizeKey(rel, out var injectRel))
-                {
-                    Warn("pack " + pack.ManifestId + " skipped inject path: " + rel);
-                    continue;
-                }
-
-                if (!ShaderStages.TryMapInjectPath(injectRel, out var injectStage))
-                {
-                    Warn("pack " + pack.ManifestId + " skipped inject (unknown named-stage folder): " +
-                         injectRel);
-                    continue;
-                }
-
-                if (ShaderStages.IsForbiddenInjectStage(injectStage))
-                {
-                    Warn("pack " + pack.ManifestId + " skipped inject into Depth: " + injectRel);
-                    continue;
-                }
-
-                pack.InjectFiles.Add(new InjectFile { Stage = injectStage, FullPath = full });
-            }
-
-            pack.InjectFiles.Sort((a, b) =>
-            {
-                var c = string.Compare(a.Stage, b.Stage, StringComparison.OrdinalIgnoreCase);
-                return c != 0 ? c : string.Compare(a.FullPath, b.FullPath, StringComparison.OrdinalIgnoreCase);
-            });
-        }
+        foreach(var diagnostic in snapshot.Diagnostics)Warn("pack "+pack.ManifestId+" "+diagnostic);
+        foreach(var overlay in snapshot.Overlays)
+            pack.Overlays.Add(new OverlayFile{Key=overlay.Key,FullPath=Path.Combine(root,overlay.RelativePath.Replace('/',Path.DirectorySeparatorChar))});
+        foreach(var injection in snapshot.Injections)
+            pack.InjectFiles.Add(new InjectFile{Stage=injection.Stage,FullPath=Path.Combine(root,injection.RelativePath.Replace('/',Path.DirectorySeparatorChar))});
 
         return pack;
     }
@@ -1795,48 +1719,9 @@ public static class ShaderPackRegistry
 
     static bool CanOverlayOwned(string key, string[] exclusive, string packId)
     {
-        if (ShaderStages.IsAnomalyOwnedGBuffer(key))
-        {
-            if (HasExclusiveStage(exclusive, ExclusiveGBuffer))
-                return true;
-            Warn("pack " + packId +
-                 " overlay of Anomaly GBuffer stage requires exclusive: [\"" +
-                 ExclusiveGBuffer + "\"]: " + key);
-            return false;
-        }
-
-        if (ShaderStages.IsAnomalyOwnedGBufferRead(key))
-        {
-            if (HasExclusiveStage(exclusive, ExclusiveGBuffer) ||
-                HasExclusiveStage(exclusive, ExclusiveLighting))
-                return true;
-            Warn("pack " + packId +
-                 " overlay of Anomaly GBuffer read wrap requires exclusive: [\"" +
-                 ExclusiveGBuffer + "\"] or [\"" + ExclusiveLighting + "\"]: " + key);
-            return false;
-        }
-
-        if (ShaderStages.IsAnomalyOwnedLightingWrap(key))
-        {
-            if (HasExclusiveStage(exclusive, ExclusiveLighting))
-                return true;
-            Warn("pack " + packId +
-                 " overlay of Anomaly Lighting wrap requires exclusive: [\"" +
-                 ExclusiveLighting + "\"]: " + key);
-            return false;
-        }
-
-        if (ShaderStages.IsAnomalyOwnedAtmosphereWrap(key))
-        {
-            if (HasExclusiveStage(exclusive, ExclusiveAtmosphere))
-                return true;
-            Warn("pack " + packId +
-                 " overlay of Anomaly Atmosphere wrap requires exclusive: [\"" +
-                 ExclusiveAtmosphere + "\"]: " + key);
-            return false;
-        }
-
-        return true;
+        string refusal=ClientPlugin.Backend.PackSourceSnapshot.OverlayRefusal(key,exclusive);
+        if(refusal!=null)Warn("pack "+packId+" "+refusal);
+        return refusal==null;
     }
 
     static bool HasExclusiveStage(string[] exclusive, string stage)
@@ -1922,27 +1807,6 @@ public static class ShaderPackRegistry
             ids[i] = packs[i].ManifestId;
         Array.Sort(ids, StringComparer.OrdinalIgnoreCase);
         return string.Join(",", ids);
-    }
-
-    static bool IsForbiddenDepthMrt(string key, string fullPath)
-    {
-        var n = key.Replace('\\', '/');
-        var depth = ShaderStages.TryGetStageForKey(n, out var stage) &&
-                    string.Equals(stage, ShaderStages.Depth, StringComparison.OrdinalIgnoreCase);
-        if (!depth)
-            depth = n.IndexOf("/Depth", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    n.StartsWith("Depth", StringComparison.OrdinalIgnoreCase);
-        if (!depth)
-            return false;
-        try
-        {
-            var text = File.ReadAllText(fullPath);
-            return text.IndexOf("SV_Target3", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-        catch
-        {
-            return true;
-        }
     }
 
     static bool TryReadManifest(string path, out Manifest manifest)

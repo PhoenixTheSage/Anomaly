@@ -1100,3 +1100,21 @@ DX11 callback compatibility passes for net48/net10. Aurora/cloud/contact-shadow
 preparation is migrated, and Prism normal rejection/history caps/0–7 iterations
 are corrected. Production guest Temporal/Moments pass D3D11 WARP readback for
 rotation, rejection and exact ages. Loaded-world combined acceptance is open.
+
+### Stage 6 captured sources and canonical stage model — partial
+
+Both hosts now consume captured manifest/shader/include bytes. Renderer selection
+cannot recapture an edited original root. The shared model covers26 stage names,
+Lighting-family injection, .h headers, ownership and forbidden Depth/MRT rules;
+DX11 consumes that model directly. GetCapabilities reports registration/support
+separately and keeps Vulkan named-stage/same-draw attachment support false.
+
+Native resource-free fullscreen shaders now use format-aware variants. A real
+captured pack executes its original HDR/negative-alpha pixels after its source
+is edited, with validation enabled and zero errors. All current pack pipelines,
+the isolated native17-test gate and329 actual-core checks pass. The compiler
+gate passes39 checks; GPU-owned vertex/pixel generation retains stock provenance
+and identical SPIR-V for a comment-only override. This closes the immutable
+source/compiler foundation. Native owner activation, every-stage execution,
+complete attachments, HDR/vendor integration and matched Windows acceptance
+remain open.

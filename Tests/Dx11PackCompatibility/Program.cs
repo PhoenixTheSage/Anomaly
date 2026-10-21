@@ -49,13 +49,47 @@ static class Program
 #endif
             }
             var core = Assembly.LoadFrom(Path.Combine(build, "Anomaly.dll"));
-            if(mode=="portable") {
+            if(mode=="snapshot") {
+                var native=Assembly.LoadFrom(Path.Combine(build,"Anomaly.Dx11.dll"));
+                var registry=native.GetType("ClientPlugin.Shaders.ShaderPackRegistry");
+                string root=Path.Combine(Path.GetTempPath(),"AnomalySnapshot-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+                try {
+                    File.WriteAllText(Path.Combine(root,"anomaly.json"),"{\"id\":\"snapshot.fixture\",\"passes\":[{\"id\":\"snapshot.color\",\"slot\":\"AfterLighting\",\"file\":\"color.hlsl\"}]}");
+                    string file=Path.Combine(root,"color.hlsl");File.WriteAllText(file,"float4 main():SV_Target{return 1;}\n");
+                    Directory.CreateDirectory(Path.Combine(root,"Overlay/Post.FXAA"));Directory.CreateDirectory(Path.Combine(root,"Inject/Lighting"));
+                    File.WriteAllText(Path.Combine(root,"Overlay/Post.FXAA/Fxaa.hlsl"),"// shared overlay fixture");File.WriteAllText(Path.Combine(root,"Inject/Lighting/fixture.h"),"// shared injection fixture");
+                    object[] request={"snapshot.fixture",root,"snapshot.color",null};
+                    Check((bool)registry.GetMethod("TryRegister",Static).Invoke(null,request),"DX11 accepts registration before assets/device availability: "+request[3]);
+                    var pending=(System.Collections.IDictionary)registry.GetField("Pending",Static).GetValue(null);
+                    object pack=pending["snapshot.fixture"];string frozen=(string)pack.GetType().GetField("Root").GetValue(pack);
+                    Check(frozen!=root && File.Exists(Path.Combine(frozen,"color.hlsl")),"DX11 compiles from captured pack source paths");
+                    var guest=core.GetType("ClientPlugin.Backend.GuestPassList");
+                    var host=core.GetType("ClientPlugin.Backend.RenderHost");
+                    host.GetMethod("QueueRegister",Static,null,new[]{typeof(string),typeof(string),typeof(string)},null).Invoke(null,new object[]{"snapshot.fixture",root,"snapshot.color"});
+                    var sources=(System.Collections.IEnumerable)Call(guest,"SourceSnapshot");object captured=sources.Cast<object>().Single();
+                    Check((string)captured.GetType().GetProperty("Root").GetValue(captured)==frozen,"DX11 and Vulkan consume the same shared source generation");
+                    Check(((System.Collections.IList)pack.GetType().GetField("Overlays").GetValue(pack)).Count==1 && ((System.Collections.IList)pack.GetType().GetField("InjectFiles").GetValue(pack)).Count==1,"DX11 consumes the shared overlay and .h injection model");
+                    File.AppendAllText(file,"// next generation\n");
+                    Check(!File.ReadAllText(Path.Combine(frozen,"color.hlsl")).Contains("next generation"),"editing pack files does not mutate a registered DX11 generation");
+                    var held=(System.Collections.IList)host.GetField("Pending",Static).GetValue(null);
+                    Check(((string[])held[0])[1]==frozen,"pending renderer selection retains the captured generation rather than mutable source paths");
+                    Check((bool)registry.GetMethod("TryRegister",Static).Invoke(null,request),"DX11 replacement registration accepts changed source bytes");
+                    string replacement=(string)pending["snapshot.fixture"].GetType().GetField("Root").GetValue(pending["snapshot.fixture"]);
+                    Check(replacement!=frozen,"changed source bytes receive a distinct generation path");
+                    Call(guest,"UnregisterRoot","snapshot.fixture");
+                } finally {if(Path.GetFullPath(root).StartsWith(Path.GetFullPath(Path.GetTempPath()),StringComparison.OrdinalIgnoreCase))Directory.Delete(root,true);}
+            } else if(mode=="portable") {
                 var native=Assembly.LoadFrom(Path.Combine(build,"Anomaly.Dx11.dll"));
                 Call(core.GetType("ClientPlugin.Backend.Dx11Call"),"Bind",native);
                 var owned=core.GetType("ClientPlugin.Shaders.OwnedPassRegistry");object received=null;
+                var packApi=core.GetType("ClientPlugin.Shaders.ShaderPackRegistry");
+                object capabilities=Call(packApi,"GetCapabilities");
+                Check((bool)capabilities.GetType().GetProperty("PackRegistrationAvailable").GetValue(capabilities) && !(bool)capabilities.GetType().GetProperty("FullscreenExecutionSupported").GetValue(capabilities),"pending capabilities distinguish registration from execution support");
                 Call(owned,"RegisterPortable","portable.fixture","AfterAtmosphere",0,0,(Action<object>)(context=>received=context),0);
                 var host=core.GetType("ClientPlugin.Backend.RenderHost");host.GetField("committed",Static).SetValue(null,true);host.GetField("choice",Static).SetValue(null,0);
                 Call(core.GetType("ClientPlugin.Backend.PortablePassRegistry"),"BindDx11",new object[]{null});
+                capabilities=Call(packApi,"GetCapabilities");
+                Check((bool)capabilities.GetType().GetProperty("PortableCommandsSupported").GetValue(capabilities),"DX11 capabilities identify the portable executor");
                 var nativeOwned=native.GetType("ClientPlugin.Shaders.OwnedPassRegistry");
                 var registrations=(System.Collections.IList)nativeOwned.GetField("Passes",Static).GetValue(null);
                 Check(registrations.Count==1,"pending portable registration binds once to DX11");
@@ -68,6 +102,9 @@ static class Program
                 bool expired=false;try{received.GetType().GetMethod("Copy").Invoke(received,new object[]{"a","b"});}catch(TargetInvocationException e){expired=e.InnerException is InvalidOperationException;}
                 Check(expired,"DX11 portable context expires after callback");
                 Call(owned,"Unregister","portable.fixture");Check(registrations.Count==0,"portable unregister removes the DX11 wrapper");
+                host.GetField("choice",Static).SetValue(null,1);capabilities=Call(packApi,"GetCapabilities");
+                Check(!(bool)capabilities.GetType().GetProperty("NamedStageExecutionSupported").GetValue(capabilities) && !(bool)capabilities.GetType().GetProperty("SameDrawAttachmentsSupported").GetValue(capabilities),"Vulkan capabilities do not advertise unimplemented named-stage activation or same-draw attachments");
+                host.GetField("choice",Static).SetValue(null,0);
             } else if (mode == "lookup") {
                 string scratch = Path.Combine(Path.GetTempPath(), "SsgiLookup-" + Guid.NewGuid().ToString("N"));
                 string edition = Path.Combine(scratch, tfm == "net48" ? "Legacy" : "Interim");

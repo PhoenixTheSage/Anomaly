@@ -11,6 +11,7 @@ static partial class Program
     static void Main(string[] args)
     {
         if (Array.IndexOf(args, "--parity-contracts") >= 0) { ParityContracts(); return; }
+        if (Array.IndexOf(args, "--frame-contracts") >= 0) { FrameContracts(); return; }
         string root = Path.GetFullPath(args.Length > 0 ? args[0] : "../..");
         string assets = Path.Combine(root, "Assets");
         if(Array.IndexOf(args,"--core-only")>=0) {PlanetSnapshot(root);return;}
@@ -35,6 +36,7 @@ static partial class Program
         }
         Require(!GuestCompiler.HasPending, "ready programs should not trigger repeated compilation");
         ResourceContracts();
+        EnvironmentGpu(assets);
         Publication();
         LitMips();
         Occupancy();
@@ -238,6 +240,11 @@ namespace ClientPlugin.Rendering
         public static double[] SceneDepthMatrices;
         public static bool ConfigureSceneDepthViews(ulong[] images,double[] matrices) {SceneDepthMatrices=(double[])matrices.Clone();return AcceptSceneDepth;}
         public static byte[] FrameOverride;
+        public static object[] FrameInputs;
+        public static byte[] EnvironmentPacket;
+        public static int FrameReads;
+        public static object[] CaptureFrameInputs() => FrameInputs;
+        public static bool SetFrameEnvironment(byte[] packet) { EnvironmentPacket=(byte[])packet.Clone(); return true; }
         public static object[] Character;
         public static object[] CaptureCharacter(uint actor) => Character;
         static ulong next;
@@ -255,6 +262,7 @@ namespace ClientPlugin.Rendering
         public static void SetNativeSunGlare(bool value) { }
         public static bool TryGetFrame(byte[] frame)
         {
+            ++FrameReads;
             if (FrameOverride != null) { Buffer.BlockCopy(FrameOverride,0,frame,0,frame.Length); return Ready; }
             void F(int o, float v) => Buffer.BlockCopy(BitConverter.GetBytes(v), 0, frame, o, 4);
             void U(int o, uint v) => Buffer.BlockCopy(BitConverter.GetBytes(v), 0, frame, o, 4);
@@ -267,7 +275,7 @@ namespace ClientPlugin.Rendering
 }
 namespace ClientPlugin.Backend
 {
-    static class RendererRoute { public static bool UseDx11Device; }
+    static class RendererRoute { public static bool UseDx11Device; public static bool UseGuestImages = true; }
     static class SceneView { public static int Width, Height; }
     static class GuestColor
     {

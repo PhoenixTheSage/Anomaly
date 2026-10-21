@@ -4,8 +4,9 @@ using VRageMath;
 // renderer transaction is exercised in SE-Vulkan/Tests/GuestDepthGpuTests.
 namespace ClientPlugin.Shaders {
     static class PlanetAtmosphere {
-        internal readonly struct Snapshot {public readonly Vector3D Center;public readonly bool IsValid;public readonly float TerrainRadius;}
-        internal static Snapshot Copy()=>default;
+        internal struct Snapshot {public Vector3D Center;public bool IsValid;public float TerrainRadius, AirTop, VisualCeil;}
+        internal static Snapshot Current;
+        internal static Snapshot Copy()=>Current;
     }
 }
 namespace ClientPlugin.ShaderFramework {

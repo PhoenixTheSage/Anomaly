@@ -74,6 +74,8 @@ static class GuestBridgeClient
 
     internal const int ResourceCommands = 8192;
     internal static byte[] ExecutionStatus(ulong pipeline) => Call("ExecutionStatus", pipeline) as byte[];
+    internal static object[] CaptureFrameInputs() => Call("CaptureFrameInputs") as object[];
+    internal static bool SetFrameEnvironment(byte[] packet) => Call("SetFrameEnvironment", (object)packet) is true;
     internal static bool ResourceCommand(int operation, ulong image, int mark = 1, float[] value = null)
     {
         if (!SupportsPacketFlags(ResourceCommands))
@@ -318,6 +320,9 @@ static class GuestBridgeClient
     }
 
     public static bool TryGetFrame(byte[] frame)
+        => GuestFrame.TryCopy(frame) || ReadNativeFrame(frame);
+
+    internal static bool ReadNativeFrame(byte[] frame)
     {
         var value = Call("TryGetFrame", frame);
         return value is bool ready && ready;

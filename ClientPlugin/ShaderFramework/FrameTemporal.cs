@@ -27,9 +27,7 @@ public static class FrameTemporal
     static Vector2 projScale = new Vector2(1f, 1f);
     static Matrix storedPrev;
     static bool hasPrev;
-    static Vector3D prevCameraPos;
-    static Vector3 prevForward = new Vector3(0f, 0f, -1f);
-    static bool hasCameraPrev;
+    static readonly ClientPlugin.Backend.FrameEnvironment.Motion Motion = new();
     static float safetyScale = 1f;
     static Vector3 cameraDelta;
     static Vector3 sunColor;
@@ -277,8 +275,8 @@ public static class FrameTemporal
             prevViewProj = hasPrev ? storedPrev : unjittered;
             cameraToWorld = env.InvViewAt0;
             projScale = new Vector2(env.Projection.M11, env.Projection.M22);
-            safetyScale = ApplySafetyEnvelope(
-                ComputeSafetyScale(env.CameraPosition, ForwardFromInvView(cameraToWorld)));
+            safetyScale = Motion.Capture(env.CameraPosition, cameraToWorld);
+            cameraDelta = Motion.Delta;
             storedPrev = unjittered;
             hasPrev = true;
             snapshotted = true;
@@ -295,7 +293,7 @@ public static class FrameTemporal
         {
             hasPrev = false;
             historyValid = false;
-            hasCameraPrev = false;
+            Motion.Reset();
             safetyScale = 1f;
             cameraDelta = default;
         }
@@ -308,7 +306,7 @@ public static class FrameTemporal
             snapshotted = false;
             hasPrev = false;
             historyValid = false;
-            hasCameraPrev = false;
+            Motion.Reset();
             safetyScale = 1f;
             cameraDelta = default;
             jitterX = jitterY = 0;
@@ -327,22 +325,10 @@ public static class FrameTemporal
         }
 
         var light = environment.Data.EnvironmentLight;
-        sunColor = light.SunColorRaw;
-        sunDiffuse = Math.Max(light.SunDiffuseFactor, 1f);
-        var toward = -light.SunLightDirection;
-        if (toward.LengthSquared() < 1e-8f)
-            sunToward = new Vector3(0f, 1f, 0f);
-        else
-        {
-            toward.Normalize();
-            sunToward = toward;
-        }
-
-        var luma = Vector3.Dot(sunColor, new Vector3(0.2126f, 0.7152f, 0.0722f));
-        if (luma < 0f)
-            luma = 0f;
-        skyLuma = luma * Math.Max(light.AmbientDiffuseFactor, 0f);
-        skyAmbient = sunColor * SkyAmbientFloor;
+        var lighting = new ClientPlugin.Backend.FrameEnvironment.Lighting(light.SunColorRaw, light.SunLightDirection,
+            light.SunDiffuseFactor, light.AmbientDiffuseFactor);
+        sunColor = lighting.SunColor; sunDiffuse = lighting.SunDiffuse; sunToward = lighting.SunToward;
+        skyLuma = lighting.SkyLuma; skyAmbient = lighting.SkyAmbient;
     }
 
     static void ClearEnvironmentLightUnlocked()
@@ -371,55 +357,6 @@ public static class FrameTemporal
     {
         planetAirTop = 0f;
         visualAtmoCeil = 0f;
-    }
-
-    static float ComputeSafetyScale(Vector3D cameraPos, Vector3 forward)
-    {
-        if (!hasCameraPrev)
-        {
-            prevCameraPos = cameraPos;
-            prevForward = forward;
-            hasCameraPrev = true;
-            cameraDelta = default;
-            return 1f;
-        }
-
-        cameraDelta = (Vector3)(cameraPos - prevCameraPos);
-        var move = (float)Vector3D.Distance(cameraPos, prevCameraPos);
-        var turn = 1f - Vector3.Dot(prevForward, forward);
-        if (turn < 0f)
-            turn = 0f;
-        prevCameraPos = cameraPos;
-        prevForward = forward;
-        var moveScale = Ramp(move, SafetyMoveStartMeters, SafetyMoveZeroMeters);
-        var turnScale = Ramp(turn, SafetyTurnStart, SafetyTurnZero);
-        return moveScale < turnScale ? moveScale : turnScale;
-    }
-
-    static float ApplySafetyEnvelope(float instant)
-    {
-        if (instant <= safetyScale)
-            return instant;
-        var next = safetyScale + SafetyReleasePerFrame;
-        return next < instant ? next : instant;
-    }
-
-    static float Ramp(float value, float start, float zero)
-    {
-        if (value <= start)
-            return 1f;
-        if (value >= zero)
-            return 0f;
-        return 1f - (value - start) / (zero - start);
-    }
-
-    static Vector3 ForwardFromInvView(Matrix invViewAt0)
-    {
-        var fwd = new Vector3(-invViewAt0.M31, -invViewAt0.M32, -invViewAt0.M33);
-        if (fwd.LengthSquared() < 1e-8f)
-            return new Vector3(0f, 0f, -1f);
-        fwd.Normalize();
-        return fwd;
     }
 
     static Matrix UnjitteredViewProjection(MyEnvironmentMatrices env)

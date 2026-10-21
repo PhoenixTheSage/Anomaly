@@ -1041,3 +1041,23 @@ passes274 checks. This is the registration/resource foundation only. Fullscreen
 equations/history/Chain, shared frame/environment, portable temporal callbacks,
 all named-stage execution and true material-owned attachments, HDR/jitter/vendor
 integration and matched Windows live/performance acceptance remain open.
+
+### Shared frame/environment parity — 2026-10-21 candidate
+
+DX11 and Vulkan now use the same device-free lighting and motion-safety
+calculation. Anomaly receives raw sun color, diffuse/ambient factors, normalized
+toward-sun direction, planet air/visual radii and camera deltas formed from
+double-precision absolute positions. Stock Vulkan light inputs are unchanged.
+The guest boundary also normalizes/negates stock direction when no adapter input
+is present. Native feature bit15 carries a checked96-byte environment packet
+keyed to the current open renderer frame. Fullscreen b6 preserves safety zero
+and publishes planet/skip constants.
+
+FrameTemporal getters read the callback's immutable frame-index snapshot; they
+no longer perform wall-clock-based native queries. Camera cuts invalidate the
+current history immediately and reset the shared motion envelope. The shader
+probe verifies actual b6 output for raw color, direction, zero safety and planet
+radius. CPU tests cover rotation,80m cuts,1/16 recovery,1e12m origins and repeated
+getters. Native17-test suite passes; actual-core depth/volume/recreation suite
+passes302 checks with validation enabled and no reported errors. Full matched
+Windows adapter/visual/performance acceptance is still required.

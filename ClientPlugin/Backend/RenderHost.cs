@@ -209,7 +209,7 @@ public static class RenderHost
         if(!GuestDevice.Synchronize())return;
         // Native resources belong to this frame callback, after GuestBridge.Bind.
         // Asset loading/renderer selection can precede the device by many seconds.
-        if (string.IsNullOrEmpty(assetFolder) || !GuestFrame.Open)
+        if (string.IsNullOrEmpty(assetFolder) || !GuestFrame.Capture())
             return;
         if (!GuestBridgeClient.SupportsPacketFlags(GuestBridgeClient.LiveResources))
         {

@@ -298,6 +298,7 @@
     <Compile Include="Backend\VolumeShadowViews.cs" />
     <Compile Include="Backend\VolumeFrameData.cs" />
     <Compile Include="Backend\PackDefinition.cs" />
+    <Compile Include="Backend\FrameEnvironment.cs" />
     <Compile Remove="obj\**\*.cs;bin\**\*.cs" />
     <Compile Remove="RichHud\**\*.cs" />
     <Compile Remove="RichHudFramework\**\*.cs" />

@@ -108,9 +108,18 @@ public static class RenderHost
         Dx11Call.CallInstance(Dx11Call.Get("ClientPlugin.Plugin", "Instance"), method, args);
     }
 
-    public static void QueueRegister(string id, string root)
+    public static void QueueRegister(string id, string root) => QueueRegister(id, root, null);
+    public static void QueueUnregister(string id)
     {
-        GuestPassList.RegisterRoot(id, root);
+        GuestPassList.UnregisterRoot(id);
+        GuestCatalogTargets.Release(id);
+        lock (Gate) Pending.RemoveAll(item => string.Equals(item[0], id, StringComparison.OrdinalIgnoreCase));
+        if (IsDx11) Dx11Call.Call("ClientPlugin.Shaders.ShaderPackRegistry", "Unregister", id);
+    }
+
+    public static void QueueRegister(string id, string root, string requiredProgram)
+    {
+        GuestPassList.RegisterRoot(id, root, requiredProgram);
         lock (Gate)
         {
             if (!Decided)

@@ -127,6 +127,22 @@ public static class ShaderPackRegistry
         TryRegister(id, root, null, out _);
     }
 
+    public static void Unregister(string id)
+    {
+        bool applied;
+        lock (Gate)
+        {
+            var removed = new List<string>();
+            foreach (var pair in Pending)
+                if (string.Equals(pair.Key, id, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(pair.Value.RegisterId, id, StringComparison.OrdinalIgnoreCase)) removed.Add(pair.Key);
+            foreach (string key in removed) Pending.Remove(key);
+            applied = removed.Count != 0 && extrasBytes != null;
+            if (applied) ApplyUnlocked();
+        }
+        if (applied) { ValidateStages(); ShaderWarmup.Request(); }
+    }
+
     /// <summary>
     /// Returns whether this registration was scanned and accepted. An optional
     /// required fullscreen program must be present before the pack is queued.
@@ -1074,129 +1090,6 @@ public static class ShaderPackRegistry
         return policy == 0 ? TemporalPolicy.InColor : policy;
     }
 
-    static PassSpec[] ReadJsonPasses(string json)
-    {
-        var m = Regex.Match(json, "\"passes\"\\s*:\\s*\\[", RegexOptions.Singleline);
-        if (!m.Success)
-            return null;
-        var inner = ExtractJsonArrayInner(json, m.Index + m.Length - 1);
-        if (inner == null)
-            return Array.Empty<PassSpec>();
-        var objects = ExtractJsonObjects(inner);
-        if (objects.Count == 0)
-            return Array.Empty<PassSpec>();
-        var list = new List<PassSpec>(objects.Count);
-        for (var i = 0; i < objects.Count; i++)
-        {
-            var obj = objects[i];
-            var file = ReadJsonString(obj, "file");
-            var slot = ReadJsonString(obj, "slot");
-            if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(slot))
-                continue;
-            int? priority = null;
-            var pri = ReadJsonNumber(obj, "priority");
-            if (pri != null && int.TryParse(pri, out var parsed))
-                priority = parsed;
-            list.Add(new PassSpec
-            {
-                Id = ReadJsonString(obj, "id"),
-                Slot = slot,
-                File = file,
-                Compose = ReadJsonString(obj, "compose"),
-                Priority = priority,
-                Temporal = ReadJsonStringArray(obj, "temporal"),
-                Output = ReadJsonString(obj, "output"),
-                Binds = ReadJsonBinds(obj),
-                Scale = ReadJsonFloat(obj, "scale", 1f),
-                History = ReadJsonString(obj, "history")
-            });
-        }
-
-        return list.ToArray();
-    }
-
-    static SrvBind[] ReadJsonBinds(string obj)
-    {
-        var m = Regex.Match(obj, "\"binds\"\\s*:\\s*\\[", RegexOptions.Singleline);
-        if (!m.Success)
-            return null;
-        var inner = ExtractJsonArrayInner(obj, m.Index + m.Length - 1);
-        if (string.IsNullOrWhiteSpace(inner))
-            return Array.Empty<SrvBind>();
-        var objects = ExtractJsonObjects(inner);
-        if (objects.Count > 0)
-        {
-            var list = new List<SrvBind>(objects.Count);
-            for (var i = 0; i < objects.Count; i++)
-            {
-                var catalog = ReadJsonString(objects[i], "catalog");
-                if (string.IsNullOrWhiteSpace(catalog))
-                    continue;
-                var slot = -1;
-                var slotText = ReadJsonNumber(objects[i], "slot");
-                if (slotText != null)
-                    int.TryParse(slotText, out slot);
-                list.Add(new SrvBind { CatalogName = catalog, Slot = slot });
-            }
-
-            return list.ToArray();
-        }
-
-        var names = Regex.Matches(inner, "\"((?:\\\\.|[^\"])*)\"");
-        if (names.Count == 0)
-            return Array.Empty<SrvBind>();
-        var simple = new SrvBind[names.Count];
-        for (var i = 0; i < names.Count; i++)
-            simple[i] = new SrvBind { CatalogName = Regex.Unescape(names[i].Groups[1].Value), Slot = -1 };
-        return simple;
-    }
-
-    static string ExtractJsonArrayInner(string json, int openBracketIndex)
-    {
-        if (openBracketIndex < 0 || openBracketIndex >= json.Length || json[openBracketIndex] != '[')
-            return null;
-        var depth = 0;
-        for (var i = openBracketIndex; i < json.Length; i++)
-        {
-            var c = json[i];
-            if (c == '[')
-                depth++;
-            else if (c == ']')
-            {
-                depth--;
-                if (depth == 0)
-                    return json.Substring(openBracketIndex + 1, i - openBracketIndex - 1);
-            }
-        }
-
-        return null;
-    }
-
-    static List<string> ExtractJsonObjects(string inner)
-    {
-        var list = new List<string>();
-        var depth = 0;
-        var start = -1;
-        for (var i = 0; i < inner.Length; i++)
-        {
-            var c = inner[i];
-            if (c == '{')
-            {
-                if (depth == 0)
-                    start = i;
-                depth++;
-            }
-            else if (c == '}')
-            {
-                depth--;
-                if (depth == 0 && start >= 0)
-                    list.Add(inner.Substring(start, i - start + 1));
-            }
-        }
-
-        return list;
-    }
-
     static PendingPack ScanPack(string registerId, string root, Manifest manifest, bool local)
     {
         var pack = new PendingPack
@@ -1307,44 +1200,8 @@ public static class ShaderPackRegistry
 
     static string ResolveRoot(string root, string id)
     {
-        root = Path.GetFullPath(root);
-        if (Directory.Exists(root))
-            return root;
-        if (!File.Exists(root) ||
-            !root.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-        {
-            Warn("pack '" + id + "' root not found: " + root);
-            return null;
-        }
-
-        var baseDir = extractRoot ?? Path.Combine(VRage.FileSystem.MyFileSystem.UserDataPath, "Anomaly", "Packs", "Extracted");
-        var extract = Path.Combine(baseDir, HashFileName(root));
-        if (!Directory.Exists(extract) || Directory.GetFileSystemEntries(extract).Length == 0)
-        {
-            if (Directory.Exists(extract))
-                Directory.Delete(extract, true);
-            Directory.CreateDirectory(extract);
-            ZipFile.ExtractToDirectory(root, extract);
-        }
-
-        var nested = FindPackRoot(extract);
-        return nested ?? extract;
-    }
-
-    static string FindPackRoot(string extract)
-    {
-        if (File.Exists(Path.Combine(extract, ManifestName)))
-            return extract;
-        var dirs = Directory.GetDirectories(extract);
-        if (dirs.Length == 1 && File.Exists(Path.Combine(dirs[0], ManifestName)))
-            return dirs[0];
-        foreach (var dir in dirs)
-        {
-            if (File.Exists(Path.Combine(dir, ManifestName)))
-                return dir;
-        }
-
-        return null;
+        try { return ClientPlugin.Backend.PackDefinition.ResolveRoot(root, extractRoot); }
+        catch (Exception error) { Warn("pack '" + id + "': " + error.Message); return null; }
     }
 
     static bool IsolateStageFailureUnlocked(string stage, List<RuntimeProbe> stageProbes)
@@ -2103,87 +1960,31 @@ public static class ShaderPackRegistry
             return false;
         }
 
-        var id = ReadJsonString(json, "id");
-        if (string.IsNullOrWhiteSpace(id))
-            return false;
-        int.TryParse(ReadJsonNumber(json, "priority") ?? "0", out var priority);
-        manifest = new Manifest
+        try
         {
-            Id = id,
-            Name = ReadJsonString(json, "name"),
-            Priority = priority,
-            Exclusive = ReadJsonStringArray(json, "exclusive"),
-            Defines = ReadJsonStringArray(json, "defines"),
-            Attachments = ReadJsonAttachments(json),
-            Passes = ReadJsonPasses(json)
-        };
-        return true;
-    }
-
-    static string ReadJsonString(string json, string key)
-    {
-        var m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
-        return m.Success ? Regex.Unescape(m.Groups[1].Value) : null;
-    }
-
-    static string ReadJsonNumber(string json, string key)
-    {
-        var m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)");
-        return m.Success ? m.Groups[1].Value : null;
-    }
-
-    static float ReadJsonFloat(string json, string key, float fallback)
-    {
-        var text = ReadJsonNumber(json, key);
-        if (text == null)
-            return fallback;
-        return float.TryParse(text, System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture, out var value)
-            ? value
-            : fallback;
-    }
-
-    static string[] ReadJsonStringArray(string json, string key)
-    {
-        var m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\\[([^\\]]*)\\]");
-        if (!m.Success)
-            return null;
-        var inner = m.Groups[1].Value;
-        var matches = Regex.Matches(inner, "\"((?:\\\\.|[^\"])*)\"");
-        if (matches.Count == 0)
-            return Array.Empty<string>();
-        var result = new string[matches.Count];
-        for (var i = 0; i < matches.Count; i++)
-            result[i] = Regex.Unescape(matches[i].Groups[1].Value);
-        return result;
-    }
-
-    static AttachmentSpec[] ReadJsonAttachments(string json)
-    {
-        var m = Regex.Match(json, "\"attachments\"\\s*:\\s*\\[(.*?)\\]", RegexOptions.Singleline);
-        if (!m.Success)
-            return null;
-        var inner = m.Groups[1].Value;
-        var objects = Regex.Matches(inner, "\\{[^}]*\\}");
-        if (objects.Count == 0)
-            return Array.Empty<AttachmentSpec>();
-        var list = new List<AttachmentSpec>(objects.Count);
-        for (var i = 0; i < objects.Count; i++)
-        {
-            var obj = objects[i].Value;
-            var name = ReadJsonString(obj, "name");
-            var format = ReadJsonString(obj, "format");
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(format))
-                continue;
-            list.Add(new AttachmentSpec
+            var pack = ClientPlugin.Backend.PackDefinition.Parse(json);
+            var passes = new List<PassSpec>();
+            foreach (var pass in pack.Passes)
             {
-                Name = name,
-                Format = format,
-                Stage = ReadJsonString(obj, "stage")
-            });
+                var binds = new List<SrvBind>();
+                foreach (var bind in pass.Binds) binds.Add(new SrvBind { CatalogName = bind.Catalog, Slot = bind.Slot });
+                passes.Add(new PassSpec { Id = pass.Id, Slot = pass.Slot, File = pass.File, Compose = pass.Compose,
+                    Priority = pass.Priority, Temporal = new List<string>(pass.Temporal).ToArray(), Output = pass.Output,
+                    History = pass.History, Scale = pass.Scale, Binds = binds.ToArray() });
+            }
+            var attachments = new List<AttachmentSpec>();
+            foreach (var attachment in pack.Attachments)
+                attachments.Add(new AttachmentSpec { Name = attachment.Name, Format = attachment.Format, Stage = attachment.Stage });
+            manifest = new Manifest { Id = pack.Id, Name = pack.Name, Priority = pack.Priority,
+                Exclusive = new List<string>(pack.Exclusive).ToArray(), Defines = new List<string>(pack.Defines).ToArray(),
+                Passes = passes.ToArray(), Attachments = attachments.ToArray() };
+            return true;
         }
-
-        return list.ToArray();
+        catch (Exception error)
+        {
+            Warn("Invalid manifest " + path + ": " + error.Message);
+            return false;
+        }
     }
 
     static bool TryNormalizeKey(string relative, out string key)

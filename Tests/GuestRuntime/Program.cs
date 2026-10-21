@@ -24,7 +24,7 @@ static partial class Program
             Require(p.Status == "renderer-pending", "renderer absence must remain retryable");
         }
         var binaries = GuestPassList.Snapshot().Select(p => p.PixelSpirv).ToArray();
-        if (Array.IndexOf(args, "--gpu") >= 0) NativeProbe.Open(Path.GetFullPath(Path.Combine(root, "../SE-Vulkan")));
+        if (Array.IndexOf(args, "--gpu") >= 0) { NativeProbe.Open(Path.GetFullPath(Path.Combine(root, "../SE-Vulkan"))); NativeProbe.TargetContracts(); }
         GuestBridge.Ready = true;
         GuestCompiler.CompilePending(assets);
         int i = 0;
@@ -34,6 +34,7 @@ static partial class Program
             Require(ReferenceEquals(p.PixelSpirv, binaries[i++]), "retry unnecessarily recompiled HLSL");
         }
         Require(!GuestCompiler.HasPending, "ready programs should not trigger repeated compilation");
+        ResourceContracts();
         Publication();
         LitMips();
         Occupancy();
@@ -226,7 +227,11 @@ namespace ClientPlugin.Rendering
     static class GuestBridge
     {
         public static bool Ready;
-        public static int SupportedPacketFlags { get; set; } = 15;
+        public static long TestResourceEpoch;
+        public static long ResourceEpoch => TestResourceEpoch;
+        public static readonly List<(ulong Id, int Format)> CreatedImages = new();
+        public static readonly List<byte[]> ResourceCommands = new();
+        public static int SupportedPacketFlags { get; set; } = 8207;
         public static bool MirrorGpu;
         public static bool FailReset;
         public static bool AcceptSceneDepth=true;
@@ -240,12 +245,13 @@ namespace ClientPlugin.Rendering
         public static ulong CreatePipeline(byte[] vs, byte[] ps, string ve, string pe) => !Ready ? 0 : NativeProbe.Enabled ? NativeProbe.Pipeline(vs, ps, ve, pe) : ++next;
         public static ulong CreateExtendedPipeline(byte[] vs, byte[] ps, string ve, string pe, int contract) => !Ready ? 0 : NativeProbe.Enabled ? NativeProbe.Pipeline2(vs, ps, ve, pe, contract) : ++next;
         public static void Reset() { if(FailReset) throw new InvalidOperationException("controlled bridge reset failure"); Packets.Clear(); if (MirrorGpu) NativeProbe.ResetQueue(); }
-        public static void CreateImage(ulong id, int w, int h, int d, int f) { if (MirrorGpu) NativeProbe.ImageCreate(id,w,h,d,f); }
+        public static void CreateImage(ulong id, int w, int h, int d, int f) { CreatedImages.Add((id,f)); if (MirrorGpu) NativeProbe.ImageCreate(id,w,h,d,f); }
         public static void Submit(int mark, int compose, int width, int height, ulong pipe, ulong storage, byte[] uniforms, ulong[] sampled, int flags)
         { Packets.Add((mark, pipe, width, height, storage, uniforms, sampled, flags)); if (MirrorGpu) NativeProbe.Queue(mark,compose,width,height,pipe,storage,uniforms,sampled,flags); }
         public static object[] ShadowInputs;
         public static object[] CaptureShadowInputs(uint id) => ShadowInputs;
         public static void UpdateImage(ulong id, byte[] data) { if (MirrorGpu) NativeProbe.ImageUpdate(id,data); }
+        public static bool ResourceCommand(byte[] command) { ResourceCommands.Add((byte[])command.Clone()); return !MirrorGpu || NativeProbe.Resource(command); }
         public static void SetNativeSunGlare(bool value) { }
         public static bool TryGetFrame(byte[] frame)
         {

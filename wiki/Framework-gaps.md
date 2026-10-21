@@ -1029,3 +1029,15 @@ untouched. Retained model/LOD/layout ownership and draw-key propagation still
 need integration; the failing four-panel live ordering gate remains open.
 These CPU checks do not qualify that visible gap. Details and identities are
 recorded in SE-Vulkan/Docs/LightingParity.md; no native/shader ABI changed.
+
+2026-10-21 full shader-parity candidate foundation: shared structured manifests
+and the stage catalog now exist in both Anomaly adapters. Required-program and
+duplicate ownership rejection preserve existing registration; target formats,
+queued HDR/negative-alpha clears, stable resize IDs and timeline retirement
+have focused CPU/GPU coverage. Feature bits13/14 coordinate native resource
+commands and execution status without changing ABI-1 layouts. The native suite
+passes all17 tests with validation available; repaired actual-core baseline
+passes274 checks. This is the registration/resource foundation only. Fullscreen
+equations/history/Chain, shared frame/environment, portable temporal callbacks,
+all named-stage execution and true material-owned attachments, HDR/jitter/vendor
+integration and matched Windows live/performance acceptance remain open.

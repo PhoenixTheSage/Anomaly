@@ -13,6 +13,12 @@ static class GuestBridgeClient
     static ulong nextImage = 1;
     static object[] shadowInputs;
     static bool haveShadowInputs;
+    static readonly System.Collections.Generic.List<Tuple<long, ulong>> RetiredImages = new System.Collections.Generic.List<Tuple<long, ulong>>();
+    internal static void RetireImage(ulong image, long epoch)
+    {
+        if (image == 0 || epoch == 0) return;
+        lock (RetiredImages) RetiredImages.Add(Tuple.Create(epoch, image));
+    }
     internal static void ResetDevice(){haveShadowInputs=false;shadowInputs=null;VolumeIntervalsReady=false;}
     internal static bool VolumeIntervalsReady { get; private set; }
     static readonly string[] VolumeProducts={"volumeScatteringTransmittance","volumeMotion","volumeReactive","volumeRepresentativeDepth","volumeSunVisibility"};
@@ -64,6 +70,19 @@ static class GuestBridgeClient
     public static void UpdateImage(ulong id, byte[] data)
     {
         Call("UpdateImage", id, data);
+    }
+
+    internal const int ResourceCommands = 8192;
+    internal static byte[] ExecutionStatus(ulong pipeline) => Call("ExecutionStatus", pipeline) as byte[];
+    internal static bool ResourceCommand(int operation, ulong image, int mark = 1, float[] value = null)
+    {
+        if (!SupportsPacketFlags(ResourceCommands))
+            throw new NotSupportedException("Update SE-Vulkan native library: target clears and retirement require guest feature bit13.");
+        var packet = new byte[48];
+        System.Buffer.BlockCopy(new[] {48, 1, operation, mark}, 0, packet, 0, 16);
+        System.Buffer.BlockCopy(BitConverter.GetBytes(image), 0, packet, 16, 8);
+        if (value != null) System.Buffer.BlockCopy(value, 0, packet, 32, 16);
+        return Call("ResourceCommand", (object)packet) is true;
     }
 
     public static ulong AllocateImage(int width, int height, int depth, byte[] rgba, int format = 0)
@@ -130,6 +149,19 @@ static class GuestBridgeClient
             ClientPlugin.Buffers.BufferCatalog.Set(name,null);
         try { Reset(); }
         catch { VolumeIntervalsReady=false;throw; }
+        GuestCatalogTargets.Flush();
+        lock (RetiredImages)
+        {
+            foreach (var retired in RetiredImages) if (retired.Item1 == ResourceEpoch) ResourceCommand(1, retired.Item2);
+            RetiredImages.Clear();
+        }
+        foreach (var retired in GuestPassList.TakeRetired())
+        {
+            if (retired.ResourceEpoch != ResourceEpoch) continue;
+            if (retired.Pipeline != 0) ResourceCommand(2, retired.Pipeline);
+            if (retired.StorageImage != 0 && retired.StorageImage < Hdr) ResourceCommand(1, retired.StorageImage);
+            if (retired.HistoryImage != 0 && retired.HistoryImage != retired.StorageImage && retired.HistoryImage < Hdr) ResourceCommand(1, retired.HistoryImage);
+        }
         haveShadowInputs = false; shadowInputs = null;
         ClientPlugin.Buffers.BufferCatalog.Set("occupancy", null);
         ClientPlugin.Buffers.BufferCatalog.Set("pointShadowAtlas", null);
@@ -146,7 +178,7 @@ static class GuestBridgeClient
             if(GuestVolumes.SuppressFallback(program))continue;
             if (program != null && GuestOccupancy.Handles(program, programs)) continue;
             if (program != null && GuestPointShadows.Handles(program, programs)) continue;
-            if (program == null || !program.Enabled || program.Pipeline == 0 || program.Mark == 0 || program.ResourceContract != 0)
+            if (program == null || !program.Enabled || program.ConflictDisabled || program.Pipeline == 0 || program.Mark == 0 || program.ResourceContract != 0)
                 continue;
             int compose = ComposeOf(program.Compose);
             bool catalog = compose == 5 || compose == 3 || (program.Flags & Compute) != 0;

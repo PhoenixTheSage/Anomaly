@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="ParityContracts.cs" />
+    <Compile Include="TargetContracts.cs" />
     <Compile Include="NativeProbe.cs" />
     <Compile Include="OccupancyProbe.cs" />
     <Compile Include="PointShadowProbe.cs" />
@@ -24,8 +25,10 @@
     <Compile Include="../../ClientPlugin/Backend/Dx11Call.cs" />
     <Compile Include="VolumeRouteProbe.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestBridgeClient.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestCatalogTargets.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestCompiler.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestPassList.cs" />
+    <Compile Include="../../ClientPlugin/Backend/PackDefinition.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestOwned.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestOccupancy.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestPointShadows.cs" />

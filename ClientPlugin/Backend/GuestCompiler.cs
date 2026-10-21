@@ -130,6 +130,7 @@ static class GuestCompiler
                         ? GuestBridgeClient.CreatePipeline(program.VertexSpirv, program.PixelSpirv, vsEntry, program.PixelEntry)
                         : GuestBridgeClient.CreateExtendedPipeline(program.VertexSpirv, program.PixelSpirv, vsEntry, program.PixelEntry, program.ResourceContract);
                     program.Status = program.Pipeline != 0 ? "pipeline" : "renderer-pending";
+                    if (program.Pipeline != 0) program.ResourceEpoch = GuestBridgeClient.ResourceEpoch;
                     if (program.Pipeline == 0 && GuestBridgeClient.TryGetFrame(new byte[344]))
                     {
                         program.Status = "pipeline-failed";

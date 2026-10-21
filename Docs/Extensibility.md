@@ -1251,3 +1251,26 @@ Matched Vulkan run 7c0c93ed3506463ebac77222c6c31f56 also passes the room transit
 The door refinement passed its assertion in run 763298d91a0747d29e713c363c934832, which also passed both Anomaly gates; broader completion then failed missing LCD captures. The request log shows multiple stages collapsed into one post-compilation update. Parity-only scenario time now caps each update's advance at 100 ms while wall-clock timeout remains bounded. This fixture scheduling correction is pending its canonical live rerun; no additional producer algorithm changed.
 
 Final four-producer acceptance (supersedes the earlier pending run notes): Vulkan run 7d7c38e694614d43a63267a3686fa8ff passes topology, current producer readiness, interval recovery, all capture delivery and the broader simulation checks, then unloads/exits cleanly. Door maximum is 1 and final ratio 0; the astronaut travels 11.77 m. Validation stays enabled/errors=0, device-lost=0 and the managed observer records no D3D11 creation attempts. Reviewed off/on captures retain the expected medium/clear behavior. Together with DX11 run a83b4531c5ac4d5883bb4415b68698f7, 273 validation-clean actual-core GPU checks, 13 topology lifecycle checks and dual-runtime builds, this closes the four named missing-producer gaps. Whole-renderer image equality, wider adapters/vendor upscalers, actual device-loss faults and performance acceptance remain separate work. See the current acceptance block in wiki/Framework-gaps.md.
+
+### Slice AI follow-up — shader parity registration/resource foundation (2026-10-21)
+
+Shared gaps belong to Anomaly's host and SE-Vulkan's native executor. Pack-local
+workarounds are unnecessary for format-aware catalog targets, floating-point
+clears, required-program admission, source parsing and resource retirement. The
+shared immutable manifest model replaces both regex parsers, retains temporal
+metadata and uses the existing register reservations. The shared stage catalog
+is now compiled into the device-free core as well as the DX11 adapter.
+
+Native resource commands use a checked 48-byte versioned packet and feature
+bit13. Timeline retirement replaces resize-wide device waits; identical image
+ensures preserve content. Feature bit14 separates native pass recording and
+submission completion from successful compilation. Context epochs prevent a
+retired old-context pipeline ID from deleting a new-context pipeline with the
+same number. Failed partial pipeline factories release their created variants.
+
+Focused CPU and real GPU fixtures cover malformed/nested manifests, admission
+rollback, target ownership/resize, FP16 HDR and alpha -1 clears, idempotent create
+and release, older-host refusal, and creation-versus-execution status. Validation
+was explicitly enabled with synchronization checks and reported zero errors.
+This foundation does not close the remaining fullscreen, named-stage, attachment,
+HDR/vendor, lifecycle stress or Windows multi-pack acceptance gates.

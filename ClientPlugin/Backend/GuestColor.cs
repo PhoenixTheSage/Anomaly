@@ -18,7 +18,11 @@ static class GuestColor
     {
         internal byte[] Bytes;
         internal int Width,Height,Depth,Kind;
-        internal ulong Upload()=>GuestBridgeClient.AllocateImage(Width,Height,Depth,Bytes,Kind);
+        internal ulong Upload(ulong image=0)
+        {
+            if(image==0)return GuestBridgeClient.AllocateImage(Width,Height,Depth,Bytes,Kind);
+            GuestBridgeClient.CreateImage(image,Width,Height,Depth,Kind);GuestBridgeClient.UpdateImage(image,Bytes);return image;
+        }
     }
     static readonly Dictionary<string,Payload> dataPayloads=new Dictionary<string,Payload>();
     static readonly Dictionary<string,Payload> artPayloads=new Dictionary<string,Payload>();
@@ -93,7 +97,8 @@ static class GuestColor
         System.Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
         var payload=new Payload{Bytes=bytes,Width=bytes.Length,Height=1,Depth=1,Kind=4};
         dataPayloads[id]=payload;
-        ulong image = GuestBridgeClient.ResourceEpoch==0?0:payload.Upload();
+        Celestial.Data.TryGetValue(id,out var previous);
+        ulong image = GuestBridgeClient.ResourceEpoch==0?0:payload.Upload(previous);
         if (image != 0)
             Celestial.Data[id] = image;
     }
@@ -105,7 +110,8 @@ static class GuestColor
         int layers = slices < 1 ? 1 : slices;
         var payload=new Payload{Bytes=(byte[])rgba.Clone(),Width=width,Height=height,Depth=layers,Kind=5};
         artPayloads[id]=payload;
-        ulong image = GuestBridgeClient.ResourceEpoch==0?0:payload.Upload();
+        Celestial.Art.TryGetValue(id,out var previous);
+        ulong image = GuestBridgeClient.ResourceEpoch==0?0:payload.Upload(previous);
         if (image != 0)
             Celestial.Art[id] = image;
     }

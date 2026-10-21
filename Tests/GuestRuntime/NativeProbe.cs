@@ -81,6 +81,7 @@ static partial class NativeProbe
     public static void DrawFrameProbe(ulong pipeline)
     {
         if (!Enabled) return;
+        if (BitConverter.ToUInt64(Execution(pipeline),16) != 0) throw new Exception("Pipeline creation incorrectly reported execution");
         const ulong image = 900;
         Check(Fn<ImageFn>("sevk_guest_create_image")(context, image, 8, 8, 1, 0));
         var packet = new byte[416];
@@ -91,6 +92,9 @@ static partial class NativeProbe
         try { Check(Fn<SubmitFn>("sevk_guest_submit")(context, pin.AddrOfPinnedObject(), 1)); }
         finally { pin.Free(); }
         Check(Fn<ReplayFn>("sevk_guest_replay_now")(context, 1));
+        var executed = Execution(pipeline);
+        if (BitConverter.ToUInt64(executed,16) != 1 || BitConverter.ToUInt64(executed,24) > BitConverter.ToUInt64(executed,32))
+            throw new Exception("Recorded/completed guest execution status diverged");
         var rgba = new byte[8 * 8 * 4]; pin = GCHandle.Alloc(rgba, GCHandleType.Pinned);
         try { Check(Fn<ReadFn>("sevk_guest_readback")(context, image, pin.AddrOfPinnedObject(), (ulong)rgba.Length)); }
         finally { pin.Free(); }

@@ -14,12 +14,15 @@ namespace ClientPlugin.Backend;
 public sealed class GuestProgram
 {
     public string Id;
+    public string Owner;
+    public int Policy = 1;
     public string Slot;
     public string File;
     public string Compose;
     public int Mark;
     public int Priority;
     public bool Enabled = true;
+    public bool ConflictDisabled;
     public float[] Uniforms;
     public string Status = "registered";
     public string Error;
@@ -33,6 +36,7 @@ public sealed class GuestProgram
     public string VertexEntry = "main";
     public int ResourceContract;
     public ulong Pipeline;
+    public long ResourceEpoch;
     public ulong StorageImage;
     public ulong HistoryImage;
     public int ImageWidth;
@@ -79,12 +83,13 @@ public static class GuestPassList
 {
     static readonly object Gate = new object();
     static readonly List<GuestProgram> Programs = new List<GuestProgram>();
+    static readonly List<GuestProgram> Retired = new List<GuestProgram>();
+    internal static GuestProgram[] TakeRetired()
+    {
+        lock (Gate) { var result = Retired.ToArray(); Retired.Clear(); return result; }
+    }
     static readonly List<GuestAttachment> Attachments = new List<GuestAttachment>();
-    static readonly Regex Field = new Regex("\"(?<key>id|slot|file|compose|history|output)\"\\s*:\\s*\"(?<value>(?:\\\\.|[^\"\\\\])*)\"",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    static readonly Regex ScaleField = new Regex("\"scale\"\\s*:\\s*(?<value>[0-9]*\\.?[0-9]+)",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
+    static readonly Dictionary<string, PackDefinition> Packs = new Dictionary<string, PackDefinition>(StringComparer.OrdinalIgnoreCase);
     public static IReadOnlyList<GuestProgram> Snapshot()
     {
         lock (Gate)
@@ -95,8 +100,10 @@ public static class GuestPassList
     {
         lock (Gate)
         {
+            Retired.AddRange(Programs);
             Programs.Clear();
             Attachments.Clear();
+            Packs.Clear();
         }
     }
 
@@ -106,25 +113,65 @@ public static class GuestPassList
             return Attachments.ToArray();
     }
 
-    public static int RegisterRoot(string id, string root)
+    public static int RegisterRoot(string id, string root, string requiredProgram = null)
     {
-        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
-            return 0;
-        var found = Load(root, id);
-        var attachments = LoadAttachments(root);
+        root = PackDefinition.ResolveRoot(root);
+        if (string.IsNullOrWhiteSpace(id)) throw new InvalidDataException("Pack registration requires an id.");
+        string manifest = Path.Combine(root, "anomaly.json");
+        if (!File.Exists(manifest)) throw new InvalidDataException("Pack root requires anomaly.json: " + root);
+        var definition = PackDefinition.Parse(File.ReadAllText(manifest));
+        var found = Load(root, id, definition);
+        var attachments = LoadAttachments(root, definition);
+        if (!string.IsNullOrEmpty(requiredProgram) && !found.Exists(p =>
+            string.Equals(p.Id, requiredProgram, StringComparison.OrdinalIgnoreCase) && File.Exists(p.File)))
+            throw new InvalidDataException("Required fullscreen program is missing: " + requiredProgram);
         lock (Gate)
         {
-            Programs.RemoveAll(p => string.Equals(PackOf(p.Id), id, StringComparison.OrdinalIgnoreCase)
-                || (!string.IsNullOrEmpty(id) && p.Id != null && p.Id.StartsWith(id + ".", StringComparison.OrdinalIgnoreCase)));
-            Programs.AddRange(found);
-            Attachments.RemoveAll(a => string.Equals(a.Owner, id, StringComparison.OrdinalIgnoreCase));
+            foreach (var program in found)
+                if (Programs.Exists(p => string.Equals(p.Id, program.Id, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(p.Owner, id, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException("Fullscreen program is owned by another registration: " + program.Id);
+            var candidate = Attachments.FindAll(a => !string.Equals(a.Owner, id, StringComparison.OrdinalIgnoreCase));
             for (int i = 0; i < attachments.Count; i++)
             {
                 attachments[i].Owner = id;
-                if (Admit(attachments[i]))
-                    Attachments.Add(attachments[i]);
+                if (Admit(attachments[i], candidate)) candidate.Add(attachments[i]);
+                else if (attachments[i].Status != "shared")
+                    throw new InvalidDataException("Attachment " + attachments[i].Name + ": " + attachments[i].Status);
             }
+            Retired.AddRange(Programs.FindAll(p => string.Equals(p.Owner, id, StringComparison.OrdinalIgnoreCase)));
+            Programs.RemoveAll(p => string.Equals(p.Owner, id, StringComparison.OrdinalIgnoreCase));
+            Programs.AddRange(found);
+            Attachments.Clear();
+            Attachments.AddRange(candidate);
+            if (definition != null) Packs[id] = definition;
+            ApplyExclusiveConflicts();
             return found.Count;
+        }
+    }
+
+    static void ApplyExclusiveConflicts()
+    {
+        var claims = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in Packs)
+            foreach (string stage in pair.Value.Exclusive)
+            {
+                if (!claims.TryGetValue(stage, out var owners)) claims.Add(stage, owners = new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                owners.Add(pair.Key);
+            }
+        var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var claim in claims.Values) if (claim.Count > 1) disabled.UnionWith(claim);
+        foreach (var program in Programs) program.ConflictDisabled = program.Owner != null && disabled.Contains(program.Owner);
+    }
+
+    public static void UnregisterRoot(string id)
+    {
+        lock (Gate)
+        {
+            Retired.AddRange(Programs.FindAll(p => string.Equals(p.Owner, id, StringComparison.OrdinalIgnoreCase)));
+            Programs.RemoveAll(p => string.Equals(p.Owner, id, StringComparison.OrdinalIgnoreCase));
+            Attachments.RemoveAll(a => string.Equals(a.Owner, id, StringComparison.OrdinalIgnoreCase));
+            Packs.Remove(id); ApplyExclusiveConflicts();
         }
     }
 
@@ -305,10 +352,9 @@ public static class GuestPassList
             if (program.Scale != snapped)
             {
                 program.Scale = snapped;
-                program.StorageImage = 0;
-                program.HistoryImage = 0;
                 program.ImageWidth = 0;
                 program.ImageHeight = 0;
+                program.HistoryReady = false;
             }
             return true;
         }
@@ -336,12 +382,12 @@ public static class GuestPassList
         }
     }
 
-    public static List<GuestProgram> Load(string root, string fallbackId)
+    public static List<GuestProgram> Load(string root, string fallbackId, PackDefinition definition = null)
     {
         var list = new List<GuestProgram>();
         var manifest = Path.Combine(root, "anomaly.json");
         if (File.Exists(manifest))
-            ParseManifest(File.ReadAllText(manifest), root, list);
+            ParseManifest(definition ?? PackDefinition.Parse(File.ReadAllText(manifest), fallbackId), root, fallbackId, list);
         ScanFolder(root, fallbackId, list);
         return list;
     }
@@ -357,104 +403,45 @@ public static class GuestPassList
         return count;
     }
 
-    static void ParseManifest(string json, string root, List<GuestProgram> list)
+    static void ParseManifest(PackDefinition pack, string root, string fallbackId, List<GuestProgram> list)
     {
-        if (string.IsNullOrEmpty(json))
-            return;
-        int passes = json.IndexOf("\"passes\"", StringComparison.Ordinal);
-        if (passes < 0)
-            return;
-        int array = json.IndexOf('[', passes);
-        if (array < 0)
-            return;
-        int depth = 0;
-        int start = -1;
-        for (int i = array; i < json.Length; i++)
+        foreach (var pass in pack.Passes)
         {
-            char c = json[i];
-            if (c == '{')
+            int mark = GuestMark.FromSlot(pass.Slot);
+            if (mark == 0) throw new InvalidDataException("Unknown fullscreen slot: " + pass.Slot);
+            string id = pass.Id ?? pack.Id + "." + pass.Slot + "." + list.Count.ToString(CultureInfo.InvariantCulture);
+            string path = PackDefinition.ResolveFile(root, pass.File);
+            var binds = new List<SrvBind>();
+            foreach (var bind in pass.Binds)
             {
-                if (depth == 1)
-                    start = i;
-                depth++;
+                int slot = bind.Slot < 0 ? NextPackSlot(binds) : bind.Slot;
+                if (slot != 7 && slot != 8 && slot != 9 && slot != 12 && slot != 13)
+                    throw new InvalidDataException("Reserved or unavailable catalog register: t" + slot);
+                if (binds.Exists(b => b.Slot == slot)) throw new InvalidDataException("Duplicate catalog register: t" + slot);
+                binds.Add(new SrvBind { Name = bind.Catalog, Slot = slot });
             }
-            else if (c == '}')
+            int policy = 0;
+            foreach (string temporal in pass.Temporal)
             {
-                depth--;
-                if (depth == 1 && start >= 0)
+                switch (temporal.ToLowerInvariant())
                 {
-                    AddObject(json.Substring(start, i - start + 1), root, list);
-                    start = -1;
+                    case "none": break;
+                    case "incolor": policy |= 1; break;
+                    case "contributevelocity": policy |= 2; break;
+                    case "reactive": policy |= 4; break;
+                    case "display": policy |= 8; break;
+                    default: throw new InvalidDataException("Unknown temporal policy: " + temporal);
                 }
             }
-            else if (c == '[')
-                depth++;
-            else if (c == ']')
-            {
-                depth--;
-                if (depth <= 0)
-                    break;
-            }
+            ReplaceOrAdd(list, new GuestProgram {
+                Id = id, Owner = fallbackId ?? pack.Id, Slot = pass.Slot, File = path, SourceFile = path,
+                Compose = pass.Compose, Mark = mark, Scale = SnapScale(pass.Scale), HistoryName = pass.History,
+                OutputName = pass.Output, IncludeRoot = root, Srvs = binds, Priority = pass.Priority ?? pack.Priority,
+                Policy = policy == 0 ? 1 : policy,
+                Format = string.Equals(pass.Compose, "PublishOnly", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
+                Status = File.Exists(path) ? "source" : "missing-source"
+            });
         }
-    }
-
-    static void AddObject(string block, string root, List<GuestProgram> list)
-    {
-        string id = null, slot = null, file = null, compose = "IsolatedAdd", history = null, output = null;
-        foreach (Match match in Field.Matches(block))
-        {
-            string key = match.Groups["key"].Value;
-            string value = match.Groups["value"].Value.Replace("\\\"", "\"");
-            if (key == "id") id = value;
-            else if (key == "slot") slot = value;
-            else if (key == "file") file = value;
-            else if (key == "compose") compose = value;
-            else if (key == "history") history = value;
-            else if (key == "output") output = value;
-        }
-        float scale = 1f;
-        var scaleMatch = ScaleField.Match(block);
-        if (scaleMatch.Success && float.TryParse(scaleMatch.Groups["value"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
-            scale = SnapScale(parsed);
-
-        if (string.IsNullOrEmpty(slot))
-            return;
-        int mark = GuestMark.FromSlot(slot);
-        if (mark == 0)
-            return;
-        if (string.IsNullOrEmpty(id))
-            id = slot + "." + list.Count.ToString(CultureInfo.InvariantCulture);
-        string path = string.IsNullOrEmpty(file) ? null : Path.Combine(root, file.Replace('/', Path.DirectorySeparatorChar));
-        bool publish = string.Equals(compose, "PublishOnly", StringComparison.OrdinalIgnoreCase);
-        var binds = new List<SrvBind>();
-        var bindArray = Regex.Match(block, "\"binds\"\\s*:\\s*\\[(?<items>[^\\]]*)\\]", RegexOptions.Singleline);
-        foreach (Match item in Regex.Matches(bindArray.Groups["items"].Value, "\\{[^{}]*\\}"))
-        {
-            var catalog = Regex.Match(item.Value, "\"catalog\"\\s*:\\s*\"(?<name>[^\"]+)\"");
-            var bindSlot = Regex.Match(item.Value, "\"slot\"\\s*:\\s*(?<slot>[0-9]+)");
-            if (!catalog.Success || !bindSlot.Success) continue;
-            int register = int.Parse(bindSlot.Groups["slot"].Value, CultureInfo.InvariantCulture);
-            if ((register == 7 || register == 8 || register == 9 || register == 12 || register == 13)
-                && !binds.Exists(b => b.Slot == register))
-                binds.Add(new SrvBind { Name = catalog.Groups["name"].Value, Slot = register });
-        }
-        var priority = Regex.Match(block, "\"priority\"\\s*:\\s*(?<priority>-?[0-9]+)");
-        ReplaceOrAdd(list, new GuestProgram
-        {
-            Id = id,
-            Slot = slot,
-            File = path,
-            Compose = compose,
-            Mark = mark,
-            Scale = scale,
-            HistoryName = history,
-            OutputName = output,
-            IncludeRoot = root,
-            Srvs = binds,
-            Priority = priority.Success ? int.Parse(priority.Groups["priority"].Value, CultureInfo.InvariantCulture) : 0,
-            Format = publish ? 1 : 0,
-            Status = path != null && File.Exists(path) ? "source" : "missing-source",
-        });
     }
 
     static void ScanFolder(string root, string fallbackId, List<GuestProgram> list)
@@ -477,6 +464,7 @@ public static class GuestPassList
                 list.Add(new GuestProgram
                 {
                     Id = id,
+                    Owner = fallbackId,
                     Slot = slot,
                     File = file,
                     IncludeRoot = root,
@@ -494,6 +482,7 @@ public static class GuestPassList
         {
             if (string.Equals(list[i].Id, program.Id, StringComparison.OrdinalIgnoreCase))
             {
+                if (ReferenceEquals(list, Programs)) Retired.Add(list[i]);
                 list[i] = program;
                 return;
             }
@@ -524,7 +513,7 @@ public static class GuestPassList
         return null;
     }
 
-    public static List<GuestAttachment> LoadAttachments(string root)
+    public static List<GuestAttachment> LoadAttachments(string root, PackDefinition definition = null)
     {
         var list = new List<GuestAttachment>();
         if (string.IsNullOrWhiteSpace(root))
@@ -532,7 +521,7 @@ public static class GuestPassList
         string manifest = Path.Combine(root, "anomaly.json");
         if (!File.Exists(manifest))
             return list;
-        ParseAttachments(File.ReadAllText(manifest), root, list);
+        ParseAttachments(definition ?? PackDefinition.Parse(File.ReadAllText(manifest), Path.GetFileName(root)), root, list);
         return list;
     }
 
@@ -550,14 +539,15 @@ public static class GuestPassList
         }
     }
 
-    static bool Admit(GuestAttachment attachment)
+    static bool Admit(GuestAttachment attachment, List<GuestAttachment> active = null)
     {
+        active = active ?? Attachments;
         if (attachment == null || attachment.NativeFormat < 0)
             return false;
         var taken = new bool[3];
-        for (int i = 0; i < Attachments.Count; i++)
+        for (int i = 0; i < active.Count; i++)
         {
-            var live = Attachments[i];
+            var live = active[i];
             if (live.Slot >= 0 && live.Slot < 3)
                 taken[live.Slot] = true;
             if (!string.Equals(live.Name, attachment.Name, StringComparison.OrdinalIgnoreCase))
@@ -585,76 +575,18 @@ public static class GuestPassList
         return true;
     }
 
-    static void ParseAttachments(string json, string root, List<GuestAttachment> list)
+    static void ParseAttachments(PackDefinition pack, string root, List<GuestAttachment> list)
     {
-        if (string.IsNullOrEmpty(json))
-            return;
-        int at = json.IndexOf("\"attachments\"", StringComparison.Ordinal);
-        if (at < 0)
-            return;
-        int array = json.IndexOf('[', at);
-        if (array < 0)
-            return;
-        int depth = 0;
-        int start = -1;
-        for (int i = array; i < json.Length; i++)
+        foreach (var spec in pack.Attachments)
         {
-            char c = json[i];
-            if (c == '{')
-            {
-                if (depth == 1)
-                    start = i;
-                depth++;
-            }
-            else if (c == '}')
-            {
-                depth--;
-                if (depth == 1 && start >= 0)
-                {
-                    AddAttachment(json.Substring(start, i - start + 1), root, list);
-                    start = -1;
-                }
-            }
-            else if (c == '[')
-                depth++;
-            else if (c == ']')
-            {
-                depth--;
-                if (depth <= 0)
-                    break;
-            }
+            var attachment = CreateAttachment(spec.Name, spec.Format, PackDefinition.ResolveFile(root, spec.File), null);
+            // Packed GBuffer1.a is handled by the owning material path, not an extra image.
+            if (attachment == null) continue;
+            if (list.Exists(a => string.Equals(a.Name, attachment.Name, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException("Duplicate attachment: " + attachment.Name);
+            attachment.Slot = list.Count;
+            list.Add(attachment);
         }
-    }
-
-    static void AddAttachment(string block, string root, List<GuestAttachment> list)
-    {
-        string name = null, format = null, file = null;
-        foreach (Match match in Regex.Matches(block, "\"(?<key>name|format|file)\"\\s*:\\s*\"(?<value>(?:\\\\.|[^\"\\\\])*)\"", RegexOptions.CultureInvariant))
-        {
-            string key = match.Groups["key"].Value;
-            string value = match.Groups["value"].Value.Replace("\\\"", "\"");
-            if (key == "name") name = value;
-            else if (key == "format") format = value;
-            else if (key == "file") file = value;
-        }
-        if (string.IsNullOrEmpty(file) && !string.IsNullOrEmpty(name))
-            file = "GBuffer/" + name + ".hlsl";
-        string path = string.IsNullOrEmpty(file) ? null : Path.Combine(root, file.Replace('/', Path.DirectorySeparatorChar));
-        var attachment = CreateAttachment(name, format, path, null);
-        if (attachment == null)
-            return;
-        for (int i = 0; i < list.Count; i++)
-        {
-            if (!string.Equals(list[i].Name, attachment.Name, StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (list[i].NativeFormat != attachment.NativeFormat)
-                return;
-            return;
-        }
-        if (list.Count >= 3)
-            return;
-        attachment.Slot = list.Count;
-        list.Add(attachment);
     }
 
     static GuestAttachment CreateAttachment(string name, string format, string file, string owner)

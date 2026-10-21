@@ -950,6 +950,7 @@ public static class FullscreenPassRegistry
     {
         rc.PixelShader.Set(prog.Shader);
         rc.Draw(3, 0);
+        RecordProduction(prog);
         UnbindBus(rc);
         rc.SetRtvNull();
         if ((prog.Policy & TemporalPolicy.Reactive) != 0 &&
@@ -1007,6 +1008,7 @@ public static class FullscreenPassRegistry
         BindSingleRtv(rc, dest);
         BindBus(rc, t0, prog);
         rc.Draw(3, 0);
+        RecordProduction(prog);
         UnbindBus(rc);
         rc.SetRtvNull();
     }
@@ -1028,6 +1030,7 @@ public static class FullscreenPassRegistry
         BindComputeBus(rc, t0, prog, uav);
         rc.ComputeShader.Set(prog.Compute);
         rc.Dispatch((size.X + 7) / 8, (size.Y + 7) / 8, 1);
+        RecordProduction(prog);
         UnbindCompute(rc);
         return true;
     }
@@ -1239,6 +1242,18 @@ public static class FullscreenPassRegistry
         if (dest != null)
             prog.LastDest = DescribeRt(dest);
         prog.LastDrawTick = Environment.TickCount;
+    }
+
+    static void RecordProduction(Program program) { ++program.Executions; program.LastProducedFrame = FrameTemporal.FrameIndex; }
+
+    public static object[] GetExecutionState(string id)
+    {
+        lock (Gate)
+            foreach (var program in Programs)
+                if (string.Equals(program.Id, id, StringComparison.OrdinalIgnoreCase))
+                    return new object[] { true, program.Shader != null || program.Compute != null, IsLiveUnlocked(program),
+                        program.LastProducedFrame, program.Executions, program.LastError };
+        return null;
     }
 
     static string DescribeRt(IRtvBindable dest)
@@ -2112,6 +2127,8 @@ public static class FullscreenPassRegistry
         public string LastMerge;
         public string LastDest;
         public int LastDrawTick;
+        public uint LastProducedFrame = uint.MaxValue;
+        public ulong Executions;
         public bool WarnedMotion;
         public PixelShader Shader;
         public ComputeShader Compute;

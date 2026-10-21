@@ -480,3 +480,33 @@ coordinates and 36 observer positions across all six cube faces; WARP projection
 filter and contact-distance regressions; source integration checks prohibit the
 shared projection buffer and enforce the distinct atlas/mask origins. The live
 shaking symptom is confirmed; visual acceptance of this correction is pending.
+
+## Shared manifest and target lifecycle (2026-10-21 candidate)
+
+Both adapters consume the device-free `PackDefinition` and `ShaderStages` catalog.
+Manifest JSON is parsed structurally: nested bindings, escaped strings, arrays,
+priority and temporal flags retain their meaning. Invalid manifests, missing
+required programs and duplicate program ownership leave the current registration
+unchanged. `TryRegister` confirms admission; it does not certify compilation or
+execution. Directory and zip roots share the same resolver.
+
+`FullscreenPassRegistry.GetProgramState(id)` reports registration, compilation,
+activation and recorded production separately. `ProductionStatusSupported` is
+false on an older native host. Vulkan additionally reports timeline completion;
+DX11 records command production without claiming GPU completion. Existing
+`TryGetProgramStatus` and DX11 callback signatures remain available.
+
+Vulkan `CatalogImages.EnsureColorTarget` retains the requested format and image
+ID across identical ensures and resizing. Supported DXGI format values are 2,
+10, 28, 34, 41 and 54. Clears are copied floating-point commands; FP16 alpha -1
+and HDR values survive. Prepare target descriptions and retire old registrations
+before queuing frame work. `ShaderPackRegistry.Unregister(id)` removes owned
+programs and targets; native resources retire after their last possible GPU
+submission. Unchanged ensures preserve contents.
+
+These operations require coordinated SE-Vulkan native features bit13 (resource
+commands/lifetime) and bit14 (execution status). ABI-1 pass layouts remain
+unchanged. Older hosts receive an update-SE-Vulkan refusal when a new resource
+operation is required. Full named-stage execution, attachment parity, fullscreen
+composition/history, portable callbacks and matched live qualification remain
+separate gates in the full parity plan.

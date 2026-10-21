@@ -50,6 +50,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Backend\**\*.cs" />
+    <Compile Include="ShaderFramework\ShaderStages.cs" />
     <!-- Settings is also compiled into Anomaly.Dx11. The two copies are
          different types. Pulsar must compile this directory or the plugin
          version and config dialog stay on the DX11 assembly. -->
@@ -57,6 +58,7 @@
     <Compile Include="RichHud\**\*.cs" />
     <Compile Include="RichHudFramework\**\*.cs" />
   </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'"><Reference Include="System.Runtime.Serialization" /><Reference Include="System.Xml.Linq" /><Reference Include="System.IO.Compression" /><Reference Include="System.IO.Compression.FileSystem" /></ItemGroup>
   <!-- Core is the Pulsar plugin. It must not reference VRage.Render11 or SharpDX.
        Those stay on Anomaly.Dx11, loaded only after the renderer choice is DX11. -->
   <ItemGroup>

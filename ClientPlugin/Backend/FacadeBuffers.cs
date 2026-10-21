@@ -11,16 +11,12 @@ public static class CatalogImages
     {
         if (RendererRoute.UseDx11Device)
             return Dx11Call.Try(Dx, "EnsureColorTarget", new object[] { packId, name, width, height, format }, out var result) && result is true;
-        var buffer = new PublishedBuffer();
-        buffer.PublishRgba8(new byte[Math.Max(width, 1) * Math.Max(height, 1) * 4], Math.Max(width, 1), Math.Max(height, 1));
-        BufferCatalog.Publish(packId ?? "anomaly", name, buffer);
-        return RendererRoute.Pending == RendererRoute.Active || buffer.ImageId != 0;
+        return GuestCatalogTargets.Ensure(packId ?? "anomaly", name, width, height, format);
     }
 
     public static void ClearColorTarget(string name, float r, float g, float b, float a)
     {
-        if (RendererRoute.RefuseDx11Device("CatalogImages.ClearColorTarget"))
-            return;
+        if (!RendererRoute.UseDx11Device) { GuestCatalogTargets.Clear(name, r, g, b, a); return; }
         Dx11Call.Call(Dx, "ClearColorTarget", name, r, g, b, a);
     }
 
@@ -103,6 +99,7 @@ public static class BufferCatalog
 
     public static void Unpublish(string packId, string name)
     {
+        if (!RendererRoute.UseDx11Device) GuestCatalogTargets.Release(packId, name);
         lock (Local)
             Local.Remove(name ?? "");
         if (RendererRoute.UseDx11Device)
@@ -111,6 +108,7 @@ public static class BufferCatalog
 
     public static void UnpublishAll(string packId)
     {
+        if (!RendererRoute.UseDx11Device) { GuestCatalogTargets.Release(packId); return; }
         if (RendererRoute.RefuseDx11Device("BufferCatalog.UnpublishAll"))
             return;
         Dx11Call.Call(Dx, "UnpublishAll", packId);
@@ -216,6 +214,7 @@ public sealed class PublishedBuffer
     int uploadKind;
     bool deviceApplied;
     int guestWidth,guestHeight,guestDepth,guestFormat;
+    long guestEpoch;
 
     public PublishedBuffer() => EnsureInner();
 
@@ -293,6 +292,7 @@ public sealed class PublishedBuffer
 
     public void Clear()
     {
+        GuestBridgeClient.RetireImage(ImageId, guestEpoch);
         if (Inner != null)
             Dx11Call.CallInstance(Inner, "Clear");
         Rgba = null;
@@ -344,7 +344,7 @@ public sealed class PublishedBuffer
             UploadGuest(Math.Max(Width,1),Math.Max(Height,1),Math.Max(depth,1),Rgba,0);
         }
         deviceApplied = ImageId != 0;
-        if(uploadKind==3 && ImageId!=0 && mipData!=null){guestWidth=Width;guestHeight=Height;guestDepth=Depth;guestFormat=(mipData.Length<<16);}
+        if(uploadKind==3 && ImageId!=0 && mipData!=null){guestWidth=Width;guestHeight=Height;guestDepth=Depth;guestFormat=(mipData.Length<<16);guestEpoch=GuestBridgeClient.ResourceEpoch;}
     }
 
     void UploadGuest(int width,int height,int depth,byte[] bytes,int format)
@@ -356,6 +356,7 @@ public sealed class PublishedBuffer
             if(bytes!=null)GuestBridgeClient.UpdateImage(ImageId,bytes);
         }
         guestWidth=width;guestHeight=height;guestDepth=depth;guestFormat=format;
+        guestEpoch = GuestBridgeClient.ResourceEpoch;
     }
 
     void EnsureInner()

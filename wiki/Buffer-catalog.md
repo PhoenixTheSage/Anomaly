@@ -45,3 +45,14 @@ foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
 > **Warning — Jitter.** SE-DLSS owns Halton jitter (Projection M31/M32). Anomaly reads it into `FrameTemporal` and republishes an unjittered VP on the extras CB. Linearize uses M33/M43 only. Do not steal jitter.
 
 → [[Velocity-contract|Velocity-specific flags]] · [[Frame-graph|When buffers freeze]]
+
+## Vulkan render-target requests (2026-10-21 candidate)
+
+`CatalogImages.EnsureColorTarget(packId, name, width, height, format)` now retains
+the requested DXGI format (2/10/28/34/41/54), defers device work until the renderer
+callback and reuses its image ID on resize. An identical ensure preserves image
+contents. `ClearColorTarget` queues a floating-point clear, including FP16 alpha
+-1 and HDR values. Names have one target owner; a conflicting owner is refused.
+Unpublish or unregister queues native retirement. Prepare target allocation and
+retirement before queuing frame passes. New operations require SE-Vulkan native
+feature bit13; old hosts return an actionable update refusal.

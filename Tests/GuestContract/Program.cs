@@ -42,7 +42,31 @@ static class Program
             return Fail("Vulkan route opened the DX11 device path");
         if (!RendererPaths.IsPathOpen(RendererPaths.Vulkan, RendererPaths.Shared) || RendererPaths.IsPathOpen(RendererPaths.Vulkan, RendererPaths.Dx11Device))
             return Fail("path table diverged");
-        Console.WriteLine("guest contract pass list matches on the shared parser");
+        var parsed = PackDefinition.Parse("{\"id\":\"pack\",\"priority\":7,\"name\":\"quoted \\\"[{}]\\\"\",\"passes\":[{\"id\":\"pack.test\",\"slot\":\"AfterLighting\",\"file\":\"test.hlsl\",\"binds\":[{\"catalog\":\"history[{}]\",\"slot\":7}],\"temporal\":[\"Reactive\"]}]}");
+        if (parsed.Id != "pack" || parsed.Priority != 7 || parsed.Passes[0].Binds[0].Catalog != "history[{}]"
+            || parsed.Passes[0].Temporal[0] != "Reactive" || parsed.Name != "quoted \"[{}]\"")
+            return Fail("structured manifest parsing lost escaped or nested fields");
+        foreach (string invalid in new[] { "{", "{}", "{\"id\":\"a\",\"id\":\"b\"}", "{\"id\":\"a\",\"passes\":[{\"slot\":3}]}" })
+        {
+            try { PackDefinition.Parse(invalid); return Fail("accepted malformed manifest: " + invalid); }
+            catch (System.IO.InvalidDataException) { }
+        }
+        string validManifest = File.ReadAllText(Path.Combine(root, "anomaly.json")).Replace("{\n", "{\n\"id\":\"fixture\",\n");
+        File.WriteAllText(Path.Combine(root, "anomaly.json"), validManifest);
+        GuestPassList.RegisterRoot("fixture", root, "fixture.color");
+        var before = GuestPassList.Snapshot()[0];
+        try { GuestPassList.RegisterRoot("fixture", root, "fixture.absent"); return Fail("missing required program accepted"); }
+        catch (System.IO.InvalidDataException) { }
+        try { GuestPassList.RegisterRoot("other-owner", root); return Fail("duplicate program ownership accepted"); }
+        catch (System.IO.InvalidDataException) { }
+        if (!object.ReferenceEquals(before, GuestPassList.Snapshot()[0])) return Fail("rejected registration changed current generation");
+        File.WriteAllText(Path.Combine(root, "anomaly.json"), "{broken");
+        try { GuestPassList.RegisterRoot("fixture", root); return Fail("invalid reload succeeded"); }
+        catch (System.IO.InvalidDataException) { }
+        if (!object.ReferenceEquals(before, GuestPassList.Snapshot()[0])) return Fail("invalid reload changed active registration");
+        GuestPassList.UnregisterRoot("fixture");
+        if (GuestPassList.Snapshot().Count != 0) return Fail("unregister retained owned programs");
+        Console.WriteLine("PASS: shared parser, escaped/nested fields, malformed input, required program, transactional reload and pending renderer");
         return 0;
     }
 

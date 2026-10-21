@@ -7,7 +7,35 @@ namespace ClientPlugin.Shaders;
 
 public static class FullscreenPassRegistry
 {
-    public static bool IsPackSrvSlot(int slot) => ForwardBool("IsPackSrvSlot", slot);
+    public static ShaderProgramStatus GetProgramState(string id)
+    {
+        if (RenderHost.IsDx11)
+        {
+            Dx11Call.Try(Dx, "GetExecutionState", new object[] { id }, out var result);
+            var state = result as object[];
+            if (state == null) return new ShaderProgramStatus();
+            return new ShaderProgramStatus { Registered = (bool)state[0], Compiled = (bool)state[1], Active = (bool)state[2],
+                ProductionStatusSupported = true, LastProducedFrame = (uint)state[3], Executions = (ulong)state[4],
+                ProducedThisFrame = (ulong)state[4] != 0 && (uint)state[3] == FrameTemporal.FrameIndex, Error = state[5] as string };
+        }
+        foreach (var program in GuestPassList.Snapshot())
+            if (string.Equals(program.Id, id, StringComparison.OrdinalIgnoreCase))
+            {
+                var native = program.Pipeline == 0 ? null : GuestBridgeClient.ExecutionStatus(program.Pipeline);
+                var state = new ShaderProgramStatus { Registered = true, Compiled = program.PixelSpirv != null,
+                    Active = program.Enabled && !program.ConflictDisabled && program.Pipeline != 0, Error = program.Error,
+                    ProductionStatusSupported = native != null && native.Length == 48 };
+                if (state.ProductionStatusSupported)
+                {
+                    state.Executions = BitConverter.ToUInt64(native, 16); state.LastProducedFrame = BitConverter.ToUInt32(native, 40);
+                    state.LastSubmissionCompleted = state.Executions != 0 && BitConverter.ToUInt64(native, 24) <= BitConverter.ToUInt64(native, 32);
+                    state.ProducedThisFrame = state.Executions != 0 && GuestFrame.Open && state.LastProducedFrame == GuestFrame.U32(16);
+                }
+                return state;
+            }
+        return new ShaderProgramStatus();
+    }
+    public static bool IsPackSrvSlot(int slot) => slot == 7 || slot == 8 || slot == 9 || slot == 12 || slot == 13;
     public static string StatusLine =>
         RendererRoute.UseGuestImages ? GuestPassList.FullscreenStatus() : ForwardString("StatusLine");
 
@@ -131,11 +159,13 @@ public static class ShaderPackRegistry
     public static string LastError => Dx11Call.Get(Dx, "LastError") as string;
 
     public static void Register(string id, string root) => RenderHost.QueueRegister(id, root);
+    public static void Unregister(string id) => RenderHost.QueueUnregister(id);
 
     public static bool TryRegister(string id, string root, string requiredFullscreenProgramId, out string error)
     {
-        RenderHost.QueueRegister(id, root);
         error = null;
+        try { RenderHost.QueueRegister(id, root, requiredFullscreenProgramId); }
+        catch (Exception failure) { error = failure.Message; return false; }
         if (!RenderHost.IsDx11)
             return true;
         object[] args = { id, root, requiredFullscreenProgramId, null };

@@ -297,6 +297,7 @@
     <Compile Include="Backend\VolumeInteriorData.cs" />
     <Compile Include="Backend\VolumeShadowViews.cs" />
     <Compile Include="Backend\VolumeFrameData.cs" />
+    <Compile Include="Backend\PackDefinition.cs" />
     <Compile Remove="obj\**\*.cs;bin\**\*.cs" />
     <Compile Remove="RichHud\**\*.cs" />
     <Compile Remove="RichHudFramework\**\*.cs" />
@@ -361,5 +362,6 @@
           Command="sh &quot;$(MSBuildProjectDirectory)/Deploy.sh&quot; &quot;$(AssemblyName).dll&quot; &quot;$(DeploySourceDir)&quot; &quot;$(TargetFramework)&quot;" />
   </Target>
   <ItemGroup><ProjectReference Include="ClientPlugin.csproj" Aliases="AnomalyShared" AdditionalProperties="RunPostBuildEvent=Never;SkipDx11Satellite=true" /></ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'"><Reference Include="System.Runtime.Serialization" /><Reference Include="System.Xml.Linq" /></ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 </Project>

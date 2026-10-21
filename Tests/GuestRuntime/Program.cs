@@ -10,6 +10,7 @@ static partial class Program
     static void Require(bool ok, string message) { if (!ok) throw new Exception(message); }
     static void Main(string[] args)
     {
+        if (Array.IndexOf(args, "--parity-contracts") >= 0) { ParityContracts(); return; }
         string root = Path.GetFullPath(args.Length > 0 ? args[0] : "../..");
         string assets = Path.Combine(root, "Assets");
         if(Array.IndexOf(args,"--core-only")>=0) {PlanetSnapshot(root);return;}

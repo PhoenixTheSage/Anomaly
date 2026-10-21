@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="StatusAdapters.cs" />
     <Compile Include="..\..\ClientPlugin\Backend\GuestMark.cs" Link="GuestMark.cs" />
     <Compile Include="..\..\ClientPlugin\Backend\GuestPassList.cs" Link="GuestPassList.cs" />
     <Compile Include="..\..\ClientPlugin\Backend\RendererPaths.cs" Link="RendererPaths.cs" />

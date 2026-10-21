@@ -1118,3 +1118,53 @@ and identical SPIR-V for a comment-only override. This closes the immutable
 source/compiler foundation. Native owner activation, every-stage execution,
 complete attachments, HDR/vendor integration and matched Windows acceptance
 remain open.
+
+### Vulkan owned-raster generations (stage 6, partial)
+
+Anomaly now prepares detached raster generations for `Anomaly.CameraVelocity`,
+`Anomaly.LinearDepth` (including HiZ) and `Anomaly.HistoryColor`. Sources and
+includes are captured with pack identity, owned/game shader bytes, injection order and pack
+defines. Overlapping overlays fail closed to stock; conflicting exclusive packs
+are disabled as on DX11. A replacement of shared `Fullscreen.hlsl` affects every
+owned raster consumer in the same transaction. The adapter explicitly converts
+DX11 clip-space Y for Vulkan's positive viewport while preserving custom UVs. Native lit-mip blits
+are outside this raster contract and do not execute arbitrary HistoryCopy code.
+
+Preparation compiles and creates new pipelines without changing the active
+programs. Before the frame snapshot, Anomaly rechecks registration revision,
+device epoch and program identity, then activates the complete generation under
+one lock. Compilation, native descriptor rejection or stale preparation retains
+the prior valid generation. Unregister prepares stock restoration. Pipeline-only
+retirement preserves shared output/history images and uses SE-Vulkan's existing
+submission-completion retirement. Device recreation recompiles the captured
+active sources and rejects prepared handles from the old epoch.
+
+`ShaderPackRegistry.GetOwnedStageState(stage)` reports `RasterReplacementSupported`,
+`RequestedGeneration`, `PreparedGeneration`, `ActiveGeneration`, `ProgramIds` and
+`Error` for this Vulkan subset. Use `FullscreenPassRegistry.GetProgramState(id)`
+for each listed program: `ActiveGeneration` identifies its generation, while
+native execution counters/completion/current-frame production remain separate.
+Preparation and activation do not imply execution. A null active generation
+means the initial stock program, before any generation transaction.
+
+The deterministic Vulkan fixture proves captured pixel replacement, named
+vertex orientation at odd dimensions, injection/defines actually used by the
+pixel shader, HDR/negative alpha, native execution, compile/binding rollback,
+stale source/device refusal and stock restoration, with validation enabled and
+zero errors. This is a partial execution gate. Complete stock-native stage
+activation, reserved catalog bindings, same-invocation attachments and matched
+loaded-world acceptance remain open; the aggregate named-stage capability
+stays false.
+
+
+Owned-raster replacement requires native feature bit18 in addition to bit13
+retirement. Older hosts receive an explicit update refusal. ABI-1 packet layouts
+are unchanged. Reloading identical captured sources coalesces to the active
+pipelines. Shared-volume generated requests now capture each provider's declared
+pack root (including sibling Inject/ headers), or its standalone directory;
+active includes escaping capture are still refused by the compiler.
+
+The final actual-core suite passes355 checks with synchronization validation
+and zero errors. It executes real Fog/Clouds providers and the owned-stage
+synchronous/pipelined replacement/rollback/restoration path with an outstanding
+submission. A matched loaded-game DX11/Vulkan comparison is still required.

@@ -73,6 +73,7 @@ static class GuestBridgeClient
     }
 
     internal const int ResourceCommands = 8192;
+    internal const int OwnedRasterGenerations = 262144;
     internal static byte[] ExecutionStatus(ulong pipeline) => Call("ExecutionStatus", pipeline) as byte[];
     internal static object[] CaptureFrameInputs() => Call("CaptureFrameInputs") as object[];
     internal static bool SetFrameEnvironment(byte[] packet) => Call("SetFrameEnvironment", (object)packet) is true;

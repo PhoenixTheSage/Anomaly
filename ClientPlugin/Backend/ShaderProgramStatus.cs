@@ -3,6 +3,7 @@ namespace ClientPlugin.Shaders;
 /// <summary>Registration, compilation and recording are separate observations.</summary>
 public sealed class ShaderProgramStatus
 {
+    public string ActiveGeneration { get; internal set; }
     public bool Registered { get; internal set; }
     public bool Compiled { get; internal set; }
     public bool Active { get; internal set; }

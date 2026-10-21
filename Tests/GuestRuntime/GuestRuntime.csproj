@@ -14,6 +14,7 @@
     <Compile Include="CompositionContracts.cs" />
     <Compile Include="TemporalContracts.cs" />
     <Compile Include="PortableContracts.cs" />
+    <Compile Include="OwnedStageContracts.cs" />
     <Compile Include="../../ClientPlugin/Backend/PortablePassRegistry.cs" />
     <Compile Include="../../ClientPlugin/Backend/PortablePassContext.cs" />
     <Compile Include="../../ClientPlugin/Backend/FrameEnvironment.cs" />
@@ -37,6 +38,7 @@
     <Compile Include="../../ClientPlugin/Backend/GuestBridgeClient.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestCatalogTargets.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestCompiler.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestNamedStages.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestPassList.cs" />
     <Compile Include="../../ClientPlugin/Backend/PackDefinition.cs" />
     <Compile Include="../../ClientPlugin/Backend/PackSourceSnapshot.cs" />

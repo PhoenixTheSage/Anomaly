@@ -70,81 +70,7 @@ static class GuestCompiler
                 vertexSpirv = Compile(bundled, WriteTemp("anomaly-guest-vs.hlsl", VertexSource), "main", "vs_5_0", assetFolder);
             PrepareVolume(assetFolder);
             string celestialIncludes = WriteCelestialIncludes();
-            foreach (var program in GuestPassList.Snapshot())
-            {
-                if (program.Pipeline != 0 || program.Status == "compile-failed" || program.Status == "pipeline-failed")
-                    continue;
-                if (program.File == null || !File.Exists(program.File) || vertexSpirv == null)
-                {
-                    program.Status = "compile-skipped";
-                    continue;
-                }
-
-                bool compute = (program.Flags & GuestBridgeClient.Compute) != 0;
-                string firstInclude = (program.Flags & GuestBridgeClient.DepthTest) != 0 ? celestialIncludes : null;
-                if (compute) program.VertexSpirv = new byte[] { 1, 0, 0, 0 };
-                else if (string.IsNullOrEmpty(program.VertexFile)) program.VertexSpirv = vertexSpirv;
-                else if (program.VertexSpirv == null)
-                    program.VertexSpirv = Compile(bundled, program.VertexFile, program.VertexEntry, "vs_5_0", assetFolder);
-                if (program.VertexSpirv == null) { program.Status = "compile-failed"; program.Error = LastError; continue; }
-                if (program.PixelSpirv == null)
-                {
-                    if (compute)
-                    {
-                        program.PixelSpirv = Compile(bundled, program.File, "main", "cs_5_0", assetFolder, firstInclude, false, program.IncludeRoot ?? Path.GetDirectoryName(program.SourceFile ?? program.File), program.Slot);
-                        program.PixelEntry = "main";
-                        if (program.PixelSpirv == null)
-                        {
-                            program.PixelSpirv = Compile(bundled, program.File, "__compute_shader", "cs_5_0", assetFolder, firstInclude, true, program.IncludeRoot ?? Path.GetDirectoryName(program.SourceFile ?? program.File), program.Slot);
-                            program.PixelEntry = "__compute_shader";
-                        }
-                    }
-                    else
-                    {
-                        program.PixelSpirv = Compile(bundled, program.File, "main", "ps_5_0", assetFolder, firstInclude, false, program.IncludeRoot ?? Path.GetDirectoryName(program.SourceFile ?? program.File), program.Slot);
-                        program.PixelEntry = "main";
-                        if (program.PixelSpirv == null)
-                        {
-                            program.PixelSpirv = Compile(bundled, program.File, "__pixel_shader", "ps_5_0", assetFolder, firstInclude, true, program.IncludeRoot ?? Path.GetDirectoryName(program.SourceFile ?? program.File), program.Slot);
-                            program.PixelEntry = "__pixel_shader";
-                        }
-                    }
-                    if (program.PixelSpirv == null)
-                    {
-                        program.Status = "compile-failed";
-                        program.Error = LastError;
-                        continue;
-                    }
-                }
-
-                string vsEntry = compute ? "compute" : program.VertexEntry;
-                try
-                {
-                    if (program.ResourceContract != 0 && !GuestBridgeClient.SupportsPacketFlags(512))
-                    {
-                        program.Status = "capability-missing";
-                        program.Error = "shared volume resource transport requires updated SE-Vulkan native library";
-                        continue;
-                    }
-                    program.Pipeline = program.ResourceContract == 0
-                        ? GuestBridgeClient.CreatePipeline(program.VertexSpirv, program.PixelSpirv, vsEntry, program.PixelEntry)
-                        : GuestBridgeClient.CreateExtendedPipeline(program.VertexSpirv, program.PixelSpirv, vsEntry, program.PixelEntry, program.ResourceContract);
-                    program.Status = program.Pipeline != 0 ? "pipeline" : "renderer-pending";
-                    if (program.Pipeline != 0) program.ResourceEpoch = GuestBridgeClient.ResourceEpoch;
-                    if (program.Pipeline == 0 && GuestBridgeClient.TryGetFrame(new byte[344]))
-                    {
-                        program.Status = "pipeline-failed";
-                        program.Error = "native pipeline rejected the shader descriptor layout";
-                        Report(program.Id + ": " + program.Error);
-                    }
-                }
-                catch (Exception error)
-                {
-                    program.Error = error.GetBaseException().Message;
-                    program.Status = "pipeline-failed";
-                    Report(program.Id + ": " + program.Error);
-                }
-            }
+            CompilePrograms(bundled,assetFolder,GuestPassList.Snapshot(),celestialIncludes);
             foreach (var attachment in GuestPassList.SnapshotAttachments())
             {
                 if (attachment.Slot < 0)
@@ -166,7 +92,102 @@ static class GuestCompiler
         finally { (bundled as IDisposable)?.Dispose(); }
     }
 
-    static byte[] Compile(object compiler, string source, string entry, string profile, string assetFolder, string firstInclude = null, bool reportFailure = true, string packRoot = null, string slot = null)
+    // Candidates own only new pipelines. They never mutate the active registry.
+    internal static void CompileDetached(string assetFolder,System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
+    {
+        var compiler=Find("ClientPlugin.Rendering.Shaders.VulkanShaderCompiler");
+        if(compiler==null)throw new InvalidOperationException("waiting for SE-Vulkan shader compiler");
+        string cache=Path.Combine(Path.GetTempPath(),"anomaly-guest-spirv");Directory.CreateDirectory(cache);
+        var bundled=compiler.GetMethod("CreateBundled",BindingFlags.Public|BindingFlags.Static)?.Invoke(null,new object[]{cache});
+        if(bundled==null)throw new InvalidOperationException("SE-Vulkan bundled shader compiler unavailable");
+        try
+        {
+            if(vertexSpirv==null)vertexSpirv=Compile(bundled,WriteTemp("anomaly-guest-vs.hlsl",VertexSource),"main","vs_5_0",assetFolder);
+            CompilePrograms(bundled,assetFolder,programs,null);
+        }
+        finally{(bundled as IDisposable)?.Dispose();}
+    }
+
+    static void CompilePrograms(object bundled,string assetFolder,System.Collections.Generic.IReadOnlyList<GuestProgram> programs,string celestialIncludes)
+    {
+        foreach (var program in programs)
+        {
+            if (program.Pipeline != 0 || program.Status == "compile-failed" || program.Status == "pipeline-failed")
+                continue;
+            if (program.File == null || !File.Exists(program.File) || vertexSpirv == null)
+            {
+                program.Status = "compile-skipped";
+                continue;
+            }
+
+            bool compute = (program.Flags & GuestBridgeClient.Compute) != 0;
+            string firstInclude = (program.Flags & GuestBridgeClient.DepthTest) != 0 ? celestialIncludes : null;
+            if (compute) program.VertexSpirv = new byte[] { 1, 0, 0, 0 };
+            else if (string.IsNullOrEmpty(program.VertexFile)) program.VertexSpirv = vertexSpirv;
+            else if (program.VertexSpirv == null)
+                program.VertexSpirv = Compile(bundled, program.VertexFile, program.VertexEntry, "vs_5_0", assetFolder, packRoot:program.IncludeRoot, capturedIncludes:program.IncludeDirectories, capturedOnly:program.CapturedInputsOnly);
+            if (program.VertexSpirv == null) { program.Status = "compile-failed"; program.Error = LastError; continue; }
+            if (program.PixelSpirv == null)
+            {
+                if (compute)
+                {
+                    program.PixelSpirv = Compile(bundled, program.File, "main", "cs_5_0", assetFolder, firstInclude, false, program.IncludeRoot ?? Path.GetDirectoryName(program.SourceFile ?? program.File), program.Slot, program.IncludeDirectories, program.CapturedInputsOnly);
+                    program.PixelEntry = "main";
+                    if (program.PixelSpirv == null)
+                    {
+                        program.PixelSpirv = Compile(bundled, program.File, "__compute_shader", "cs_5_0", assetFolder, firstInclude, true, program.IncludeRoot ?? Path.GetDirectoryName(program.SourceFile ?? program.File), program.Slot, program.IncludeDirectories, program.CapturedInputsOnly);
+                        program.PixelEntry = "__compute_shader";
+                    }
+                }
+                else
+                {
+                    program.PixelSpirv = Compile(bundled, program.File, "main", "ps_5_0", assetFolder, firstInclude, false, program.IncludeRoot ?? Path.GetDirectoryName(program.SourceFile ?? program.File), program.Slot, program.IncludeDirectories, program.CapturedInputsOnly);
+                    program.PixelEntry = "main";
+                    if (program.PixelSpirv == null)
+                    {
+                        program.PixelSpirv = Compile(bundled, program.File, "__pixel_shader", "ps_5_0", assetFolder, firstInclude, true, program.IncludeRoot ?? Path.GetDirectoryName(program.SourceFile ?? program.File), program.Slot, program.IncludeDirectories, program.CapturedInputsOnly);
+                        program.PixelEntry = "__pixel_shader";
+                    }
+                }
+                if (program.PixelSpirv == null)
+                {
+                    program.Status = "compile-failed";
+                    program.Error = LastError;
+                    continue;
+                }
+            }
+
+            string vsEntry = compute ? "compute" : program.VertexEntry;
+            try
+            {
+                if (program.ResourceContract != 0 && !GuestBridgeClient.SupportsPacketFlags(512))
+                {
+                    program.Status = "capability-missing";
+                    program.Error = "shared volume resource transport requires updated SE-Vulkan native library";
+                    continue;
+                }
+                program.Pipeline = program.ResourceContract == 0
+                    ? GuestBridgeClient.CreatePipeline(program.VertexSpirv, program.PixelSpirv, vsEntry, program.PixelEntry)
+                    : GuestBridgeClient.CreateExtendedPipeline(program.VertexSpirv, program.PixelSpirv, vsEntry, program.PixelEntry, program.ResourceContract);
+                program.Status = program.Pipeline != 0 ? "pipeline" : "renderer-pending";
+                if (program.Pipeline != 0) program.ResourceEpoch = GuestBridgeClient.ResourceEpoch;
+                if (program.Pipeline == 0 && GuestBridgeClient.TryGetFrame(new byte[344]))
+                {
+                    program.Status = "pipeline-failed";
+                    program.Error = "native pipeline rejected the shader descriptor layout";
+                    Report(program.Id + ": " + program.Error);
+                }
+            }
+            catch (Exception error)
+            {
+                program.Error = error.GetBaseException().Message;
+                program.Status = "pipeline-failed";
+                Report(program.Id + ": " + program.Error);
+            }
+        }
+    }
+
+    static byte[] Compile(object compiler, string source, string entry, string profile, string assetFolder, string firstInclude = null, bool reportFailure = true, string packRoot = null, string slot = null, string[] capturedIncludes = null, bool capturedOnly = false)
     {
         var requestType = Find("ClientPlugin.Rendering.Shaders.VulkanShaderRequest");
         if (requestType == null)
@@ -192,16 +213,15 @@ static class GuestCompiler
             includes.Add(sourceDir);
         if (!string.IsNullOrEmpty(packRoot) && Directory.Exists(packRoot)) includes.Add(packRoot);
         if (!string.IsNullOrEmpty(packRoot) && Directory.Exists(Path.Combine(packRoot, "Inject"))) includes.Add(Path.Combine(packRoot, "Inject"));
-        var fileSystem = Find("VRage.FileSystem.MyFileSystem");
-        string content = fileSystem?.GetProperty("ContentPath", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as string;
-        if (!string.IsNullOrEmpty(content) && Directory.Exists(Path.Combine(content, "Shaders")))
-            includes.Add(Path.Combine(content, "Shaders"));
-        if (!string.IsNullOrEmpty(assetFolder) && Directory.Exists(assetFolder))
+        string game=GameShaderDirectory();
+        if(!capturedOnly&&!string.IsNullOrEmpty(game)&&Directory.Exists(game))includes.Add(game);
+        if (!capturedOnly&&!string.IsNullOrEmpty(assetFolder) && Directory.Exists(assetFolder))
         {
             includes.Add(assetFolder);
             string shaders = Path.Combine(assetFolder, "Shaders");
             if (Directory.Exists(shaders)) includes.Add(shaders);
         }
+        if(capturedIncludes!=null)foreach(string directory in capturedIncludes)if(!includes.Contains(directory))includes.Add(directory);
         Set(request, "IncludeDirectories", includes);
         var compile = compiler.GetType().GetMethod("Compile", BindingFlags.Public | BindingFlags.Instance);
         object result;
@@ -220,6 +240,13 @@ static class GuestCompiler
             ?.GetMethod("Prepare", BindingFlags.Public | BindingFlags.Static);
         if (prepare == null) { Report("SE-Vulkan runtime SPIR-V preparation is unavailable"); return null; }
         return prepare.Invoke(null, new object[] { File.ReadAllBytes(path) }) as byte[];
+    }
+
+    internal static string GameShaderDirectory()
+    {
+        var fileSystem=Find("VRage.FileSystem.MyFileSystem");
+        string content=fileSystem?.GetProperty("ContentPath",BindingFlags.Public|BindingFlags.Static)?.GetValue(null) as string;
+        return string.IsNullOrEmpty(content)?null:Path.Combine(content,"Shaders");
     }
 
     static string WriteTemp(string name, string source)

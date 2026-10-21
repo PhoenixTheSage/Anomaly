@@ -229,6 +229,7 @@ public static class RenderHost
             nextGuestCompile = unchecked(now + 1000);
             GuestCompiler.CompilePending(assetFolder);
         }
+        GuestNamedStages.Prepare(assetFolder);
         GuestOwned.DebugLitMips = global::ClientPlugin.Config.Current?.DebugBuffer == global::ClientPlugin.DebugBuffer.LitMips;
         GuestPassList.SubmitFrame(GuestBridgeClient.Submit);
     }

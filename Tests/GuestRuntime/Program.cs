@@ -36,6 +36,7 @@ static partial class Program
             Require(ReferenceEquals(p.PixelSpirv, binaries[i++]), "retry unnecessarily recompiled HLSL");
         }
         Require(!GuestCompiler.HasPending, "ready programs should not trigger repeated compilation");
+        if(Array.IndexOf(args,"--owned-stage-gpu")>=0){NativeProbe.OwnedStageGpu(assets);NativeProbe.Close();return;}
         if(Array.IndexOf(args,"--portable-gpu")>=0){PortableContracts();NativeProbe.PortableGpuContracts();NativeProbe.CapturedPackGpu(assets);NativeProbe.Close();return;}
         ResourceContracts();
         EnvironmentGpu(assets);
@@ -255,7 +256,12 @@ namespace ClientPlugin.Rendering
         public static object[] CaptureCharacter(uint actor) => Character;
         static ulong next;
         public static readonly List<(int Mark, ulong Pipeline, int Width, int Height, ulong Storage, byte[] Uniforms, ulong[] Sampled, int Flags)> Packets = new();
-        public static ulong CreatePipeline(byte[] vs, byte[] ps, string ve, string pe) => !Ready ? 0 : NativeProbe.Enabled ? NativeProbe.Pipeline(vs, ps, ve, pe) : ++next;
+        public static Action AfterPipeline;
+        public static ulong CreatePipeline(byte[] vs, byte[] ps, string ve, string pe)
+        {
+            ulong pipeline=!Ready?0:NativeProbe.Enabled?NativeProbe.Pipeline(vs,ps,ve,pe):++next;
+            if(pipeline!=0)AfterPipeline?.Invoke();return pipeline;
+        }
         public static ulong CreateExtendedPipeline(byte[] vs, byte[] ps, string ve, string pe, int contract) => !Ready ? 0 : NativeProbe.Enabled ? NativeProbe.Pipeline2(vs, ps, ve, pe, contract) : ++next;
         public static void Reset() { if(FailReset) throw new InvalidOperationException("controlled bridge reset failure"); Packets.Clear(); if (MirrorGpu) NativeProbe.ResetQueue(); }
         public static void CreateImage(ulong id, int w, int h, int d, int f) { CreatedImages.Add((id,f)); if (MirrorGpu) NativeProbe.ImageCreate(id,w,h,d,f); }
@@ -281,7 +287,7 @@ namespace ClientPlugin.Rendering
 }
 namespace ClientPlugin.Backend
 {
-    static class RenderHost { public static bool IsDx11=>false; }
+    static class RenderHost { public static bool IsDx11=>false; public static bool IsVulkan=>true; }
     static class RendererRoute { public static bool UseDx11Device; public static bool UseGuestImages = true; }
     static class SceneView { public static int Width, Height; }
     static class GuestColor

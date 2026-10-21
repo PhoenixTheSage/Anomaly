@@ -16,7 +16,7 @@ public sealed class GuestProgram
 {
     internal GuestProgram FrameCopy()
     {
-        var copy=(GuestProgram)MemberwiseClone();copy.Uniforms=Uniforms==null?null:(float[])Uniforms.Clone();
+        var copy=(GuestProgram)MemberwiseClone();copy.IncludeDirectories=IncludeDirectories==null?null:(string[])IncludeDirectories.Clone();copy.Uniforms=Uniforms==null?null:(float[])Uniforms.Clone();
         copy.Srvs=Srvs==null?null:new List<SrvBind>(Srvs);return copy;
     }
     internal void CommitFrame(GuestProgram copy)
@@ -24,6 +24,7 @@ public sealed class GuestProgram
         StorageImage=copy.StorageImage;HistoryImage=copy.HistoryImage;ImageWidth=copy.ImageWidth;ImageHeight=copy.ImageHeight;ImageFormat=copy.ImageFormat;
         HistoryReady=copy.HistoryReady;HistoryFrame=copy.HistoryFrame;Submissions=copy.Submissions;SubmittedThisFrame=copy.SubmittedThisFrame;Status=copy.Status;Error=copy.Error;
     }
+    public string Generation;
     public string Id;
     public string Owner;
     public int Policy = 1;
@@ -63,6 +64,8 @@ public sealed class GuestProgram
     public int Format;
     public string SourceFile;
     public string IncludeRoot;
+    public string[] IncludeDirectories;
+    public bool CapturedInputsOnly;
     public string[] MediumTextures;
     public float OriginX, OriginY, OriginZ, MotionX, MotionY, MotionZ;
     public List<SrvBind> Srvs;
@@ -95,7 +98,14 @@ public sealed class GuestAttachment
 /// </summary>
 public static class GuestPassList
 {
-    static readonly object Gate = new object();
+    internal static readonly object Gate = new object();
+    internal static Action BeforeSnapshot {get;set;}
+    internal static long SourceRevision {get;private set;}
+    // Pipeline-only retirement deliberately preserves images shared by the next generation.
+    internal static void RetirePipeline(GuestProgram program)
+    {
+        lock(Gate)if(program.Pipeline!=0)Retired.Add(new GuestProgram{Pipeline=program.Pipeline,ResourceEpoch=program.ResourceEpoch});
+    }
     static readonly List<GuestProgram> Programs = new List<GuestProgram>();
     static readonly List<GuestProgram> Retired = new List<GuestProgram>();
     internal static GuestProgram[] TakeRetired()
@@ -118,6 +128,7 @@ public static class GuestPassList
         // copied native command list and history references are constructed.
         lock(Gate)
         {
+            BeforeSnapshot?.Invoke();
             var original=Programs.ToArray();var frame=new GuestProgram[original.Length];
             for(int i=0;i<frame.Length;i++)frame[i]=original[i].FrameCopy();
             submit(frame);
@@ -142,7 +153,7 @@ public static class GuestPassList
             Programs.Clear();
             Attachments.Clear();
             Packs.Clear();
-            Sources.Clear();
+            Sources.Clear();SourceRevision++;
         }
     }
 
@@ -185,7 +196,7 @@ public static class GuestPassList
             Attachments.Clear();
             Attachments.AddRange(candidate);
             if (definition != null) Packs[id] = definition;
-            Sources[id]=sourceSnapshot;
+            Sources[id]=sourceSnapshot;SourceRevision++;
             ApplyExclusiveConflicts();
             return found.Count;
         }
@@ -213,7 +224,7 @@ public static class GuestPassList
             Programs.RemoveAll(p => string.Equals(p.Owner, id, StringComparison.OrdinalIgnoreCase));
             Attachments.RemoveAll(a => string.Equals(a.Owner, id, StringComparison.OrdinalIgnoreCase));
             Packs.Remove(id); ApplyExclusiveConflicts();
-            Sources.Remove(id);
+            Sources.Remove(id);SourceRevision++;
         }
     }
 
@@ -224,6 +235,7 @@ public static class GuestPassList
             return;
         lock (Gate)
         {
+            if(id=="anomaly.owned.CameraVelocity"||id=="anomaly.owned.LinearDepth"||id=="anomaly.owned.HiZ"||id=="anomaly.owned.HistoryCopy")SourceRevision++;
             ReplaceOrAdd(Programs, new GuestProgram
             {
                 Id = id,

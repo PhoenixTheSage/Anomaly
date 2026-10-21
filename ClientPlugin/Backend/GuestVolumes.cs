@@ -55,7 +55,8 @@ internal static class GuestVolumes
         {
             string file=Path.Combine(folder,name+".hlsl");File.WriteAllText(file,text);
             string id="anomaly.owned.Volumes."+name;GuestPassList.AddProgram(id,"AfterAtmosphere",file,"PublishOnly");
-            var p=GuestPassList.Snapshot().Single(p=>p.Id==id);p.ResourceContract=contract;p.Flags=compute?GuestBridgeClient.Compute:0;return p;
+            var p=GuestPassList.Snapshot().Single(p=>p.Id==id);p.ResourceContract=contract;p.Flags=compute?GuestBridgeClient.Compute:0;
+            p.IncludeDirectories=media.Select(m=>ProviderSourceRoot(m.ShaderFile)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();return p;
         }
         try {
             light=Add("Light",VolumetricShaderSource.Build(root,media,"AnomalyVolumeLight.hlsl"),true);
@@ -69,6 +70,15 @@ internal static class GuestVolumes
             reactiveMerge=Add("ReactiveMerge","Texture2D<float4> Scene:register(t0);Texture2D<float> Volume:register(t1);float4 __pixel_shader(float4 p:SV_Position):SV_Target {int3 c=int3((int2)p.xy,0);return max(Scene.Load(c),Volume.Load(c));}");
             shaders=new[]{light,inject,integrate,reconstruct,reactive,composite,copy,velocityMerge,reactiveMerge};signature=key;history=false;
         }catch(Exception error){signature=null;shaders=Array.Empty<GuestProgram>();history=false;VolumeRegistryState.SetStatus("Shared volume shaders unavailable: "+error.Message);}
+    }
+    internal static string ProviderSourceRoot(string file)
+    {
+        string directory=Path.GetDirectoryName(Path.GetFullPath(file));
+        // Providers commonly live in Medium/ and include sibling Inject/ files.
+        // Capture the nearest declared pack, never an arbitrary filesystem ancestor.
+        for(var parent=new DirectoryInfo(directory);parent!=null;parent=parent.Parent)
+            if(File.Exists(Path.Combine(parent.FullName,"anomaly.json")))return parent.FullName;
+        return directory;
     }
     internal static void BeginFrame(){active=false;suppressed.Clear();}
     internal static bool SuppressFallback(GuestProgram program)=>active && program!=null && suppressed.Contains(program.Id??"");

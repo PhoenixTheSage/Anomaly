@@ -58,7 +58,9 @@ RWTexture2D<float> E:register(u4);
             foreach(var media in new[]{new[]{fog},new[]{clouds},new[]{fog,clouds},new[]{clouds,fog}}) {
                 foreach(string kernel in new[]{"AnomalyVolumeLight.hlsl","AnomalyVolumeInject.hlsl","AnomalyVolumeReconstruct.hlsl"}) {
                     bool pixel=kernel.Contains("Reconstruct");
-                    products.Add(Add("providers"+configuration+"."+Path.GetFileNameWithoutExtension(kernel),VolumetricShaderSource.Build(root,media,kernel),!pixel,pixel?2:1));
+                    var program=Add("providers"+configuration+"."+Path.GetFileNameWithoutExtension(kernel),VolumetricShaderSource.Build(root,media,kernel),!pixel,pixel?2:1);
+                    program.IncludeDirectories=media.Select(m=>GuestVolumes.ProviderSourceRoot(m.ShaderFile)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                    products.Add(program);
                 }
                 configuration++;
             }

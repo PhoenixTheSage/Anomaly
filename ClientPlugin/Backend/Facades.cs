@@ -23,7 +23,7 @@ public static class FullscreenPassRegistry
             {
                 var native = program.Pipeline == 0 ? null : GuestBridgeClient.ExecutionStatus(program.Pipeline);
                 var state = new ShaderProgramStatus { Registered = true, Compiled = program.PixelSpirv != null,
-                    Active = program.Enabled && !program.ConflictDisabled && program.Pipeline != 0, Error = program.Error,
+                    Active = program.Enabled && !program.ConflictDisabled && program.Pipeline != 0, Error = program.Error, ActiveGeneration = program.Generation,
                     ProductionStatusSupported = native != null && native.Length == 48 };
                 if (state.ProductionStatusSupported)
                 {
@@ -150,6 +150,7 @@ public static class FullscreenPassRegistry
 
 public static class ShaderPackRegistry
 {
+    public static OwnedStageGenerationState GetOwnedStageState(string stage)=>GuestNamedStages.State(stage);
     public static ShaderApiCapabilities GetCapabilities()=>ShaderApiCapabilities.Query();
     public static string StatusLine =>
         RenderHost.IsDx11 ? Dx11Call.Get(Dx, "StatusLine") as string ?? "" : GuestPassList.PackStatus();

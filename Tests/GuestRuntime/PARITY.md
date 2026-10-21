@@ -50,3 +50,12 @@ generation's original HDR/negative-alpha output. A resource-free pixel shader
 must use the same format-aware pipeline path as a shader with descriptors.
 `ANOMALY_TEST_NATIVE_DLL` selects an isolated native build for this fixture and
 the SE-Vulkan actual-core fixture. It changes only the private test process.
+
+
+Owned-stage execution gate: `dotnet run --project Tests/GuestRuntime -c Release -- . --gpu --owned-stage-gpu`.
+This uses the production detached compiler/activation code and real native guest
+pipelines. It proves pixels, shared named-vertex closure, odd-size orientation,
+injection/defines, rollback, source/device staleness, stock restore and pipeline-only
+retirement. It is not complete stock-native stage or attachment acceptance.
+`Tests/GuestDepthGpuTests/OwnedStageRegression.cs` adds the actual-core synchronous/
+pipelined live-scene transaction and outstanding-submission retirement gate.

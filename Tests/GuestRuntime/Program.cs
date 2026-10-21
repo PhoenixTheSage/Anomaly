@@ -12,6 +12,7 @@ static partial class Program
     {
         if (Array.IndexOf(args, "--parity-contracts") >= 0) { ParityContracts(); return; }
         if (Array.IndexOf(args, "--frame-contracts") >= 0) { FrameContracts(); return; }
+        if (Array.IndexOf(args, "--portable-contracts") >= 0) { PortableContracts(); return; }
         string root = Path.GetFullPath(args.Length > 0 ? args[0] : "../..");
         string assets = Path.Combine(root, "Assets");
         if(Array.IndexOf(args,"--core-only")>=0) {PlanetSnapshot(root);return;}
@@ -35,9 +36,13 @@ static partial class Program
             Require(ReferenceEquals(p.PixelSpirv, binaries[i++]), "retry unnecessarily recompiled HLSL");
         }
         Require(!GuestCompiler.HasPending, "ready programs should not trigger repeated compilation");
+        if(Array.IndexOf(args,"--portable-gpu")>=0){PortableContracts();NativeProbe.PortableGpuContracts();NativeProbe.Close();return;}
         ResourceContracts();
         EnvironmentGpu(assets);
         NativeProbe.CompositionContracts();
+        NativeProbe.TemporalContracts();
+        PortableContracts();
+        NativeProbe.PortableGpuContracts();
         Publication();
         LitMips();
         Occupancy();
@@ -276,6 +281,7 @@ namespace ClientPlugin.Rendering
 }
 namespace ClientPlugin.Backend
 {
+    static class RenderHost { public static bool IsDx11=>false; }
     static class RendererRoute { public static bool UseDx11Device; public static bool UseGuestImages = true; }
     static class SceneView { public static int Width, Height; }
     static class GuestColor
@@ -298,13 +304,17 @@ namespace ClientPlugin.Buffers
         public GuestRendererImage(ulong id,int width,int height,int depth,Func<bool> available):this(id,width,height,depth){this.available=available;}
         public GuestRendererImage(ulong id, int width, int height, int depth) { ImageId = id; Width = width; Height = height; Depth = depth; }
     }
-    sealed class PublishedBuffer { public ulong ImageId { get; set; } }
+    sealed class PublishedBuffer { public ulong ImageId { get; set; } public int Width {get;set;} public int Height {get;set;} }
     static class BufferCatalog
     {
         static readonly Dictionary<string, object> Items = new();
         public static void Set(string name, object image) => Items[name] = image;
         public static object Active(string name) => Items.TryGetValue(name, out var image) ? image : null;
     }
+}
+namespace ClientPlugin.Shaders
+{
+    static class FrameTemporal { public static uint FrameIndex=>GuestFrame.Open?GuestFrame.U32(16):0; }
 }
 namespace VRage.Utils
 {

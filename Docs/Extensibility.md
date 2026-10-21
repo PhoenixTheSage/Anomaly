@@ -1320,3 +1320,18 @@ completion and slot separation. The actual-core324-check lane verifies final
 AfterUpscale Chain pixels and dimensions at50/75/100% without an upscaler in both synchronous and pipelined recording, with
 validation enabled and zero reported errors. Full combined Windows live visual
 and performance acceptance remains pending.
+### Portable callback preparation and temporal parity (stage 5)
+
+The shared OwnedPassRegistry now provides RegisterPortable and a renderer-free
+command context; legacy DX11 callbacks retain their contract. Vulkan ordinary
+passes participate in reactive/velocity production, including distance-scaled
+alpha. Frame membership/settings/history freeze while renderer-thread uniform
+preparation remains available. Native bit17 covers portable target execution,
+including R16_FLOAT; unsupported hosts fail with an update instruction.
+
+Aurora, clouds and contact shadows use portable uniform preparation. Prism's
+guest preparation now runs before the AfterLighting fullscreen chain, maps
+0–7 iterations and the configured history cap, and stores world normals so
+normal rejection remains valid across camera turns. Production Temporal/Moments
+readback tests cover ages, rejection, rotation, first frame and history caps.
+GPU fixture success does not close matched loaded-world acceptance.

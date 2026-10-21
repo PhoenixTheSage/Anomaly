@@ -13,9 +13,20 @@ namespace ClientPlugin.Backend;
 /// </summary>
 public sealed class GuestProgram
 {
+    internal GuestProgram FrameCopy()
+    {
+        var copy=(GuestProgram)MemberwiseClone();copy.Uniforms=Uniforms==null?null:(float[])Uniforms.Clone();
+        copy.Srvs=Srvs==null?null:new List<SrvBind>(Srvs);return copy;
+    }
+    internal void CommitFrame(GuestProgram copy)
+    {
+        StorageImage=copy.StorageImage;HistoryImage=copy.HistoryImage;ImageWidth=copy.ImageWidth;ImageHeight=copy.ImageHeight;ImageFormat=copy.ImageFormat;
+        HistoryReady=copy.HistoryReady;HistoryFrame=copy.HistoryFrame;Submissions=copy.Submissions;SubmittedThisFrame=copy.SubmittedThisFrame;Status=copy.Status;Error=copy.Error;
+    }
     public string Id;
     public string Owner;
     public int Policy = 1;
+    public float VelocityDistanceScale = 1f;
     public string Slot;
     public string File;
     public string Compose;
@@ -101,7 +112,22 @@ public static class GuestPassList
     {
         // Registration, settings and reload cannot change the frame while its
         // copied native command list and history references are constructed.
-        lock(Gate) submit(Programs.ToArray());
+        lock(Gate)
+        {
+            var original=Programs.ToArray();var frame=new GuestProgram[original.Length];
+            for(int i=0;i<frame.Length;i++)frame[i]=original[i].FrameCopy();
+            submit(frame);
+            for(int i=0;i<frame.Length;i++)original[i].CommitFrame(frame[i]);
+        }
+    }
+    internal static void RefreshPreparedInputs(GuestProgram frame)
+    {
+        lock(Gate)
+        {
+            var current=Find(frame.Id);if(current==null || ReferenceEquals(current,frame))return;
+            frame.Uniforms=current.Uniforms==null?null:(float[])current.Uniforms.Clone();
+            frame.Srvs=current.Srvs==null?null:new List<SrvBind>(current.Srvs);
+        }
     }
 
     public static void Clear()
@@ -213,6 +239,11 @@ public static class GuestPassList
             program.Uniforms = values == null ? null : (float[])values.Clone();
             return true;
         }
+    }
+    public static bool SetVelocityDistanceScale(string id,float value)
+    {
+        if(float.IsNaN(value) || float.IsInfinity(value) || value<=0)return false;
+        lock(Gate){var program=Find(id);if(program==null)return false;program.VelocityDistanceScale=Math.Max(1f,value);return true;}
     }
 
     public static bool SetFlags(string id, int flags, int format)

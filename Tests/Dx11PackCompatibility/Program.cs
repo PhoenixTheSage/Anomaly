@@ -19,7 +19,8 @@ static class Program
     {
         string tfm = args[0], mode = args.Length > 1 ? args[1] : "uploads";
         string game = @"T:\SteamLibrary\steamapps\common\SpaceEngineers\Bin64";
-        string build = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "../../../../../ClientPlugin/bin/Debug", tfm));
+        string configuration=args.Length>2?args[2]:"Debug";
+        string build = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "../../../../../ClientPlugin/bin",configuration,tfm));
         Assembly keen = null;
         AppDomain.CurrentDomain.AssemblyResolve += (_, e) => {
             if (keen != null && new AssemblyName(e.Name).Name == "VRage.Render11") return keen;
@@ -48,7 +49,26 @@ static class Program
 #endif
             }
             var core = Assembly.LoadFrom(Path.Combine(build, "Anomaly.dll"));
-            if (mode == "lookup") {
+            if(mode=="portable") {
+                var native=Assembly.LoadFrom(Path.Combine(build,"Anomaly.Dx11.dll"));
+                Call(core.GetType("ClientPlugin.Backend.Dx11Call"),"Bind",native);
+                var owned=core.GetType("ClientPlugin.Shaders.OwnedPassRegistry");object received=null;
+                Call(owned,"RegisterPortable","portable.fixture","AfterAtmosphere",0,0,(Action<object>)(context=>received=context),0);
+                var host=core.GetType("ClientPlugin.Backend.RenderHost");host.GetField("committed",Static).SetValue(null,true);host.GetField("choice",Static).SetValue(null,0);
+                Call(core.GetType("ClientPlugin.Backend.PortablePassRegistry"),"BindDx11",new object[]{null});
+                var nativeOwned=native.GetType("ClientPlugin.Shaders.OwnedPassRegistry");
+                var registrations=(System.Collections.IList)nativeOwned.GetField("Passes",Static).GetValue(null);
+                Check(registrations.Count==1,"pending portable registration binds once to DX11");
+                var slot=native.GetType("ClientPlugin.Shaders.OwnedPassSlot");var policy=native.GetType("ClientPlugin.Shaders.TemporalPolicy");
+                var contextType=native.GetType("ClientPlugin.Shaders.OwnedPassContext");
+                object context=Activator.CreateInstance(contextType,BindingFlags.Instance|BindingFlags.NonPublic,null,new[]{Enum.Parse(slot,"AfterAtmosphere"),null,Enum.ToObject(policy,0),(object)false},null);
+                var draw=(Delegate)registrations[0].GetType().GetField("Draw").GetValue(registrations[0]);draw.DynamicInvoke(context);
+                Check(received!=null && received.GetType().FullName=="ClientPlugin.Shaders.PortablePassContext" && received.GetType().GetProperty("Rc")==null,"DX11 callback receives the device-free portable context");
+                Check((string)received.GetType().GetProperty("Slot").GetValue(received)=="AfterAtmosphere","portable slot survives the DX11 adapter");
+                bool expired=false;try{received.GetType().GetMethod("Copy").Invoke(received,new object[]{"a","b"});}catch(TargetInvocationException e){expired=e.InnerException is InvalidOperationException;}
+                Check(expired,"DX11 portable context expires after callback");
+                Call(owned,"Unregister","portable.fixture");Check(registrations.Count==0,"portable unregister removes the DX11 wrapper");
+            } else if (mode == "lookup") {
                 string scratch = Path.Combine(Path.GetTempPath(), "SsgiLookup-" + Guid.NewGuid().ToString("N"));
                 string edition = Path.Combine(scratch, tfm == "net48" ? "Legacy" : "Interim");
                 string path = Path.Combine(edition, "DevFolder", "StarCpt-Prism.SSGI-fixture", "Bin", "plugin.dll");

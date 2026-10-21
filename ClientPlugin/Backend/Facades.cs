@@ -75,6 +75,7 @@ public static class FullscreenPassRegistry
 
     public static bool SetVelocityDistanceScale(string programId, float metresPerAlphaUnit)
     {
+        if(!RendererRoute.UseDx11Device)return GuestPassList.SetVelocityDistanceScale(programId,metresPerAlphaUnit);
         if (RendererRoute.RefuseDx11Device("FullscreenPassRegistry.SetVelocityDistanceScale"))
             return false;
         return ForwardBool("SetVelocityDistanceScale", programId, metresPerAlphaUnit);
@@ -175,6 +176,9 @@ public static class ShaderPackRegistry
 
 public static class OwnedPassRegistry
 {
+    public static void RegisterPortable(string id,string slot,int priority,int temporalPolicy,Action<object> draw,int phase=1)
+        =>PortablePassRegistry.Register(id,slot,priority,temporalPolicy,draw,phase);
+    public static string PortableError(string id)=>PortablePassRegistry.Error(id);
     public static string StatusLine => GuestColor.Open ? GuestColor.Status : Get("StatusLine");
     public static string ColorStatusLine => GuestColor.Open ? GuestColor.ColorStatus : Get("ColorStatusLine");
     public static bool HasDisplayTenant => GuestColor.Open ? GuestColor.HasDisplay : Flag("HasDisplayTenant");
@@ -203,6 +207,7 @@ public static class OwnedPassRegistry
 
     public static void Unregister(string id)
     {
+        PortablePassRegistry.Unregister(id);
         if (RenderHost.DropHeldOwnedPass(id))
             return;
         Device("Unregister", id);

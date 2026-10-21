@@ -1087,3 +1087,16 @@ completion and slot separation. The actual-core324-check lane verifies final
 AfterUpscale Chain pixels and dimensions at50/75/100% without an upscaler in both synchronous and pipelined recording, with
 validation enabled and zero reported errors. Full combined Windows live visual
 and performance acceptance remains pending.
+
+### Stage 5 portable callbacks and temporal production
+
+RegisterPortable closes renderer-free preparation and queued clear/copy/pixel
+fullscreen/velocity commands on both hosts while preserving DX11 Register.
+Vulkan ordinary passes now produce reactive/velocity updates with the DX11
+helpers and distance-alpha scaling. Frame settings/history remain frozen;
+callback uniforms can be prepared before drawing. Native bit17 adds R16 render
+target execution. GPU contracts pass with validation enabled and zero errors;
+DX11 callback compatibility passes for net48/net10. Aurora/cloud/contact-shadow
+preparation is migrated, and Prism normal rejection/history caps/0–7 iterations
+are corrected. Production guest Temporal/Moments pass D3D11 WARP readback for
+rotation, rejection and exact ages. Loaded-world combined acceptance is open.

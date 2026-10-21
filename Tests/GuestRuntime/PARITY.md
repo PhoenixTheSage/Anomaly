@@ -29,3 +29,17 @@ Existing stock timing evidence is recorded in SE-Vulkan's
 measurements, not acceptance of this shader parity implementation. The final
 matched Windows live matrix and new interleaved performance controls remain
 required before full parity can be claimed.
+
+Stage 5 adds `--portable-contracts` for ordering, phases, expiry, failure status,
+immutable frame settings and renderer-thread uniform preparation. Run with
+`. --gpu --portable-gpu` for actual clear/copy/fullscreen/masked-velocity and
+odd-sized FP16/R16 target readback. Native bit17 is required for rendering
+commands; an older host must produce an actionable refusal.
+
+`TemporalContracts.cs` checks actual ordinary-pass reactive RGB/occlusion-alpha
+stamps and 1000-metre-per-alpha velocity reconstruction. The complete
+`. --packs --gpu` lane also compiles every current production pack pipeline;
+pipeline creation alone does not prove loaded-world execution. Stage 5 evidence
+has validation enabled and zero errors. Prism's separate Tests/Regression lane
+executes its production guest Temporal/Moments on WARP for exact history age,
+camera rotation, normal rejection, missing history and configured history caps.

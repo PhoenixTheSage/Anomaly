@@ -556,3 +556,48 @@ completion and slot separation. The actual-core324-check lane verifies final
 AfterUpscale Chain pixels and dimensions at50/75/100% without an upscaler in both synchronous and pipelined recording, with
 validation enabled and zero reported errors. Full combined Windows live visual
 and performance acceptance remains pending.
+
+### Portable owned callbacks and temporal participation
+
+`OwnedPassRegistry.RegisterPortable(id, slot, priority, temporalPolicy,
+Action<object>, phase = 1)` registers a renderer-free callback. Phase 0 runs
+before fullscreen programs; phase 1 runs after them, including slots with no
+fullscreen programs. Priority and then ID order callbacks within each phase.
+Existing `Register` callbacks retain their DX11 context and remain DX11-only.
+Registrations made before renderer selection bind when the renderer is ready.
+
+The callback receives `ClientPlugin.Shaders.PortablePassContext`, exposing
+`Slot`, `Phase`, `Policy`, `FrameIndex`, `Width`, `Height`, `IsOutputResolution`
+and `Image(catalogName)`. Width/height describe the slot's scene or output
+resolution. Query the shared FrameTemporal facade for camera/lighting metadata.
+Queue commands with `Fullscreen(programId, targetCatalogName = null,
+sceneCatalogName = null)`, `Clear(targetCatalogName, r, g, b, a)`,
+`Copy(sourceCatalogName, targetCatalogName)` and
+`ContributeVelocity(overlayCatalogName, maskCatalogName)`.
+
+Fullscreen executes the registered pixel program as a replacement draw using
+its current uniforms and catalog bindings. Its target dimensions determine the
+viewport. It does not automatically compose or capture a history. A null target
+or scene selects the slot's scene color. Private targets must use a distinct
+sampled source; copy to a separate catalog image first. Clear/copy preserve
+floating-point HDR and negative alpha. Velocity requires ContributeVelocity
+policy and selects the overlay where the mask's red channel exceeds 0.5.
+
+Callbacks execute on the renderer thread. Commands are copied before native
+recording and the context expires on return, including on failure. A failure
+stops that callback's remaining commands, is contained, and is queryable through
+`OwnedPassRegistry.PortableError(id)`. Program membership, enable/scale settings
+and history references freeze for the frame; preparation callbacks may supply
+uniforms and SRV bindings before the relevant draw. Setting changes apply to
+the next frame. Vulkan rendering commands require native feature bit17; an
+older host refuses them with an update instruction. Empty preparation callbacks
+do not require additional native features. `Unregister(id)` removes either API.
+
+Ordinary Vulkan isolated passes now stamp current reactive data and reconstruct
+velocity with the same DX11 helpers. `SetVelocityDistanceScale` supports encoded
+distance alpha (including Aurora's 1000-metres-per-alpha convention). Camera
+cuts invalidate published previous-frame aliases. Reactive RGB/occlusion-alpha,
+distance reconstruction, portable clear/copy/fullscreen/velocity and odd-sized
+FP16/R16 targets have deterministic GPU readback evidence with zero validation
+errors. DX11 portable context binding/expiry/unregister passes on net48/net10.
+The Windows loaded-world pack/vendor matrix remains a separate open gate.

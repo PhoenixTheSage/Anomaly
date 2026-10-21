@@ -60,6 +60,22 @@ static class GuestOwned
                 GuestPassList.AddProgram(id,"AfterLighting",generated,"PublishOnly");
                 foreach(var program in GuestPassList.Snapshot())if(program.Id==id)program.Helper=true;
             }
+        foreach(string name in new[]{"ReactiveStamp","ReactiveStampAlpha","IsolatedVelocity","VelocityContribute"})
+        {
+            string source=Path.Combine(shaders,name=="ReactiveStampAlpha"?"ReactiveStamp.hlsl":name+".hlsl");
+            if(!File.Exists(source))continue;
+            if(name.StartsWith("ReactiveStamp"))
+            {
+                string generated=Path.Combine(Path.GetTempPath(),"anomaly-guest-sources","anomaly-"+name+".hlsl");
+                File.WriteAllText(generated,"#define STAMP_ALPHA "+(name=="ReactiveStampAlpha"?"1":"0")+"\n"+File.ReadAllText(source));source=generated;
+            }
+            string id="anomaly.helper."+name;GuestPassList.AddProgram(id,"AfterLighting",source,"PublishOnly");
+            foreach(var program in GuestPassList.Snapshot())if(program.Id==id)program.Helper=true;
+        }
+        string clearPath=Path.Combine(Path.GetTempPath(),"anomaly-guest-sources","anomaly-clear-color.hlsl");
+        File.WriteAllText(clearPath,"cbuffer Value:register(b7){float4 Color;}float4 main():SV_Target{return Color;}");
+        GuestPassList.AddProgram("anomaly.helper.ClearColor","AfterLighting",clearPath,"PublishOnly");
+        foreach(var program in GuestPassList.Snapshot())if(program.Id=="anomaly.helper.ClearColor")program.Helper=true;
         foreach (var file in Files)
         {
             string path = Path.Combine(shaders, file);

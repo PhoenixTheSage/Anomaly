@@ -22,7 +22,7 @@ internal static class GuestDevice
             if(p.Status!="compile-failed"){p.Status="renderer-pending";p.Error=null;}
         }
         foreach(var p in GuestPassList.SnapshotAttachments())if(p.Status!="compile-failed")p.Status="renderer-pending";
-        GuestFrame.ResetDevice();GuestBridgeClient.ResetDevice();GuestOccupancy.ResetDevice();GuestPointShadows.ResetDevice();GuestVolumes.ResetDevice();GuestColor.ResetDevice();
+        GuestFrame.ResetDevice();GuestBridgeClient.ResetDevice();GuestTemporal.ResetDevice();GuestOccupancy.ResetDevice();GuestPointShadows.ResetDevice();GuestVolumes.ResetDevice();GuestColor.ResetDevice();
         if(errors.Count!=0){VolumeRegistryState.SetStatus("Guest device reset incomplete: "+new AggregateException(errors).Message);return false;}
         try {
             if(current!=0){BufferCatalog.ApplyDeferred();GuestColor.RestoreDevice();}

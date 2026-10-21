@@ -211,22 +211,23 @@ static class GuestBridgeClient
             if(program.HistoryReady && GuestFrame.Open && ResourceEpoch!=0)
             {
                 var execution=ExecutionStatus(program.Pipeline);
-                program.HistoryReady=execution!=null && execution.Length==48 && BitConverter.ToUInt64(execution,16)!=0 &&
+                program.HistoryReady=GuestFrame.History && execution!=null && execution.Length==48 && BitConverter.ToUInt64(execution,16)!=0 &&
                     BitConverter.ToUInt32(execution,40)==program.HistoryFrame && unchecked(GuestFrame.U32(16)-program.HistoryFrame)==1;
             }
             if(!string.IsNullOrEmpty(program.HistoryName))ClientPlugin.Buffers.BufferCatalog.Set(program.HistoryName,
                 program.HistoryReady && program.HistoryImage!=0?new ClientPlugin.Buffers.GuestRendererImage(program.HistoryImage,program.ImageWidth,program.ImageHeight,1):null);
         }
         GuestVolumes.TrySubmit(programs);
-        int currentMark=0;ulong previous=Hdr;bool lastChain=false;
+        var callbacks=PortablePassRegistry.Snapshot();
+        for(int currentMark=GuestMark.AfterLighting;currentMark<=GuestMark.AfterUpscale;currentMark++)
+        {
+        ulong previous=currentMark>=5?Upscale:Hdr;bool lastChain=false;
+        PortablePassRegistry.Run(callbacks,currentMark,0,programs);
         foreach (var program in Ordered(programs))
         {
+            if(program==null || program.Mark!=currentMark)continue;
             if(program==null || program.Helper)continue;
-            if(program.Mark!=currentMark)
-            {
-                if(lastChain)Merge(programs,currentMark,previous,0);
-                currentMark=program.Mark;previous=currentMark>=5?Upscale:Hdr;lastChain=false;
-            }
+            GuestPassList.RefreshPreparedInputs(program);
             if(GuestVolumes.SuppressFallback(program))continue;
             if (GuestOccupancy.Handles(program, programs) || GuestPointShadows.Handles(program, programs)) continue;
             if (!program.Enabled || program.ConflictDisabled || program.Pipeline == 0 || program.Mark == 0 || program.ResourceContract != 0)continue;
@@ -255,6 +256,7 @@ static class GuestBridgeClient
                 PublishOwned(program);PublishPass(program,storage,width,height);
                 if(ordinary)
                 {
+                    GuestTemporal.FromIsolated(programs,program,storage);
                     previous=storage;lastChain=compose==3;
                     if(compose!=3 && compose!=5)Merge(programs,program.Mark,storage,MergeMode(compose));
                 }
@@ -266,10 +268,70 @@ static class GuestBridgeClient
             }
         }
         if(lastChain)Merge(programs,currentMark,previous,0);
+        PortablePassRegistry.Run(callbacks,currentMark,1,programs);
+        }
         Call("SetNativeSunGlare", !OwnsGlare(programs));
     }
 
     static int MergeMode(int compose)=>compose==1?2:compose==2?3:compose==4?0:1;
+    internal static void ExecutePortable(int mark,object[][] commands,System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
+    {
+        if(commands.Length!=0 && !SupportsPacketFlags(131072))
+            throw new NotSupportedException("Update SE-Vulkan native library: portable rendering commands require guest feature bit17.");
+        ulong Image(string name,out int width,out int height)
+        {
+            if(name==null || name=="sceneColor")
+            {
+                PassSize(new GuestProgram{Mark=mark,Scale=1,Compose="Replace"},out width,out height);return Hdr;
+            }
+            object image=ClientPlugin.Buffers.BufferCatalog.Active(name);
+            if(image is ClientPlugin.Buffers.GuestRendererImage guest && guest.IsAvailable){width=guest.Width;height=guest.Height;return guest.ImageId;}
+            if(image is ClientPlugin.Buffers.PublishedBuffer published && published.ImageId!=0){width=published.Width;height=published.Height;return published.ImageId;}
+            throw new InvalidOperationException("Portable image is unavailable: "+name);
+        }
+        ulong Helper(string name)
+        {
+            foreach(var p in programs)if(p.Helper && p.Id=="anomaly.helper."+name && p.Pipeline!=0)return p.Pipeline;
+            throw new InvalidOperationException("Portable helper is unavailable: "+name);
+        }
+        foreach(var command in commands)
+        {
+            int operation=(int)command[0];
+            if(operation==0)
+            {
+                string id=(string)command[1];GuestProgram selected=null;
+                foreach(var p in programs)if(p.Id==id && !p.Helper)selected=p;
+                if(selected==null || selected.Pipeline==0 || selected.ResourceContract!=0 || (selected.Flags&(Compute|DepthTest))!=0)
+                    throw new InvalidOperationException("Portable fullscreen program is unavailable or requires a different execution contract: "+id);
+                GuestPassList.RefreshPreparedInputs(selected);
+                ulong target=Image(command[2] as string,out int width,out int height);
+                var draw=selected.FrameCopy();draw.Mark=mark;
+                var inputs=ImagesFor(draw,mark>=5?Upscale:Hdr,0);
+                if(command[3] is string scene)inputs[0]=Image(scene,out _,out _);
+                if(target!=Hdr && Array.IndexOf(inputs,target)>=0)
+                    throw new InvalidOperationException("Portable fullscreen cannot sample its private target; copy it to a separate catalog image first: "+id);
+                Call("Submit",mark,4,width,height,selected.Pipeline,target,PackUniforms(selected.Uniforms),inputs,selected.Flags);
+                selected.Submissions++;selected.SubmittedThisFrame=true;selected.Status="submitted";
+                continue;
+            }
+            if(operation==1)
+            {
+                ulong source=Image((string)command[1],out _,out _),target=Image((string)command[2],out int width,out int height);
+                if(source==target)continue;
+                var inputs=new ulong[14];inputs[0]=source;Call("Submit",mark,4,width,height,Helper("Merge0"),target,Array.Empty<byte>(),inputs,0);continue;
+            }
+            if(operation==2)
+            {
+                ulong target=Image((string)command[1],out int width,out int height);
+                Call("Submit",mark,4,width,height,Helper("ClearColor"),target,PackUniforms((float[])command[2]),new ulong[14],0);continue;
+            }
+            if(operation==3)
+            {
+                GuestTemporal.Contribute(programs,mark,Image((string)command[1],out _,out _),Image((string)command[2],out _,out _));continue;
+            }
+            throw new InvalidOperationException("Unknown portable command: "+operation);
+        }
+    }
     static ulong MergePipeline(System.Collections.Generic.IReadOnlyList<GuestProgram> programs,int mode)
     {
         foreach(var p in programs)if(p!=null && p.Helper && p.Id=="anomaly.helper.Merge"+mode)return p.Pipeline;

@@ -1256,6 +1256,56 @@ public static class FullscreenPassRegistry
         return null;
     }
 
+    public static void ExecutePortable(OwnedPassContext context,object[][] commands)
+    {
+        if(context==null)throw new ArgumentNullException(nameof(context));
+        if(commands==null)throw new ArgumentNullException(nameof(commands));
+        if(commands.Length==0)return;
+        var rc=context.Rc;
+        ISrvBindable Image(string name)=>name==null || name=="sceneColor"?context.SceneColor as ISrvBindable:BufferCatalog.Active(name)?.Srv as ISrvBindable;
+        IRtvBindable Target(string name)
+        {
+            var target=Image(name) as IRtvBindable;
+            if(target==null)throw new InvalidOperationException("Portable render target is unavailable: "+name);return target;
+        }
+        lock(Gate)
+        {
+            if(!EnsureHelpers(rc))throw new InvalidOperationException("Portable fullscreen helpers are unavailable.");
+            foreach(var command in commands)
+            {
+                int operation=(int)command[0];
+                if(operation==0)
+                {
+                    Program selected=null;foreach(var program in Programs)if(program.Id==(string)command[1])selected=program;
+                    if(selected==null)throw new InvalidOperationException("Portable fullscreen program is unavailable: "+command[1]);
+                    if(!EnsureProgram(selected) || selected.Shader==null)throw new InvalidOperationException("Portable fullscreen pixel shader is unavailable: "+command[1]);
+                    var target=Target(command[2] as string);var scene=Image(command[3] as string);
+                    if(Aliases(target,scene))
+                    {
+                        if(command[2] is string targetName && targetName!="sceneColor")
+                            throw new InvalidOperationException("Portable fullscreen cannot sample its private target; copy it to a separate catalog image first: "+command[1]);
+                        if(!EnsureScratch(context.IsOutputResolution))throw new InvalidOperationException("Portable scene snapshot is unavailable.");
+                        var copy=NextScratch();Blit(rc,scene,copy);scene=copy;
+                    }
+                    WriteExtras(rc,context.IsOutputResolution,target.Size);WriteUniforms(rc,selected.Id);
+                    DrawReplacePixel(rc,selected,target,scene,target.Size);continue;
+                }
+                if(operation==1)
+                {
+                    var source=Image((string)command[1]);var target=Target((string)command[2]);
+                    if(source==null)throw new InvalidOperationException("Portable copy source is unavailable: "+command[1]);
+                    if(!Aliases(target,source))Blit(rc,source,target);continue;
+                }
+                if(operation==2)
+                {
+                    var value=(float[])command[2];UnbindBus(rc);rc.ClearRtv(Target((string)command[1]),new RawColor4(value[0],value[1],value[2],value[3]));continue;
+                }
+                if(operation==3){context.ContributeVelocity(Image((string)command[1]),Image((string)command[2]));continue;}
+                throw new InvalidOperationException("Unknown portable command: "+operation);
+            }
+        }
+    }
+
     static string DescribeRt(IRtvBindable dest)
     {
         if (dest == null)

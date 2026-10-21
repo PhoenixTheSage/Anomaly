@@ -11,8 +11,13 @@
     <Compile Include="TargetContracts.cs" />
     <Compile Include="FrameContracts.cs" />
     <Compile Include="CompositionContracts.cs" />
+    <Compile Include="TemporalContracts.cs" />
+    <Compile Include="PortableContracts.cs" />
+    <Compile Include="../../ClientPlugin/Backend/PortablePassRegistry.cs" />
+    <Compile Include="../../ClientPlugin/Backend/PortablePassContext.cs" />
     <Compile Include="../../ClientPlugin/Backend/FrameEnvironment.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestFrame.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestTemporal.cs" />
     <Compile Include="NativeProbe.cs" />
     <Compile Include="OccupancyProbe.cs" />
     <Compile Include="PointShadowProbe.cs" />

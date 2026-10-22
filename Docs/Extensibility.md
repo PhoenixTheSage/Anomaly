@@ -1776,10 +1776,11 @@ Native owner flag8 requires `VK_EXT_dynamic_rendering_unused_attachments`.
 Stock pipelines keep three attachments, and only owner pipelines add Target3.
 `CompileNativeOwnerGenerationWithContracts` sends the contract bit, and Anomaly
 sends it only for generations that change sources. Admitted owners are the
-classic GBuffer rigid, generic-instanced, cube and deformed-cube pipelines
-(0..19 except the skinned stream). Keen compiles those with
-`USE_GENERIC_INSTANCING`/`USE_CUBE_INSTANCING`/`USE_DEFORMED_CUBE_INSTANCING`,
-whose `local_matrix` comes from the object block. DX11 therefore gives them
+classic GBuffer pipelines 0..19: rigid, skinned, generic-instanced, cube and
+deformed-cube streams. Keen compiles those without `USE_SIMPLE_INSTANCING`,
+so their `local_matrix` comes from the object block. Skinned velocity is
+therefore rigid-body: bone animation is not part of DX11's classic velocity,
+and the replay never covered skinned draws at all. DX11 therefore gives them
 the per-draw currToPrev rows and never reads t15; only `USE_SIMPLE_INSTANCING`
 (the Stage 2/GPU NEW path) indexes t15. Per-instance changes are not part of
 DX11's velocity for these streams. Admitted owners compile with
@@ -1795,13 +1796,13 @@ The main GBuffer scope adds the motion target only on frames with admitted
 draws. The replay then loads that target and skips those draws. Without
 history, owners write zero, as the replay does.
 
-The 141-check actual-core gate (`--gbuffer-velocity-only`) passes with
-synchronization validation and zero errors, on all four admitted streams:
+The 157-check actual-core gate (`--gbuffer-velocity-only`) passes with
+synchronization validation and zero errors, on all five classic streams:
 
 - Stock replay matches the analytic -1.067 px motion.
 - Owner-emitted Target3 matches both the analytic and replay values.
 - A pack-written (3, -2) reaches Target3, which the replay cannot produce.
-- A non-admitted skinned owner keeps the replay.
+- The skinned owner emits the analytic rigid-body motion and pack-written velocity.
 - Results agree across recording modes.
 - Failed compilation keeps the previous generation.
 - Unregistering restores exact stock material and motion bits.
@@ -1809,7 +1810,6 @@ synchronization validation and zero errors, on all four admitted streams:
 
 Still open on this contract:
 
-- skinned (DX11's classic path also uses only currToPrev; the replay skips it);
 - GPU NEW owners, the real t15 (`USE_SIMPLE_INSTANCING`) and t16 consumers;
 - voxel, blended-decal and fade-bank owners;
 - native-cell and GPU-indexed owners;

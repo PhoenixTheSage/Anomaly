@@ -57,6 +57,8 @@ internal static class GuestPostprocessStages
             if(oit&&!GuestBridgeClient.SupportsPacketFlags(1073741824))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: OIT resolve generations require native bit30.");
             bool geometry=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Geometry/",StringComparison.OrdinalIgnoreCase)||o.Key.StartsWith("GBuffer/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>new[]{ShaderStages.GBuffer,ShaderStages.Forward,ShaderStages.Highlight}.Contains(i.Stage,StringComparer.OrdinalIgnoreCase)));
             if(geometry&&!GuestBridgeClient.SupportsPacketFlags(unchecked((int)0x80000000)))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: stock world geometry generations require native bit31.");
+            ulong extended=GuestBridgeClient.Call("NativeOwnerFeatures") is ulong features?features:0;
+            if(geometry&&(extended&7)!=7)throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: native-cell/GPU owner generation capability extension (flags1/2/4) is required.");
             var state=State(13);if(state==null)throw new InvalidOperationException("Postprocess generation service unavailable.");
             uint format=(uint)state[9];
             if(revision==attemptedRevision&&epoch==attemptedEpoch&&format==attemptedFormat)return Error==null;
@@ -111,6 +113,7 @@ internal static class GuestPostprocessStages
             foreach(uint id in selected.Where(id=>id>=1024&&id<1034).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
             if(selected.Any(id=>id>=1536&&id<1546))foreach(uint id in Enumerable.Range(1536,10).Select(v=>(uint)v))selected.Add(id);
             foreach(uint id in selected.Where(id=>id>=4096&&id<10912).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
+            foreach(uint id in selected.Where(id=>id>=16384&&id<16440||id>=32768&&id<32824||id>=49152&&id<54464).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
             // Include the negative-border HBAO companions in the same owner generation.
             foreach(uint id in selected.ToArray())if(id>=36&&id<=51)selected.Add(id+92);
             if(selected.Count==0)return true;
@@ -119,12 +122,12 @@ internal static class GuestPostprocessStages
             defines["ANOMALY"]="1";defines["ANOMALY_SPIRV"]="1";
             using(var stream=new MemoryStream())using(var writer=new BinaryWriter(stream,Encoding.UTF8,true))
             {
-                writer.Write("AnomalyNativeOwners-4;stock-world-geometry");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
+                writer.Write("AnomalyNativeOwners-5;native-cell-gpu-owners");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
                 foreach(var define in defines.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(define.Key);writer.Write(define.Value);}foreach(uint id in selected.OrderBy(v=>v))writer.Write(id);
                 writer.Flush();using(var sha=SHA256.Create())requested=BitConverter.ToString(sha.ComputeHash(stream.ToArray())).Replace("-","").ToLowerInvariant();
             }
             if(activeFingerprint==requested&&preparedEpoch==epoch&&activeFormat==format){if(restoresStock)touched=Array.Empty<uint>();return true;}
-            var result=GuestBridgeClient.Call("CompilePostprocessGeneration",requested,files,defines,selected.OrderBy(v=>v).ToArray()) as object[];
+            var result=((extended&7)==7?GuestBridgeClient.Call("CompileNativeOwnerGeneration",requested,files,defines,selected.OrderBy(v=>v).ToArray(),restoresStock):GuestBridgeClient.Call("CompilePostprocessGeneration",requested,files,defines,selected.OrderBy(v=>v).ToArray())) as object[];
             if(result==null)throw new InvalidOperationException("Native postprocess compiler service unavailable.");
             preparedRestoresStock=restoresStock;
             prepared=(ulong)result[0];preparedFingerprint=(string)result[1];preparedEpoch=epoch;preparedRevision=revision;touched=selected.OrderBy(v=>v).ToArray();return true;

@@ -1686,8 +1686,8 @@ Geometry currently retains the fixed stock descriptor interface; additional
 reserved catalog resources and the stage-specific geometry constants still need
 integration. The DX11 geometry constants must not be replaced by fullscreen
 extras merely because both use register b6. Native-cell and GPU-owned geometry
-builders/activation, remaining legal interfaces and same-invocation attachment
-outputs remain required stage6 work. Both aggregate capability flags stay false.
+owner generations are described below; remaining legal interfaces and
+same-invocation attachment outputs remain required stage6 work. Both aggregate capability flags stay false.
 Native mip blits remain copies, not arbitrary HistoryColor shader execution.
 Stages7 and8 follow stage6, including the required matched Windows live matrix.
 
@@ -1714,3 +1714,47 @@ reference skip) and canvas TypeScript pass. Full recreation source now includes
 both new fixtures and builds; that broad combined suite has not been rerun.
 Remaining stage6 contracts and the mandatory stages7/8 Windows live acceptance
 remain open; both aggregate capability flags remain false.
+
+
+### Native-cell and GPU-indexed geometry generations — partial stage6 owner contract
+
+An optional size/version-checked extension leaves the ABI-1 packets unchanged.
+`sevk_native_owner_capabilities` fills a 24-byte record: flag1 native cells,
+flag2 GPU NEW, flag4 GPU OLD, a module bound of 8192 and 117 binding rows.
+`sevk_prepare_native_generation` takes a 32-byte request with the existing
+32-byte module records. Its flag1 marks stock restoration; unknown flags, wrong
+sizes, unknown ABI and empty module sets are refused before candidate
+allocation. Owner spaces alternate VS/PS: native cells `[16384,16440)`, GPU NEW
+`[32768,32824)` and GPU OLD `[49152,54464)`. Only initialized pipelines appear
+in the catalog. Anomaly requires flags 1/2/4 for geometry overlay, injection and
+define requests. It closes VS/PS pairs in each owner space and refuses older
+hosts before compilation.
+
+Detached builders keep the actual stock layouts, rasterization and admission
+rules, and build back/no-cull pairs. One generation switches the live classic,
+cell and GPU handles at a closed-frame boundary. Replaced handles retire after
+timeline completion, and Depth-owner changes invalidate cascade and spotlight
+caches. GPU-indexed production is not inferred from CPU-recorded
+`vkCmdDrawIndexedIndirectCount`. A trusted compute reduction reads the
+immutable submitted count and argument buffers. It reads back one word per row
+after completion, and zero counts, index counts or instance counts claim nothing.
+Conditional spotlight scopes attribute classic, cell and GPU draws to the GPU
+visibility word. The condition is thread-local to the spot recorder, so
+concurrent cascade and pass workers never inherit it. Generation tokens keep
+work from being credited to a newer replacement. Pack-only proof resources
+retire when the last tracked generation returns to stock.
+
+The device-local actual-core gate passes 92 checks with synchronization
+validation and zero errors. It cataloges all 28 cell variants and initialized
+GPU NEW/OLD pairs, and runs a four-path mixed frame with expected GBuffer and
+shadow pixels in both recording modes. It covers hidden-work honesty, atomic
+activation, compile-failure retention, ABI refusal, exact stock restoration and
+retirement. Its conditional spotlight lane covers classic, cell and GPU NEW
+depth owners in one GPU-conditional scope. It checks independent pixels and
+per-owner attribution after a caster change. A condition-false frame is
+CPU-recorded with no claimed production, and a forced redraw reports fresh
+production. Eight older-host refusal checks pass. Those cataloged cell variants
+are construction evidence, not per-path execution evidence. Reserved geometry
+bindings, stage-specific constants, transparent/billboard owners, legal
+interface widening and same-invocation attachments remain open. Both aggregate
+capability flags stay false, and stages 7 and 8 still follow.

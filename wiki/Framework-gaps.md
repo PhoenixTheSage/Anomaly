@@ -1454,3 +1454,31 @@ The coordinated native binding transport accepts all87 current owner rows within
 its90-row bound; an oversized packet leaves the copied rows unchanged. Eight
 real older-bit23-host checks prove actionable bit24/25 refusal before compilation
 or native candidate allocation. This is focused stage6 evidence.
+
+
+### Native decal pair generations — focused stage6 execution gate
+
+Native bit26 adds five captured stock VS/PS pairs (1024..1033), corresponding to
+native decal roles1,2,3,7,8. A pair prepares and activates together; fragment
+invocations carry the merged vertex/pixel resource contract. The original
+indexed-volume invocation, dynamic b2 batch offsets, per-channel GBuffer masks,
+read-only depth and transparent OIT outputs remain native-owned. Catalog requests
+can explicitly replace material t5/t6; absent requests retain their stock inputs.
+Pipeline/layout retirement follows the last completed submission. ABI-1 packet
+layouts remain unchanged. The module/row transport bound is100 (92 actual binding
+owners after shared-module aliases merge). Older hosts require coordinated bit26
+support before pack compilation or native candidate allocation.
+
+The focused98-check actual-core GPU gate proves all ten modules with independent
+GBuffer and OIT output equations, vertex/pixel catalog inputs, dynamic b2, atomic
+activation, failed-compilation/incomplete-pair rollback, exact stock restoration
+and retirement. Each role produces exactly matching synchronous/pipelined output, with zero
+core/synchronization errors.
+The updated170-check environment gate passes with all92 binding-owner rows and
+oversized-packet preservation. Ten real older-host checks cover bits24/25/26.
+Native CTest executes16 passes plus its configured reference skip; managed net48/
+net10 builds and focused CPU native-stage/binding contracts pass. The extended
+full recreation gate now includes these fixtures but has not been rerun for this
+batch. This evidence does not establish every legal shader interface, other native
+stages, full attachment semantics or parity. Both aggregate named-stage and same-draw attachment flags
+remain false. Stage7 and stage8 follow the remaining stage6 work.

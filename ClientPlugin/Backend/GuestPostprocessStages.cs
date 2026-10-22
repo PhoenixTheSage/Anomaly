@@ -27,11 +27,20 @@ internal static class GuestPostprocessStages
     {
         long epoch=GuestBridgeClient.ResourceEpoch,revision;PackSourceSnapshot[] sources;
         lock(GuestPassList.Gate){revision=GuestPassList.SourceRevision;sources=GuestPassList.SourceSnapshot().OrderBy(s=>s.Definition.Priority).ThenBy(s=>s.Definition.Id,StringComparer.OrdinalIgnoreCase).ThenBy(s=>s.Fingerprint,StringComparer.Ordinal).ToArray();}
-        bool relevant=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>i.Stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)));
+        bool relevant=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>NativeKey(o.Key))||s.Injections.Any(i=>NativeStage(i.Stage)));
+        if(!relevant&&touched.Length==0){Error=null;return true;}
+        // Resolve ownership before demanding capabilities for inactive conflicting packs.
+        var disabled=new HashSet<PackSourceSnapshot>();
+        foreach(var claim in sources.SelectMany(s=>s.Definition.Exclusive.Distinct(StringComparer.OrdinalIgnoreCase).Select(stage=>new{Source=s,Stage=stage})).GroupBy(v=>v.Stage,StringComparer.OrdinalIgnoreCase))
+            if(claim.Select(v=>v.Source).Distinct().Count()>1)foreach(var entry in claim)disabled.Add(entry.Source);
+        sources=sources.Where(s=>!disabled.Contains(s)).ToArray();
+        relevant=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>NativeKey(o.Key))||s.Injections.Any(i=>NativeStage(i.Stage)));
         if(!relevant&&touched.Length==0){Error=null;return true;}
         if(!PreparationBound||!GuestBridgeClient.SupportsPacketFlags(524288)){Error="Update coordinated Anomaly/SE-Vulkan: native postprocess generations require preparation callbacks and native bit19.";return false;}
         try
         {
+            bool lighting=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>i.Stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)));
+            if(lighting&&!GuestBridgeClient.SupportsPacketFlags(1048576))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: lighting owner generations require native bit20.");
             var state=State(13);if(state==null)throw new InvalidOperationException("Postprocess generation service unavailable.");
             uint format=(uint)state[9];
             if(revision==attemptedRevision&&epoch==attemptedEpoch&&format==attemptedFormat)return Error==null;
@@ -39,10 +48,6 @@ internal static class GuestPostprocessStages
             if(catalogEpoch!=epoch||catalog==null||catalog.Length==0){catalog=GuestBridgeClient.Call("PostprocessCatalog") as object[][];catalogEpoch=epoch;}
             if(catalog==null||catalog.Length==0)return true; // Owner can initialize after CPU registration.
             attemptedRevision=revision;attemptedEpoch=epoch;attemptedFormat=format;
-            var disabled=new HashSet<PackSourceSnapshot>();
-            foreach(var claim in sources.SelectMany(s=>s.Definition.Exclusive.Distinct(StringComparer.OrdinalIgnoreCase).Select(stage=>new{Source=s,Stage=stage})).GroupBy(v=>v.Stage,StringComparer.OrdinalIgnoreCase))
-                if(claim.Select(v=>v.Source).Distinct().Count()>1)foreach(var entry in claim)disabled.Add(entry.Source);
-            sources=sources.Where(s=>!disabled.Contains(s)).ToArray();
             string game=GuestCompiler.GameShaderDirectory();if(string.IsNullOrEmpty(game)||!Directory.Exists(game))throw new DirectoryNotFoundException("Game shader sources unavailable for authenticated native generation.");
             var files=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
             foreach(string file in Directory.GetFiles(game,"*",SearchOption.AllDirectories).Where(IsSource))files.Add(Relative(game,file),File.ReadAllBytes(file));
@@ -55,20 +60,20 @@ internal static class GuestPostprocessStages
                 var pack=sources[i];string prefix="_anomaly/packs/"+i+"/";
                 foreach(string file in pack.Files.Where(IsSource))files.Add(prefix+file,RewritePackIncludes(pack,file,prefix));
                 files.Add(prefix+"identity.hlsli",Encoding.UTF8.GetBytes("// "+pack.Fingerprint+"\n"));
-                foreach(var overlay in pack.Overlays.Where(o=>o.Key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)))
+                foreach(var overlay in pack.Overlays.Where(o=>NativeKey(o.Key)))
                 {if(!claims.TryGetValue(overlay.Key,out var list))claims.Add(overlay.Key,list=new List<string>());list.Add(prefix+overlay.RelativePath);}
-                foreach(var injection in pack.Injections.Where(v=>v.Stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)))
+                foreach(var injection in pack.Injections.Where(v=>NativeStage(v.Stage)))
                 {if(!injections.TryGetValue(injection.Stage,out var list))injections.Add(injection.Stage,list=new List<string>());list.Add(prefix+injection.RelativePath);}
                 foreach(string raw in pack.Definition.Defines){string name=raw.Split('=')[0].Trim();if(Regex.IsMatch(name,@"^[A-Za-z_][A-Za-z0-9_]*$")&&!name.StartsWith("ANOMALY_ATTACH_",StringComparison.OrdinalIgnoreCase)&&!new[]{"ANOMALY","ANOMALY_VELOCITY","ANOMALY_PACK_GBUFFER1A","RENDERING_PASS","DEPTH_ONLY","CUSTOM_DEPTH"}.Contains(name,StringComparer.OrdinalIgnoreCase))defines[name]="1";}
             }
             // Headers are first-class overlays. Publish them at their canonical include key,
             // then rebuild the owning family (all families for an uncatalogued shared header).
-            var headerFamilies=new HashSet<string>(StringComparer.OrdinalIgnoreCase);bool sharedHeader=false;
+            var headerFamilies=new HashSet<string>(StringComparer.OrdinalIgnoreCase);bool sharedPostHeader=false,sharedLightingHeader=false;
             var entryKeys=new HashSet<string>(catalog.Select(e=>(string)e[1]),StringComparer.OrdinalIgnoreCase);
             foreach(var claim in claims.Where(c=>c.Value.Count==1&&!entryKeys.Contains(c.Key)))
             {
                 files[claim.Key]=Encoding.UTF8.GetBytes("#include \""+claim.Value[0]+"\"\n");
-                if(ShaderStages.TryGetStageForKey(claim.Key,out var family))headerFamilies.Add(family);else sharedHeader=true;
+                if(ShaderStages.TryGetStageForKey(claim.Key,out var family))headerFamilies.Add(family);else if(claim.Key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase))sharedLightingHeader=true;else sharedPostHeader=true;
             }
             var selected=new HashSet<uint>(touched);
             foreach(var entry in catalog)
@@ -76,8 +81,11 @@ internal static class GuestPostprocessStages
                 uint id=(uint)entry[0];string key=(string)entry[1];
                 if(!ShaderStages.TryGetStageForKey(key,out var stage))continue;
                 bool overlay=claims.TryGetValue(key,out var owners)&&owners.Count==1;
-                bool inject=injections.TryGetValue(stage,out var injects);
-                if(!overlay&&!inject&&defines.Count==0&&!sharedHeader&&!headerFamilies.Contains(stage))continue;
+                injections.TryGetValue(stage,out var stageInjects);
+                injections.TryGetValue(ShaderStages.Lighting,out var familyInjects);
+                var injects=(stage.StartsWith("Lighting.",StringComparison.OrdinalIgnoreCase)?(familyInjects??new List<string>()).Concat(stageInjects??new List<string>()):stageInjects??new List<string>()).ToArray();
+                bool inject=injects.Length!=0;
+                if(!overlay&&!inject&&defines.Count==0&&!(stage.StartsWith("Lighting.",StringComparison.OrdinalIgnoreCase)?sharedLightingHeader:sharedPostHeader)&&!headerFamilies.Contains(stage))continue;
                 selected.Add(id);
                 string extras=ShaderStages.ExtrasIncludePath(stage);
                 files[extras]=Encoding.UTF8.GetBytes("#pragma once\n"+(inject?string.Concat(injects.Select(p=>"#include \""+p+"\"\n")):""));
@@ -88,17 +96,19 @@ internal static class GuestPostprocessStages
             // Include the negative-border HBAO companions in the same owner generation.
             foreach(uint id in selected.ToArray())if(id>=36&&id<=51)selected.Add(id+92);
             if(selected.Count==0)return true;
-            defines["ANOMALY"]="1";defines["ANOMALY_COMPOSITE"]="1";defines["ANOMALY_SPIRV"]="1";
+            bool restoresStock=!claims.Any(c=>c.Value.Count==1)&&injections.Count==0&&defines.Count==0;
+            // COMPOSITE belongs to owned camera-velocity variants, not native named stages.
+            defines["ANOMALY"]="1";defines["ANOMALY_SPIRV"]="1";
             using(var stream=new MemoryStream())using(var writer=new BinaryWriter(stream,Encoding.UTF8,true))
             {
-                writer.Write("AnomalyNativePostprocess-1");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
+                writer.Write("AnomalyNativeOwners-2");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
                 foreach(var define in defines.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(define.Key);writer.Write(define.Value);}foreach(uint id in selected.OrderBy(v=>v))writer.Write(id);
                 writer.Flush();using(var sha=SHA256.Create())requested=BitConverter.ToString(sha.ComputeHash(stream.ToArray())).Replace("-","").ToLowerInvariant();
             }
-            if(activeFingerprint==requested&&preparedEpoch==epoch&&activeFormat==format)return true;
+            if(activeFingerprint==requested&&preparedEpoch==epoch&&activeFormat==format){if(restoresStock)touched=Array.Empty<uint>();return true;}
             var result=GuestBridgeClient.Call("CompilePostprocessGeneration",requested,files,defines,selected.OrderBy(v=>v).ToArray()) as object[];
             if(result==null)throw new InvalidOperationException("Native postprocess compiler service unavailable.");
-            preparedRestoresStock=!claims.Any(c=>c.Value.Count==1)&&injections.Count==0&&defines.Count==3;
+            preparedRestoresStock=restoresStock;
             prepared=(ulong)result[0];preparedFingerprint=(string)result[1];preparedEpoch=epoch;preparedRevision=revision;touched=selected.OrderBy(v=>v).ToArray();return true;
         }
         catch(Exception error){Error=error.GetBaseException().Message;Discard();return false;}
@@ -122,10 +132,10 @@ internal static class GuestPostprocessStages
     internal static NativeStageGenerationState Query(string stage)
     {
         var variants=new List<NativeStageVariantState>();
-        if(catalog!=null)foreach(var entry in catalog)if(ShaderStages.TryGetStageForKey((string)entry[1],out var name)&&string.Equals(name,stage,StringComparison.OrdinalIgnoreCase))
+        if(catalog!=null)foreach(var entry in catalog)if(ShaderStages.TryGetStageForKey((string)entry[1],out var name)&&(string.Equals(name,stage,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Lighting,StringComparison.OrdinalIgnoreCase)&&name.StartsWith("Lighting.",StringComparison.OrdinalIgnoreCase)))
         {
             var data=State((uint)entry[0]);if(data==null)continue;
-            variants.Add(new NativeStageVariantState{Variant=(uint)entry[0],Source=(string)entry[1],ActiveToken=(ulong)data[0],Executions=(ulong)data[1],LastSubmissionCompleted=(ulong)data[1]!=0&&(ulong)data[2]<=(ulong)data[3],LastProducedFrame=(uint)data[4],ActiveGeneration=data[6] as string});
+            variants.Add(new NativeStageVariantState{Variant=(uint)entry[0],Source=(string)entry[1],Profile=entry.Length>2?entry[2] as string:null,ActiveToken=(ulong)data[0],Executions=(ulong)data[1],LastSubmissionCompleted=(ulong)data[1]!=0&&(ulong)data[2]<=(ulong)data[3],LastProducedFrame=(uint)data[4],ActiveGeneration=data[6] as string});
         }
         return new NativeStageGenerationState{Stage=stage,RequestedGeneration=requested,PreparedGeneration=prepared==0?null:preparedFingerprint,Error=Error,Variants=variants.AsReadOnly()};
     }
@@ -158,6 +168,8 @@ internal static class GuestPostprocessStages
             return match.Value;
         }));
     }
+    static bool NativeKey(string key)=>key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase);
+    static bool NativeStage(string stage)=>stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase);
     static bool IsSource(string path)=>new[]{".hlsl",".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(path),StringComparer.OrdinalIgnoreCase);
     static string Relative(string root,string path)=>Path.GetFullPath(path).Substring(Path.GetFullPath(root).TrimEnd('\\','/').Length+1).Replace('\\','/');
 }
@@ -173,6 +185,7 @@ public sealed class NativeStageVariantState
 {
     public uint Variant {get;internal set;}
     public string Source {get;internal set;}
+    public string Profile {get;internal set;}
     public ulong ActiveToken {get;internal set;}
     public string ActiveGeneration {get;internal set;}
     public ulong Executions {get;internal set;}

@@ -1216,3 +1216,49 @@ base variant serves both modes; sampled HBAO variants retain the authenticated
 border transform and its refusals for incompatible fetch rewrites. This is
 execution coverage for the current native postprocess catalog, not every
 advertised named stage or unrestricted catalog bindings.
+
+## Vulkan deferred lighting generations (partial stage 6)
+
+Native feature bit20 adds the four deferred lighting fragment variants to the
+same captured-source transaction as native postprocessing: directional, tiled
+point, spot and shadowed spot. IDs256–259 extend the existing size/version-checked
+module/status transport without changing ABI-1 layouts or reflection method
+signatures. `Lighting` family injections precede stage injections; shared lighting
+headers rebuild lighting owners. Anomaly remains the sole pack host. The native
+compiler uses authenticated stock inputs and the existing variant defines.
+
+One native batch builds every selected lighting/postprocess pipeline before any
+activation. Compilation, descriptor/interface rejection, stale source/device
+state or a changed HDR format retains the prior generation. Both HDR pipeline
+formats are prepared. Replaced pipelines retire after submission completion;
+renderer-owned lighting descriptor layouts are shared and remain renderer-owned.
+Unregister restores stock through the same transaction. Exclusive conflicts are
+resolved before capability checks, so inactive conflicting owners retain stock.
+Active lighting requests and global pack defines receive an actionable bit20
+refusal on older hosts, before shader assets or GPU work are needed. Native named
+variants no longer inherit the owned camera-velocity `ANOMALY_COMPOSITE` define;
+explicit pack defines retain their existing boolean semantics.
+
+`ShaderPackRegistry.GetNativeStageState("Lighting")` reports all four variants;
+individual `Lighting.Dir`, `.Point` and `.Spot` queries remain available. Each
+variant now exposes `Profile` alongside source, active identity and execution/
+completion/frame state. These variants are `ps_5_0`. Legacy diagnostic lighting
+replacement clears the native generation identity, preventing stale active
+fingerprints from appearing in the status query.
+
+This slice replaces/injects fragment programs within the existing native owners.
+Lighting vertex/geometry overrides, complete reserved catalog bindings and
+same-invocation attachment output remain open, along with the other native
+owners. Aggregate named-stage and same-draw attachment capabilities remain false.
+The full actual-core gate passes434 checks with zero core/synchronization
+validation errors, including expected intermediate HDR pixels for all four
+lighting variants, family/stage injection, shared-header reload, pipelined
+replacement, HDR changes, mixed lighting/postprocess rollback, late batch failure
+cleanup, exact stock restoration and completion-based retirement. Matched
+loaded-world DX11/Vulkan visual, temporal and performance acceptance remains open.
+
+The final focused actual-core rerun passes104 checks, including the define-scope
+shader guard and explicit fragment profiles. The separate382-check native family
+gate executes all82 selected postprocess/lighting variants and retains stock pixel
+checks, with zero validation errors. These are deterministic GPU gates; loaded-world
+acceptance and the remaining native contracts are still required.

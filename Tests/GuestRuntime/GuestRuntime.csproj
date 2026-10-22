@@ -11,6 +11,7 @@
     <Compile Include="ParityContracts.cs" />
     <Compile Include="TargetContracts.cs" />
     <Compile Include="FrameContracts.cs" />
+    <Compile Include="ColorHistoryContracts.cs" />
     <Compile Include="CompositionContracts.cs" />
     <Compile Include="TemporalContracts.cs" />
     <Compile Include="PortableContracts.cs" />

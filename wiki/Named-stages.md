@@ -216,3 +216,12 @@ gate passes382, including all82 postprocess/lighting variants and unchanged
 stock highlights. Both report zero core/synchronization errors. Other native owners,
 vertex/geometry contracts, complete same-draw attachments, stage7 and automated
 stage8 remain required; aggregate named-stage/same-draw capabilities stay false.
+
+
+Reserved historyColor rows now share the fullscreen/portable frame snapshot and
+validate producer identity, exact age, resource epoch and render dimensions.
+HistoryCopy records after all late consumers and phase1 callbacks. This preserves
+named shader replacement and keeps capture at raster size while ordinary
+AfterUpscale remains output-sized. The focused125-check actual-core history gate
+passes with zero core/synchronization errors; the final combined gate passes891
+checks with zero errors.

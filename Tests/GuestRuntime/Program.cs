@@ -13,6 +13,7 @@ static partial class Program
         if (Array.IndexOf(args, "--stage-binding-contracts") >= 0) { StageBindingContracts(); return; }
         if (Array.IndexOf(args, "--native-stage-contracts") >= 0) { NativeStageContracts(); return; }
         if (Array.IndexOf(args, "--parity-contracts") >= 0) { ParityContracts(); return; }
+        if (Array.IndexOf(args, "--color-history-contracts") >= 0) { ColorHistoryContracts(); return; }
         if (Array.IndexOf(args, "--frame-contracts") >= 0) { FrameContracts(); return; }
         if (Array.IndexOf(args, "--portable-contracts") >= 0) { PortableContracts(); return; }
         string root = Path.GetFullPath(args.Length > 0 ? args[0] : "../..");

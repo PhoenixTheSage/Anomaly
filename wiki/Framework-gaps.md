@@ -1334,6 +1334,30 @@ upload transitions, pending selection and eight unregister cycles preserving a
 second pack. The final combined gate passes766 checks with validation enabled and
 zero core/synchronization errors. Memory plateau/performance qualification remains
 open, alongside DX11 target format/disposal integration, cached-wrapper liveness
-qualification, late fullscreen history ordering and the remaining native owners,
+qualification, the history correction below and the remaining native owners,
 full attachments and stage7 display/temporal integration. Aggregate capabilities
 remain false. No quality settings or player profiles were changed.
+
+
+### Reserved color-history timing and DRS parity
+
+Vulkan now freezes one previous historyColor reference per frame/device epoch and
+shares it between native rows, fullscreen passes and portable callbacks. It checks
+producer identity, exact preceding production, camera validity, size and epoch.
+HistoryCopy keeps its named shader path and copies command values before callbacks,
+then records/publishes after all AfterUpscale programs, Chain presentation and
+AfterFullscreen callbacks. First use and skipped/resized producers reject and
+recover after a valid frame. Capture uses raster HDR dimensions, matching installed
+DX11 EnsureHistoryTarget/ResolutionI and resolution-change invalidation; ordinary
+AfterUpscale retains output dimensions and DX11 floor/Replace rules.
+
+The maintained GPU fixture reproduced the former current-frame late read before
+repair. A separate CPU fixture reproduced the former output-sized capture at DRS.
+The expanded actual-core gate passes125 checks: exact prior values at all three
+consumer positions, current tail-capture HDR pixels, dimensions, nonzero recovery,
+disable/re-enable, odd resize, all three DRS fractions and both recording modes.
+The final combined gate passes891 checks with validation enabled/errors0. All six
+CPU contract groups and net48/net10 builds pass. No native ABI/capability bump was
+needed; native library/source remain those qualified by the382-check/all82 native
+family gate. Other native owners, complete attachments, DX11 target integration,
+classic fullscreen null-dimension semantics, stage7 and stage8 remain open.

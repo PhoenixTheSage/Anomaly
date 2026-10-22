@@ -13,13 +13,16 @@ static class GuestBridgeClient
     static ulong nextImage = 1;
     static object[] shadowInputs;
     static bool haveShadowInputs;
+    static long colorHistoryEpoch;
+    static uint colorHistoryFrame=uint.MaxValue;
+    static ulong colorHistoryImage;
     static readonly System.Collections.Generic.List<Tuple<long, ulong>> RetiredImages = new System.Collections.Generic.List<Tuple<long, ulong>>();
     internal static void RetireImage(ulong image, long epoch)
     {
         if (image == 0 || epoch == 0) return;
         lock (RetiredImages) RetiredImages.Add(Tuple.Create(epoch, image));
     }
-    internal static void ResetDevice(){haveShadowInputs=false;shadowInputs=null;VolumeIntervalsReady=false;GuestStageBindings.Reset();}
+    internal static void ResetDevice(){haveShadowInputs=false;shadowInputs=null;VolumeIntervalsReady=false;colorHistoryEpoch=0;colorHistoryFrame=uint.MaxValue;colorHistoryImage=0;GuestStageBindings.Reset();}
     internal static bool VolumeIntervalsReady { get; private set; }
     static readonly string[] VolumeProducts={"volumeScatteringTransmittance","volumeMotion","volumeReactive","volumeRepresentativeDepth","volumeSunVisibility"};
 
@@ -143,8 +146,35 @@ static class GuestBridgeClient
         CreateImage(image,dim,dim,dim,format);UpdateImage(image,packed);return image;
     }
 
+    // The reserved color alias is immutable for this frame, including callbacks.
+    // Require an exact previous producer and reject resized/recreated storage.
+    internal static ulong PreviousColor(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
+    {
+        long epoch=ResourceEpoch;
+        if(programs==null||!GuestFrame.Open||epoch==0)return 0;
+        uint frame=GuestFrame.U32(16);
+        if(colorHistoryEpoch==epoch&&colorHistoryFrame==frame)return colorHistoryImage;
+        colorHistoryEpoch=epoch;colorHistoryFrame=frame;colorHistoryImage=0;
+        if(!GuestFrame.History)return 0;
+        foreach(var producer in programs)
+        {
+            if(producer==null||producer.Id!="anomaly.owned.HistoryCopy"||!producer.Enabled||producer.ConflictDisabled||producer.Pipeline==0||producer.ResourceEpoch!=epoch)continue;
+            PassSize(producer,out int width,out int height);
+            if(producer.ImageWidth!=width||producer.ImageHeight!=height)return 0;
+            var image=ClientPlugin.Buffers.BufferCatalog.Active("historyColor") as ClientPlugin.Buffers.GuestRendererImage;
+            if(image==null||!image.IsAvailable||(image.ImageId!=producer.StorageImage&&image.ImageId!=producer.HistoryImage))return 0;
+            var execution=ExecutionStatus(producer.Pipeline);
+            if(execution!=null&&execution.Length==48&&BitConverter.ToUInt64(execution,16)!=0&&unchecked(frame-BitConverter.ToUInt32(execution,40))==1)
+                colorHistoryImage=image.ImageId;
+            break;
+        }
+        return colorHistoryImage;
+    }
+
     public static void Submit(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
     {
+        ulong previousColor=PreviousColor(programs);
+        if(previousColor==0)ClientPlugin.Buffers.BufferCatalog.Set("historyColor",null);
         var bindings=GuestStageBindings.Freeze(programs);
         GuestVolumes.BeginFrame();
         VolumeIntervalsReady=false;
@@ -222,6 +252,7 @@ static class GuestBridgeClient
         }
         GuestVolumes.TrySubmit(programs);
         var callbacks=PortablePassRegistry.Snapshot();
+        Action captureColorHistory=null;
         for(int currentMark=GuestMark.AfterLighting;currentMark<=GuestMark.AfterUpscale;currentMark++)
         {
         ulong previous=currentMark>=5?Upscale:Hdr;bool lastChain=false;
@@ -254,6 +285,23 @@ static class GuestBridgeClient
             // independent DX11 merge equations apply afterward at destination size.
             int flags=program.Flags;
             if(SupportsPacketFlags(EarlyOwnedProducers)&&IsEarlyOwned(program))flags|=4096;
+            if(program.Id=="anomaly.owned.HistoryCopy")
+            {
+                // Copy immutable command values now, then append capture after all
+                // public late draws and AfterFullscreen callbacks, matching DX11.
+                var command=new object[]{program.Mark,offscreen?5:compose,width,height,program.Pipeline,storage,PackUniforms(program.Uniforms),sampled,flags};
+                captureColorHistory=()=>{
+                    Call("Submit",command);
+                    program.Submissions++;program.SubmittedThisFrame=true;program.Error=null;
+                    if(offscreen){PublishOwned(program);PublishPass(program,storage,width,height);}
+                    if(!string.IsNullOrEmpty(program.HistoryName)&&program.HistoryImage!=0)
+                    {
+                        ulong written=program.StorageImage;program.StorageImage=program.HistoryImage;program.HistoryImage=written;program.HistoryReady=true;
+                        program.HistoryFrame=GuestFrame.Open?GuestFrame.U32(16):uint.MaxValue;
+                    }
+                };
+                continue;
+            }
             Call("Submit",program.Mark,offscreen?5:compose,width,height,program.Pipeline,storage,PackUniforms(program.Uniforms),sampled,flags);
             program.Submissions++;program.SubmittedThisFrame=true;program.Error=null;
             if(offscreen)
@@ -275,6 +323,7 @@ static class GuestBridgeClient
         if(lastChain)Merge(programs,currentMark,previous,0);
         PortablePassRegistry.Run(callbacks,currentMark,1,programs);
         }
+        captureColorHistory?.Invoke();
         GuestStageBindings.Submit(bindings);
         Call("SetNativeSunGlare", !OwnsGlare(programs));
     }
@@ -533,7 +582,7 @@ static class GuestBridgeClient
     {
         int sceneW = Math.Max(SceneView.Width, 1);
         int sceneH = Math.Max(SceneView.Height, 1);
-        if(program!=null && program.Mark==GuestMark.AfterUpscale && GuestFrame.Open)
+        if(program!=null && program.Id!="anomaly.owned.HistoryCopy" && program.Mark==GuestMark.AfterUpscale && GuestFrame.Open)
         {
             sceneW=Math.Max(1,(int)GuestFrame.F32(332));sceneH=Math.Max(1,(int)GuestFrame.F32(336));
         }

@@ -87,3 +87,28 @@ belong to the DX11 device path. Portable CPU uploads use PublishRgba8,
 PublishVolumeRgba8, PublishVolumeMips and PublishStructuredFloats. DX11 target
 format/disposal integration and Vulkan HDR/jitter remain separate parity work;
 the existing DLSS jitter ownership note describes the DX11 path.
+
+
+## Reserved color-history timing and size
+
+Vulkan freezes the valid previous historyColor reference once per frame/device
+epoch before queuing consumers. Native named-stage bindings and fullscreen/
+portable consumers use the same reference and exact prior-production age. Missing,
+disabled, resized, recreated or camera-invalid history is unavailable until a
+valid producer frame has been recorded again. Capture still executes the named
+owned HistoryCopy shader, with command values copied before callbacks can change
+registrations.
+
+The capture runs after every AfterUpscale fullscreen pass, Chain presentation and
+AfterFullscreen portable callback. Its target uses the HDR render dimensions,
+matching DX11 OwnedBuffersPass.EnsureHistoryTarget and MyRender11.ResolutionI.
+Ordinary AfterUpscale programs keep output dimensions and their existing DX11
+fullscreen scaling rules, independently of renderer DRS rounding.
+
+The focused actual-core gate passes125 checks: early/late/portable reads agree on
+exact preceding values, while tail capture writes current HDR pixels. It covers
+first use, disable/re-enable, odd resize, 50/75/100% DRS, both recording modes,
+current capture dimensions and nonzero recovery, with zero core/synchronization
+errors. An independent packet regression reproduces the former sizing error and
+checks that ordinary AfterUpscale floor/Replace scaling stays unchanged. The final
+combined actual-core gate passes891 checks with zero core/synchronization errors.

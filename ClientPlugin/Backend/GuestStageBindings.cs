@@ -59,14 +59,8 @@ internal static class GuestStageBindings
         // unless a matching catalog reservation actually requests that slot.
         if(!active.Any(o=>o.Extras||requests.Any(r=>StageBindingModel.Matches(r.Stage,o.Stage)&&(o.Mask&(1u<<r.Slot))!=0)||
             lighting&&attachments.Length!=0&&(o.Mask&0x3c0u)!=0))return null;
-        ulong previousColor=0;
-        if(GuestFrame.History&&requests.Any(r=>string.Equals(r.CatalogName,"historyColor",StringComparison.OrdinalIgnoreCase)))
-        {
-            var producer=programs.FirstOrDefault(p=>p!=null&&p.Id=="anomaly.owned.HistoryCopy"&&p.Enabled&&!p.ConflictDisabled&&p.Pipeline!=0);
-            var execution=producer==null?null:GuestBridgeClient.ExecutionStatus(producer.Pipeline);
-            if(execution!=null&&execution.Length==48&&BitConverter.ToUInt64(execution,16)!=0&&unchecked(GuestFrame.U32(16)-BitConverter.ToUInt32(execution,40))==1)
-                previousColor=GuestBridgeClient.Catalog("historyColor");
-        }
+        ulong previousColor=requests.Any(r=>string.Equals(r.CatalogName,"historyColor",StringComparison.OrdinalIgnoreCase))
+            ?GuestBridgeClient.PreviousColor(programs):0;
         return new FrameBindings(GuestFrame.U32(16),GuestBridgeClient.ResourceEpoch,requests,active,attachments,
             programs.Where(p=>p!=null&&!string.IsNullOrEmpty(p.HistoryName)).Select(p=>p.HistoryName).ToArray(),previousColor);
     }

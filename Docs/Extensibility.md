@@ -1431,10 +1431,15 @@ submission. A matched loaded-game DX11/Vulkan comparison is still required.
 ### Native atmosphere and foliage owners — focused stage6 gate
 
 Native bits24/25 add the actual LUT/main/probe atmosphere modules and shared
-foliage VS/two-GS/two-PS closure. The integrated166-check actual-core GPU gate
+foliage VS/two-GS/two-PS closure. The integrated170-check actual-core GPU gate
 proves all eight modules, reserved resources from every shader stage, both probe
 MRTs on all six faces, failed-candidate rollback, exact stock restoration and
 completion-based pipeline/layout retirement with zero validation errors.
 Aggregate named-stage and same-draw attachment support remains false. Remaining
 stage6 owners/attachments precede stage7 and stage8, including matched Windows
 loaded-world acceptance; native mip blits are not arbitrary HistoryColor execution.
+
+The coordinated native binding transport accepts all87 current owner rows within
+its90-row bound; an oversized packet leaves the copied rows unchanged. Eight
+real older-bit23-host checks prove actionable bit24/25 refusal before compilation
+or native candidate allocation. This is focused stage6 evidence.

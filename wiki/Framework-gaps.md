@@ -1438,7 +1438,7 @@ Layouts and pipelines retire together after their last completed submission.
 Catalog t5..t9 and b6 extras remain shared host contracts. ABI-1 packets retain
 their layouts. Older hosts receive coordinated-update refusal.
 
-The integrated environment owner batch passes166 actual-core GPU checks with
+The integrated environment owner batch passes170 actual-core GPU checks with
 core/synchronization validation enabled and zero errors. Independent outputs cover
 LUT/main-view atmosphere, both probe MRTs on all six faces, and shared foliage VS,
 each GS and each PS. Vertex/geometry/pixel-only catalog resources, first-use s1,
@@ -1449,3 +1449,8 @@ pass. The previous combined998 gate predates this batch; it is not expanded proo
 Aggregate named-stage/attachment capabilities remain false. Remaining stage6
 owners/attachments precede stage7 and stage8, including matched Windows loaded-world
 acceptance. Native mip blits do not establish arbitrary HistoryColor execution.
+
+The coordinated native binding transport accepts all87 current owner rows within
+its90-row bound; an oversized packet leaves the copied rows unchanged. Eight
+real older-bit23-host checks prove actionable bit24/25 refusal before compilation
+or native candidate allocation. This is focused stage6 evidence.

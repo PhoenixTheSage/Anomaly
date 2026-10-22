@@ -86,3 +86,15 @@ probes, foliage, complete reserved bindings and same-invocation attachments
 remain open. Aggregate named-stage and same-draw attachment capabilities stay
 false. Matched Windows loaded-world visual/temporal/performance acceptance,
 stage7 HDR/display integration and stage8 lifecycle qualification remain open.
+
+Native postprocess evidence now includes398 actual-core checks and a separate
+380-check native family gate, both with synchronization validation and zero
+errors. The family gate activates all78 catalogued postprocess variants under
+one authenticated generation, verifies each executes, and retains the existing
+stock pixel/DRS/odd-size/HDR checks. A resource-free HBAO coarse replacement
+produces quarter AO in all32 clamp/border permutations and restores exact stock
+AO. When reflection proves no quarter-depth texture is read, the authenticated
+base variant serves both modes; sampled HBAO variants retain the authenticated
+border transform and its refusals for incompatible fetch rewrites. This is
+execution coverage for the current native postprocess catalog, not every
+advertised named stage or unrestricted catalog bindings.

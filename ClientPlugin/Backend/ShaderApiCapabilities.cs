@@ -25,7 +25,7 @@ public sealed class ShaderApiCapabilities
             PortablePreparationSupported=dx&&Dx11Call.Supports("ClientPlugin.Shaders.OwnedPassRegistry","Register",6)||vulkan&&GuestBridgeClient.SupportsPacketFlags(GuestBridgeClient.LiveResources),
             PortableCommandsSupported=dx&&Dx11Call.Supports("ClientPlugin.Shaders.FullscreenPassRegistry","ExecutePortable",2)||vulkan&&GuestBridgeClient.SupportsPacketFlags(131072),
             NamedStageExecutionSupported=dx,SameDrawAttachmentsSupported=dx,
-            NamedStageStatus=dx?"supported; support does not imply current-frame production":vulkan?"partial owned-raster replacement available through GetOwnedStageState; stock native-stage activation, complete reserved bindings and same-draw attachments remain unavailable":"waiting for renderer selection"
+            NamedStageStatus=dx?"supported; support does not imply current-frame production":vulkan?"partial owned-raster and native-postprocess replacement available through stage state queries; other native owners, complete reserved bindings and same-draw attachments remain unavailable":"waiting for renderer selection"
         };
     }
 }

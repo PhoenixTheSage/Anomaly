@@ -229,7 +229,7 @@ public static class RenderHost
             nextGuestCompile = unchecked(now + 1000);
             GuestCompiler.CompilePending(assetFolder);
         }
-        GuestNamedStages.Prepare(assetFolder);
+        if(!GuestPostprocessStages.PreparationBound)GuestNamedStages.Prepare(assetFolder);
         GuestOwned.DebugLitMips = global::ClientPlugin.Config.Current?.DebugBuffer == global::ClientPlugin.DebugBuffer.LitMips;
         GuestPassList.SubmitFrame(GuestBridgeClient.Submit);
     }
@@ -252,9 +252,27 @@ public static class RenderHost
         runtimeBound = true;
         addGuest.Invoke(null, new object[] { (Action<int>)NoteBackend });
         addFrame.Invoke(null, new object[] { (Action)SubmitVulkan });
+        var addPreparation=runtime.GetMethod("AddPreparationListener",BindingFlags.Public|BindingFlags.Static);
+        if(addPreparation!=null){GuestPostprocessStages.PreparationBound=true;addPreparation.Invoke(null,new object[]{(Action)PrepareShaderGenerations});}
         var addScene=runtime.GetMethod("AddSceneListener",BindingFlags.Public|BindingFlags.Static);
         addScene?.Invoke(null,new object[]{(Action<double[],float[]>)PrepareSceneVulkan});
         listenersAttached = true;
+    }
+    public static void PrepareShaderGenerations()
+    {
+        if(!IsVulkan||string.IsNullOrEmpty(assetFolder)||!GuestDevice.Synchronize())return;
+        GuestNamedStages.DeferActivation=true;
+        long revision;lock(GuestPassList.Gate)revision=GuestPassList.SourceRevision;
+        if(GuestCompiler.HasPending)GuestCompiler.CompilePending(assetFolder);
+        GuestNamedStages.Prepare(assetFolder);
+        bool nativeReady=GuestPostprocessStages.Prepare();
+        lock(GuestPassList.Gate)
+        {
+            if(revision!=GuestPassList.SourceRevision||!GuestNamedStages.CanActivate()||!nativeReady)
+            {GuestNamedStages.DiscardPrepared();GuestPostprocessStages.Discard();return;}
+            if(GuestPostprocessStages.Activate())GuestNamedStages.ActivatePrepared();
+            else GuestNamedStages.DiscardPrepared();
+        }
     }
     static void PrepareSceneVulkan(double[] camera,float[] sunToward)
     {

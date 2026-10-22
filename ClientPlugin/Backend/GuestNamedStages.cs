@@ -19,6 +19,9 @@ internal static class GuestNamedStages
     static long attemptedRevision=-1,attemptedEpoch=-1;
     static string attemptedAssets;
     static Candidate pending;
+    internal static bool DeferActivation;
+    internal static bool CanActivate()=>Error==null&&(pending==null||pending.Revision==GuestPassList.SourceRevision&&pending.Epoch==GuestBridgeClient.ResourceEpoch&&pending.Originals.All(p=>GuestPassList.Snapshot().Contains(p)));
+    internal static void DiscardPrepared(){if(pending!=null)attemptedRevision=-1;Discard(pending);pending=null;}
     internal static string Requested {get;private set;}
     internal static string Prepared=>pending?.Fingerprint;
     internal static string Error {get;private set;}
@@ -148,7 +151,8 @@ internal static class GuestNamedStages
         catch(Exception error){Error=error.GetBaseException().Message;Discard(candidate);}
     }
 
-    internal static void ActivateAtBoundary()
+    internal static void ActivateAtBoundary(){if(!DeferActivation)ActivatePrepared();}
+    internal static void ActivatePrepared()
     {
         // Called by SubmitFrame while holding GuestPassList.Gate, before freezing the frame.
         var candidate=pending;if(candidate==null)return;pending=null;

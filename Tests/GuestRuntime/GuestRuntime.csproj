@@ -39,6 +39,7 @@
     <Compile Include="../../ClientPlugin/Backend/GuestCatalogTargets.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestCompiler.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestNamedStages.cs" />
+    <Compile Include="../../ClientPlugin/Backend/GuestPostprocessStages.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestPassList.cs" />
     <Compile Include="../../ClientPlugin/Backend/PackDefinition.cs" />
     <Compile Include="../../ClientPlugin/Backend/PackSourceSnapshot.cs" />

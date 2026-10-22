@@ -602,7 +602,7 @@ static class GuestBridgeClient
         return bytes;
     }
 
-    static object Call(string method, params object[] args)
+    internal static object Call(string method, params object[] args)
     {
         var type = Find();
         if (type == null)

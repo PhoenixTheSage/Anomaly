@@ -150,6 +150,7 @@ public static class FullscreenPassRegistry
 
 public static class ShaderPackRegistry
 {
+    public static NativeStageGenerationState GetNativeStageState(string stage)=>GuestPostprocessStages.Query(stage);
     public static OwnedStageGenerationState GetOwnedStageState(string stage)=>GuestNamedStages.State(stage);
     public static ShaderApiCapabilities GetCapabilities()=>ShaderApiCapabilities.Query();
     public static string StatusLine =>

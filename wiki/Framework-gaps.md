@@ -1168,3 +1168,39 @@ The final actual-core suite passes355 checks with synchronization validation
 and zero errors. It executes real Fog/Clouds providers and the owned-stage
 synchronous/pipelined replacement/rollback/restoration path with an outstanding
 submission. A matched loaded-game DX11/Vulkan comparison is still required.
+
+## Vulkan native postprocess generations (partial stage 6)
+
+Coordinated Anomaly/SE-Vulkan hosts with native feature bit19 prepare detached
+stock-postprocess pipeline generations. Anomaly remains the pack host; SE-Vulkan
+owns compilation, native activation and completion-based retirement. The
+renderer invokes preparation before postprocess constant configuration and the
+immutable frame snapshot. A source revision or device mismatch discards both
+owned-raster and native candidates; a failed native commit retains both previous
+generations and the next attempt rebuilds discarded owned candidates.
+
+Postprocess entry-point overlays, include-only overlays, injections and legal
+boolean defines use captured game/pack bytes through the existing authenticated
+compiler. Canonical header overlays rebuild their named family; uncatalogued
+shared postprocess headers conservatively rebuild all mapped families. HBAO
+negative-border variants belong to the same transaction. Conflicting overlay
+claims fall back to stock. Failed compilation, unsupported descriptors, invalid
+compute workgroups or an incompatible fragment interface refuse the candidate.
+Unregister restores stock. HDR format changes invalidate preparation even when
+registration is unchanged; identical source/format generations are reused.
+
+`ShaderPackRegistry.GetNativeStageState(stage)` separates requested and prepared
+identities from per-variant `ActiveToken`, `ActiveGeneration`, `Executions`,
+`LastProducedFrame` and `LastSubmissionCompleted`. Registration, compilation and
+activation are not execution evidence. Existing ABI-1 packets are unchanged;
+new module/status transports validate size/version and older hosts receive an
+explicit update refusal. Host constant packing remains the stock layout;
+immutable derived metadata is published separately at activation.
+
+This is an initial native-postprocess owner implementation, not complete named
+stage parity. Extra catalog descriptors remain unsupported on these owners.
+Geometry, lighting, transparency, shadows, atmosphere, decals, particles,
+probes, foliage, complete reserved bindings and same-invocation attachments
+remain open. Aggregate named-stage and same-draw attachment capabilities stay
+false. Matched Windows loaded-world visual/temporal/performance acceptance,
+stage7 HDR/display integration and stage8 lifecycle qualification remain open.

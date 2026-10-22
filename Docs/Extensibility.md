@@ -1505,3 +1505,41 @@ CPU native-stage/binding contracts pass; the broader recreation suite includes
 the new fixtures but has not been rerun for this batch.
 Both aggregate named-stage and same-draw attachment capabilities remain false;
 remaining stage6 work precedes stages7 and8, including Windows live acceptance.
+
+
+### Native particle generations — focused stage6 execution gate
+
+Native bit28 adds the complete particle closure1536..1545: eight compute variants
+and the shared VS/PS render pair. A selected particle source rebuilds the entire
+list-protocol family and activates it atomically at a frame boundary. Old
+pipelines/layouts retire together after completed submission. Workgroup sizes,
+64/464/4-byte native storage layouts, typed argument formats and stage-specific
+inputs validate before activation. Stock buffer ownership and OIT/depth behavior
+remain native. VS descriptor bindings retain their1024-offset relocation; merged
+logical t5..t9 reservations and b6 extras bind the corresponding physical slots.
+The module/row bound is114 with105 possible binding owners after aliases merge.
+
+Direct nonzero dispatches report submitted participation separately from
+completion. Indirect simulation/raster participation is credited only when
+completed GPU argument readback proves nonzero groups/indices, with the original
+frame and matching generation token. Empty work cannot advance those execution
+records; stale generations cannot credit a newer program.
+
+The checked40-byte ABI-1 particle readback request validates size/version, buffer
+kind, aligned range and a64KiB bound outside recording. The diagnostic native
+buffers stay renderer-owned; this adds no pack discovery or execution host.
+Older hosts actionably refuse bit28 before compilation, candidate allocation or
+readback symbol lookup. Existing packet layouts and DX11 callback signatures stay
+unchanged.
+
+The focused65-check actual-core GPU gate proves all eight compute modules with
+independent GPU sentinel writes and the raster pair with expected OIT pixels,
+VS/PS/compute resources, empty indirect participation/recovery, wrong workgroup/
+stride/stage-input refusal, malformed readback size/version/range, rollback, exact
+stock restoration and retirement. The existing216-check stock transparency and
+particle lifecycle gate and updated170-check environment/105-row transport gate
+pass, all with zero core/synchronization errors. Seven real previous-bit27-host
+checks pass. Both managed frameworks, native CTest and focused CPU contracts pass.
+The extended full recreation fixture compiles but has not been rerun for this
+batch. Both aggregate flags remain false; this does not close all legal shader
+interfaces, remaining native owners, same-invocation attachments or full parity.

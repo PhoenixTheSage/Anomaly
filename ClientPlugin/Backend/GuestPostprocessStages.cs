@@ -43,6 +43,8 @@ internal static class GuestPostprocessStages
             if(lighting&&!GuestBridgeClient.SupportsPacketFlags(1048576))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: lighting owner generations require native bit20.");
             bool atmosphere=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>string.Equals(i.Stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)));
             if(atmosphere&&!GuestBridgeClient.SupportsPacketFlags(16777216))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: atmosphere owner generations require native bit24.");
+            bool particles=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Transparent/GPUParticles/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>string.Equals(i.Stage,ShaderStages.GpuParticles,StringComparison.OrdinalIgnoreCase)));
+            if(particles&&!GuestBridgeClient.SupportsPacketFlags(268435456))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: particle owner generations require native bit28.");
             bool probes=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("EnvProbe/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>string.Equals(i.Stage,ShaderStages.EnvProbe,StringComparison.OrdinalIgnoreCase)));
             if(probes&&!GuestBridgeClient.SupportsPacketFlags(134217728))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: probe processing generations require native bit27.");
             bool decals=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Decals/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>string.Equals(i.Stage,ShaderStages.Decals,StringComparison.OrdinalIgnoreCase)));
@@ -104,6 +106,7 @@ internal static class GuestPostprocessStages
             // Foliage shares one VS across both GS/PS pairs; preserve its complete dependency closure.
             if(selected.Any(id=>id>=768&&id<773))foreach(uint id in new uint[]{768,769,770,771,772})selected.Add(id);
             foreach(uint id in selected.Where(id=>id>=1024&&id<1034).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
+            if(selected.Any(id=>id>=1536&&id<1546))foreach(uint id in Enumerable.Range(1536,10).Select(v=>(uint)v))selected.Add(id);
             // Include the negative-border HBAO companions in the same owner generation.
             foreach(uint id in selected.ToArray())if(id>=36&&id<=51)selected.Add(id+92);
             if(selected.Count==0)return true;
@@ -180,8 +183,8 @@ internal static class GuestPostprocessStages
             return match.Value;
         }));
     }
-    static bool NativeKey(string key)=>key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Decals/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("EnvProbe/",StringComparison.OrdinalIgnoreCase);
-    static bool NativeStage(string stage)=>stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Foliage,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Decals,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.EnvProbe,StringComparison.OrdinalIgnoreCase);
+    static bool NativeKey(string key)=>key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Decals/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("EnvProbe/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/GPUParticles/",StringComparison.OrdinalIgnoreCase);
+    static bool NativeStage(string stage)=>stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Foliage,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Decals,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.EnvProbe,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.GpuParticles,StringComparison.OrdinalIgnoreCase);
     static bool IsSource(string path)=>new[]{".hlsl",".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(path),StringComparer.OrdinalIgnoreCase);
     static string Relative(string root,string path)=>Path.GetFullPath(path).Substring(Path.GetFullPath(root).TrimEnd('\\','/').Length+1).Replace('\\','/');
 }

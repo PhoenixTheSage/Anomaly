@@ -55,6 +55,8 @@ internal static class GuestPostprocessStages
             if(shadows&&!GuestBridgeClient.SupportsPacketFlags(536870912))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: shadow owner generations require native bit29.");
             bool oit=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Transparent/OIT/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>string.Equals(i.Stage,ShaderStages.Transparent,StringComparison.OrdinalIgnoreCase)));
             if(oit&&!GuestBridgeClient.SupportsPacketFlags(1073741824))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: OIT resolve generations require native bit30.");
+            bool geometry=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Geometry/",StringComparison.OrdinalIgnoreCase)||o.Key.StartsWith("GBuffer/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>new[]{ShaderStages.GBuffer,ShaderStages.Forward,ShaderStages.Highlight}.Contains(i.Stage,StringComparer.OrdinalIgnoreCase)));
+            if(geometry&&!GuestBridgeClient.SupportsPacketFlags(unchecked((int)0x80000000)))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: stock world geometry generations require native bit31.");
             var state=State(13);if(state==null)throw new InvalidOperationException("Postprocess generation service unavailable.");
             uint format=(uint)state[9];
             if(revision==attemptedRevision&&epoch==attemptedEpoch&&format==attemptedFormat)return Error==null;
@@ -108,6 +110,7 @@ internal static class GuestPostprocessStages
             if(selected.Any(id=>id>=768&&id<773))foreach(uint id in new uint[]{768,769,770,771,772})selected.Add(id);
             foreach(uint id in selected.Where(id=>id>=1024&&id<1034).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
             if(selected.Any(id=>id>=1536&&id<1546))foreach(uint id in Enumerable.Range(1536,10).Select(v=>(uint)v))selected.Add(id);
+            foreach(uint id in selected.Where(id=>id>=4096&&id<10912).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
             // Include the negative-border HBAO companions in the same owner generation.
             foreach(uint id in selected.ToArray())if(id>=36&&id<=51)selected.Add(id+92);
             if(selected.Count==0)return true;
@@ -116,7 +119,7 @@ internal static class GuestPostprocessStages
             defines["ANOMALY"]="1";defines["ANOMALY_SPIRV"]="1";
             using(var stream=new MemoryStream())using(var writer=new BinaryWriter(stream,Encoding.UTF8,true))
             {
-                writer.Write("AnomalyNativeOwners-3;captured-include-closure");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
+                writer.Write("AnomalyNativeOwners-4;stock-world-geometry");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
                 foreach(var define in defines.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(define.Key);writer.Write(define.Value);}foreach(uint id in selected.OrderBy(v=>v))writer.Write(id);
                 writer.Flush();using(var sha=SHA256.Create())requested=BitConverter.ToString(sha.ComputeHash(stream.ToArray())).Replace("-","").ToLowerInvariant();
             }
@@ -230,8 +233,8 @@ internal static class GuestPostprocessStages
         }
         return output.ToString();
     }
-    static bool NativeKey(string key)=>key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Decals/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("EnvProbe/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/GPUParticles/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Shadows/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/OIT/",StringComparison.OrdinalIgnoreCase)||new[]{".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(key),StringComparer.OrdinalIgnoreCase);
-    static bool NativeStage(string stage)=>stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Foliage,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Decals,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.EnvProbe,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.GpuParticles,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Shadows,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Transparent,StringComparison.OrdinalIgnoreCase);
+    static bool NativeKey(string key)=>key.StartsWith("Geometry/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("GBuffer/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Decals/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("EnvProbe/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/GPUParticles/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Shadows/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/OIT/",StringComparison.OrdinalIgnoreCase)||new[]{".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(key),StringComparer.OrdinalIgnoreCase);
+    static bool NativeStage(string stage)=>new[]{ShaderStages.GBuffer,ShaderStages.Forward,ShaderStages.Highlight}.Contains(stage,StringComparer.OrdinalIgnoreCase)||stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Foliage,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Decals,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.EnvProbe,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.GpuParticles,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Shadows,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Transparent,StringComparison.OrdinalIgnoreCase);
     static bool IsSource(string path)=>new[]{".hlsl",".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(path),StringComparer.OrdinalIgnoreCase);
     static string Relative(string root,string path)=>Path.GetFullPath(path).Substring(Path.GetFullPath(root).TrimEnd('\\','/').Length+1).Replace('\\','/');
 }

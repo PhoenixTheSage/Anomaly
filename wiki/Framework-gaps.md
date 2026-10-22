@@ -1650,3 +1650,67 @@ transparency/particle lifecycle regression and native CTest (16 executed passes,
 one configured reference skip) pass. Both managed target frameworks and focused
 CPU native-stage contracts pass. The full recreation fixture compiles with this
 new fixture; the broad combined recreation suite was not rerun for this batch.
+
+
+### Fixed-layout stock-world generations — partial stage6 owner contract
+
+Native bit31 adds logical VS/PS owner IDs `4096 + 2*pipeline` and
+`4097 + 2*pipeline` for the initialized stock world pipeline catalog. Existing
+ABI-1 module/state packets remain unchanged; the checked generation module bound
+is8192. The signed managed flags retain all32 native feature bits. Previous
+bit30 hosts refuse geometry overlay, injection and global-define requests before
+compilation or candidate allocation. Depth injection remains forbidden by the
+shared parser; GBuffer replacement still requires its existing exclusive owner.
+
+The catalog authenticates captured and supplemental variants and selects by
+actual GBuffer/Depth/Forward/Highlight pass header, avoiding ambiguous shared
+material entry-point ownership. Derived supplemental requests preserve their
+stock defines and authenticate installed sources. Native generic-instance tint
+adaptation remains present in active and restored variants. VS/PS pairs enter the
+same source transaction and activate atomically at a closed-frame boundary.
+The builder prepares complete main/cascade/spot bundles; replaced resources
+retire after submission completion. Actual world, probe, highlight and spotlight
+draw sites report their selected owner. Parallel geometry recording updates
+production counters atomically. Stock initialization invalidates obsolete
+geometry generation metadata.
+
+The focused57-check actual-core GPU gate proves replacement pixels for rigid,
+skinned, generic-instanced, cube and deformed-cube classic material streams in
+both recording modes; atomic ten-module activation, empty-frame honesty, failed
+compilation rollback, exact stock restoration including generic tint, and
+completed retirement pass with zero core/synchronization errors. Its private
+catalog deliberately isolates those five streams. It is not evidence that every
+cataloged shader executes. Eight real previous-host refusal checks pass.
+
+Geometry currently retains the fixed stock descriptor interface; additional
+reserved catalog resources and the stage-specific geometry constants still need
+integration. The DX11 geometry constants must not be replaced by fullscreen
+extras merely because both use register b6. Native-cell and GPU-owned geometry
+builders/activation, remaining legal interfaces and same-invocation attachment
+outputs remain required stage6 work. Both aggregate capability flags stay false.
+Native mip blits remain copies, not arbitrary HistoryColor shader execution.
+Stages7 and8 follow stage6, including the required matched Windows live matrix.
+
+
+The separate59-check unfiltered GBuffer family gate uses the productioncatalog:
+1,120 material/decal/fade/voxel modules activate atomically, Depth stays untouched,
+the five drawn streams retain expected pixels, rollback and exact stock/tint
+restoration pass, and retired bundles collect with zero validation errors.
+The complete stock-world catalog contains1,316 modules. Family-wide construction
+and activation do not prove execution for every shader or geometry path.
+
+The71-check actual-core raw Depth replacement gate proves independent depth
+values in real cascade and spotlight invocations across the five classic streams,
+exact recording-mode agreement, atomic pair activation, rollback, exact stock
+restoration and retirement. Native depth-owner replacement invalidates cached
+cascades and frozen spot maps; a zero caller redraw mask cannot suppress required
+shader-change recovery. Ordinary unchanged shadow-cache reuse reports its prior
+production frame and no new shader execution. Depth injection remains forbidden,
+and attachment extensions do not gain permission to change stock Depth passes.
+
+The final focused GBuffer gate has57 checks. Managed net48/net10 builds, focused
+CPU native-stage contracts, native CTest (16 executed passes plus one configured
+reference skip) and canvas TypeScript pass. Full recreation source now includes
+both new fixtures and builds; that broad combined suite has not been rerun.
+Remaining stage6 contracts and the mandatory stages7/8 Windows live acceptance
+remain open; both aggregate capability flags remain false.

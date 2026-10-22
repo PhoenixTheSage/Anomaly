@@ -1262,3 +1262,26 @@ shader guard and explicit fragment profiles. The separate382-check native family
 gate executes all82 selected postprocess/lighting variants and retains stock pixel
 checks, with zero validation errors. These are deterministic GPU gates; loaded-world
 acceptance and the remaining native contracts are still required.
+
+
+### Shared binding facade and early products
+
+ShaderBindRegistry now exists in the device-free core with the DX11 reflection
+signature and register constants. Pending reservations replay on DX11 selection.
+One shared immutable model owns slot allocation, fixed velocity reservations,
+idempotent automatic requests and conflict rollback; snapshots copy only on
+registration changes. Vulkan StatusLine explicitly reports unavailable native
+binding execution. Native reserved catalog descriptors, complete b6 binding and
+typed/null resource semantics remain open.
+
+Native bit21 executes CameraVelocity, LinearDepth, HiZ and ReactiveClear after
+GBuffer/object-motion/decal work and before AO/lighting. Public callback phases,
+HistoryCopy and ABI-1 packet layouts stay unchanged. Legacy optional 2D fallback
+texels now clear to RGBA zero; missing required extended inputs still refuse.
+This does not close null dimensions, typed/array/volume/buffer fallbacks or full
+named-stage support.
+
+The active goal no longer requires Windows live acceptance. Remaining native
+contracts and automated execution, lifecycle, temporal, compatibility and
+performance qualification remain completion gates. Loaded-world Windows
+qualification stays separately tracked.

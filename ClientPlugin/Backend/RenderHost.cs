@@ -381,6 +381,7 @@ public static class RenderHost
         if (choice == 0)
         {
             LoadDx11(queued, owned, enabled);
+            GuestStageBindings.BindDx11();
             PortablePassRegistry.BindDx11();
             global::ClientPlugin.Buffers.BufferCatalog.ApplyDeferred();
             return;

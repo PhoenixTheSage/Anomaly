@@ -144,3 +144,33 @@ shader guard and explicit fragment profiles. The separate382-check native family
 gate executes all82 selected postprocess/lighting variants and retains stock pixel
 checks, with zero validation errors. These are deterministic GPU gates; loaded-world
 acceptance and the remaining native contracts are still required.
+
+
+### Shared binding facade and early products
+
+The core now exposes ShaderBindRegistry with DX11's register constants and
+RequestSrv(string, string, int = -1) reflection signature. Reservations made
+before renderer selection replay into the DX11 companion. Both adapters use
+one device-free reservation model. Automatic registration is idempotent; a
+failed move into an occupied slot retains the original request. Automatic
+lighting/post slots are t6–t9; atmosphere keeps engine t5 and velocity t6,
+assigning extras at t7–t9. Velocity remains at its fixed slot. Snapshots are
+immutable and copied only when reservations change.
+
+Vulkan native owner descriptor bindings remain unavailable. The facade retains
+requests and reports this explicitly; registration does not prove native binding
+or execution. Typed/null resources, b6 extras on every native owner and
+same-invocation attachments remain open stage-6 contracts.
+
+Native bit21 moves only CameraVelocity, LinearDepth, HiZ and ReactiveClear
+production after GBuffer/object-motion/decal work and before AO/lighting. Public
+BeforeFullscreen/AfterFullscreen phases and marks1–6 stay unchanged; HistoryCopy
+stays in its ordinary slot. ABI-1 layouts are unchanged. Old hosts receive no new
+flags. Public replay cannot invoke the internal mark. Missing optional legacy 2D
+inputs now sample explicit zero including alpha; required extended inputs still
+refuse admission.
+
+The active goal waives Windows live acceptance. Deterministic execution proof
+for every legal contract, automated lifecycle/temporal/performance qualification,
+documentation and compatibility checks remain required. Loaded-world Windows
+comparison is tracked separately.

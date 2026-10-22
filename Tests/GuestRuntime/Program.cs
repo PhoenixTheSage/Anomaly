@@ -10,6 +10,7 @@ static partial class Program
     static void Require(bool ok, string message) { if (!ok) throw new Exception(message); }
     static void Main(string[] args)
     {
+        if (Array.IndexOf(args, "--stage-binding-contracts") >= 0) { StageBindingContracts(); return; }
         if (Array.IndexOf(args, "--native-stage-contracts") >= 0) { NativeStageContracts(); return; }
         if (Array.IndexOf(args, "--parity-contracts") >= 0) { ParityContracts(); return; }
         if (Array.IndexOf(args, "--frame-contracts") >= 0) { FrameContracts(); return; }

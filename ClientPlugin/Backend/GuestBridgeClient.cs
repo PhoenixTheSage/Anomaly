@@ -74,6 +74,7 @@ static class GuestBridgeClient
 
     internal const int ResourceCommands = 8192;
     internal const int OwnedRasterGenerations = 262144;
+    internal const int EarlyOwnedProducers = 2097152;
     internal static byte[] ExecutionStatus(ulong pipeline) => Call("ExecutionStatus", pipeline) as byte[];
     internal static object[] CaptureFrameInputs() => Call("CaptureFrameInputs") as object[];
     internal static bool SetFrameEnvironment(byte[] packet) => Call("SetFrameEnvironment", (object)packet) is true;
@@ -250,7 +251,9 @@ static class GuestBridgeClient
             var sampled=ImagesFor(program,previous,compose);
             // A pack always writes its isolated product without blending. The
             // independent DX11 merge equations apply afterward at destination size.
-            Call("Submit",program.Mark,offscreen?5:compose,width,height,program.Pipeline,storage,PackUniforms(program.Uniforms),sampled,program.Flags);
+            int flags=program.Flags;
+            if(SupportsPacketFlags(EarlyOwnedProducers)&&IsEarlyOwned(program))flags|=4096;
+            Call("Submit",program.Mark,offscreen?5:compose,width,height,program.Pipeline,storage,PackUniforms(program.Uniforms),sampled,flags);
             program.Submissions++;program.SubmittedThisFrame=true;program.Error=null;
             if(offscreen)
             {
@@ -274,6 +277,7 @@ static class GuestBridgeClient
         Call("SetNativeSunGlare", !OwnsGlare(programs));
     }
 
+    static bool IsEarlyOwned(GuestProgram p)=>p.Id=="anomaly.owned.CameraVelocity"||p.Id=="anomaly.owned.LinearDepth"||p.Id=="anomaly.owned.HiZ"||p.Id=="anomaly.owned.ReactiveClear";
     static int MergeMode(int compose)=>compose==1?2:compose==2?3:compose==4?0:1;
     internal static void ExecutePortable(int mark,object[][] commands,System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
     {

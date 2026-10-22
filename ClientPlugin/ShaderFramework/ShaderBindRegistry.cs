@@ -40,7 +40,7 @@ public static class ShaderBindRegistry
 
     static readonly object Gate = new();
     static readonly HashSet<string> LoggedWarnings = new();
-    static readonly List<SrvRequest> Requests = new();
+    static readonly ClientPlugin.Contracts.StageBindingModel Model = new();
     static readonly Dictionary<string, List<int>> LastSlots =
         new(StringComparer.OrdinalIgnoreCase);
     static readonly List<int> BindScratch = new();
@@ -114,82 +114,9 @@ public static class ShaderBindRegistry
         }
     }
 
-    static ShaderBindRegistry()
+    static void QueueRequestUnlocked(string stage,string catalogName,int slot)
     {
-        QueueRequestUnlocked(ShaderStages.Lighting, VelocityName, LightingVelocitySlot);
-        QueueRequestUnlocked(ShaderStages.PostTonemap, VelocityName, PostVelocitySlot);
-        QueueRequestUnlocked(ShaderStages.PostHbao, VelocityName, PostVelocitySlot);
-        QueueRequestUnlocked(ShaderStages.Transparent, VelocityName, PostVelocitySlot);
-        QueueRequestUnlocked(ShaderStages.Atmosphere, VelocityName, AtmosphereVelocitySlot);
-    }
-
-    static void QueueRequestUnlocked(string stage, string catalogName, int slot)
-    {
-        if (string.Equals(catalogName, VelocityName, StringComparison.OrdinalIgnoreCase))
-        {
-            if (IsAtmosphereStage(stage))
-                slot = AtmosphereVelocitySlot;
-            else
-                slot = IsLightingStage(stage) ? LightingVelocitySlot : PostVelocitySlot;
-        }
-
-        if (slot < 0)
-            slot = NextFreeSlotUnlocked(stage);
-
-        if (slot < FirstExtraSrv || slot > LastExtraSrv)
-        {
-            Warn("RequestSrv slot " + slot + " for '" + catalogName + "' is outside t" +
-                 FirstExtraSrv + "–t" + LastExtraSrv);
-            return;
-        }
-
-        for (var i = 0; i < Requests.Count; i++)
-        {
-            var existing = Requests[i];
-            if (!string.Equals(existing.Stage, stage, StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (string.Equals(existing.CatalogName, catalogName, StringComparison.OrdinalIgnoreCase))
-            {
-                existing.Slot = slot;
-                return;
-            }
-
-            if (existing.Slot == slot &&
-                !string.Equals(existing.CatalogName, catalogName, StringComparison.OrdinalIgnoreCase))
-            {
-                Warn("RequestSrv slot t" + slot + " on " + stage + " already '" +
-                     existing.CatalogName + "', skipped '" + catalogName + "'");
-                return;
-            }
-        }
-
-        Requests.Add(new SrvRequest { Stage = stage, CatalogName = catalogName, Slot = slot });
-    }
-
-    static int NextFreeSlotUnlocked(string stage)
-    {
-        var used = new bool[LastExtraSrv + 1];
-        if (IsAtmosphereStage(stage))
-        {
-            used[5] = true;
-            used[AtmosphereVelocitySlot] = true;
-        }
-        else
-            used[IsLightingStage(stage) ? LightingVelocitySlot : PostVelocitySlot] = true;
-        for (var i = 0; i < Requests.Count; i++)
-        {
-            if (string.Equals(Requests[i].Stage, stage, StringComparison.OrdinalIgnoreCase))
-                used[Requests[i].Slot] = true;
-        }
-
-        var start = IsAtmosphereStage(stage) ? AtmosphereExtraBase : LightingAttachBase;
-        for (var slot = start; slot <= LastExtraSrv; slot++)
-        {
-            if (!used[slot])
-                return slot;
-        }
-
-        return -1;
+        if(!Model.Add(stage,catalogName,slot))Warn("RequestSrv reservation conflict or invalid slot: "+stage+"/"+catalogName+" t"+slot);
     }
 
     static bool WrapperBlocked(string stage) =>
@@ -267,9 +194,10 @@ public static class ShaderBindRegistry
             });
         }
 
-        for (var i = 0; i < Requests.Count; i++)
+        var requests = Model.Snapshot();
+        for (var i = 0; i < requests.Count; i++)
         {
-            var req = Requests[i];
+            var req = requests[i];
             if (!RequestMatches(req.Stage, stage))
                 continue;
             if (taken[req.Slot])
@@ -356,15 +284,8 @@ public static class ShaderBindRegistry
         mapping.Unmap();
     }
 
-    static bool RequestMatches(string requestStage, string bindStage)
-    {
-        if (string.Equals(requestStage, bindStage, StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (IsLightingStage(bindStage) &&
-            string.Equals(requestStage, ShaderStages.Lighting, StringComparison.OrdinalIgnoreCase))
-            return true;
-        return false;
-    }
+    static bool RequestMatches(string requestStage, string bindStage) =>
+        ClientPlugin.Contracts.StageBindingModel.Matches(requestStage, bindStage);
 
     static int CbSlot(string stage)
     {
@@ -429,10 +350,4 @@ public static class ShaderBindRegistry
         DebugLog.Write("ShaderBindRegistry WARN " + message);
     }
 
-    sealed class SrvRequest
-    {
-        public string Stage;
-        public string CatalogName;
-        public int Slot;
-    }
 }

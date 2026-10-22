@@ -396,3 +396,14 @@ public static class GBufferTargetRegistry
     }
 }
 
+/// <summary>Shared stage reservations. StatusLine distinguishes stored Vulkan requests from native execution.</summary>
+public static class ShaderBindRegistry
+{
+    public const int LightingVelocitySlot=5,LightingAttachBase=6,LightingCbSlot=6,PostVelocitySlot=5,PostCbSlot=6,AtmosphereVelocitySlot=6,AtmosphereCbSlot=6,AtmosphereExtraBase=7,FirstExtraSrv=5,LastExtraSrv=9;
+    public static string StatusLine=>!RenderHost.Decided?"Renderer pending; stage binding reservations retained":RenderHost.IsDx11?Dx11Call.Get("ClientPlugin.Shaders.ShaderBindRegistry","StatusLine") as string??"none":GuestStageBindings.Status;
+    public static void RequestSrv(string stage,string catalogName,int slot=-1)
+    {
+        if(!GuestStageBindings.Model.Add(stage,catalogName,slot))return;
+        if(RenderHost.IsDx11)Dx11Call.Try("ClientPlugin.Shaders.ShaderBindRegistry","RequestSrv",new object[]{stage,catalogName,slot},out _);
+    }
+}

@@ -1361,3 +1361,31 @@ CPU contract groups and net48/net10 builds pass. No native ABI/capability bump w
 needed; native library/source remain those qualified by the382-check/all82 native
 family gate. Other native owners, complete attachments, DX11 target integration,
 classic fullscreen null-dimension semantics, stage7 and stage8 remain open.
+
+
+### Shared catalog target/facade qualification
+
+Both hosts now use one device-free names/reservation/color-format contract. Core
+exposes all20 constants and matching PublishedBuffer properties, methods and
+constructors; raw GPU publication remains DX11-only. Portable structured metadata
+reports element count/stride/availability; Vulkan GPU references stay opaque.
+Native target snapshots report known DXGI formats and invalidate after logical
+replacement or changed allocation dimensions.
+
+DX11 honors six canonical formats plus legacy0/1, defers device/worker requests to
+its renderer queue and frame-begin flush, and returns owned textures through
+Keen's RwTextures.DisposeTex. Failed allocation retains the prior upload/target
+and requested size. Shared ownership gating and retirement callbacks prevent
+cross-facade conflicts and replay resurrection. Requests made before renderer/
+device selection replay afterward. Old satellites receive an update refusal before
+misinterpreting a format; resource availability never implies GPU completion.
+
+The actual-core/linked-production DX11 WARP fixture passes134 checks on net48 and
+net10, including typed GPU pixels, reflection, pending cancellation, allocation
+rollback, deferred reads, actual device replacement, worker retirement and16
+unregister cycles returning pool counts to zero. Its pooling adapter is not a
+loaded-game manager claim. Native focus105 and final combined894 pass with zero
+core/synchronization errors. All six CPU groups and both managed builds pass.
+Native C++ sources/library are unchanged. The remaining catalog work is upload-mode
+transition qualification and classic fullscreen true-null/dimension behavior;
+remaining stage6 owners/attachments, stage7 and broad automated stage8 stay open.

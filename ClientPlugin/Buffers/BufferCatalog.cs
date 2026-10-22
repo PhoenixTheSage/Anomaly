@@ -24,43 +24,49 @@ namespace ClientPlugin.Buffers;
 /// </summary>
 public static class BufferCatalog
 {
-    public const string Velocity = "velocity";
-    public const string LinearDepth = "linearDepth";
-    public const string ObjectId = "objectId";
-    public const string HistoryColor = "historyColor";
-    public const string HiZ = "hiZ";
-    public const string ReactiveMask = "reactiveMask";
-    public const string FullscreenIsolated = "fullscreenIsolated";
-    public const string HdrColor = "hdrColor";
-    public const string UpscaledColor = "upscaledColor";
-    public const string AvgLuminance = "avgLuminance";
-    public const string Bloom = "bloom";
-    public const string Dirt = "dirt";
-    public const string LitMips = "litMips";
-    public const string PointLights = "pointLights";
-    public const string TileIndices = "tileIndices";
-    public const string HistoryDepth = "historyDepth";
-    public const string Occupancy = "occupancy";
-    public const string PointShadowAtlas = "pointShadowAtlas";
-    public const string PlayerDepth = "playerDepth";
+    public const string Velocity = ClientPlugin.Contracts.CatalogContract.Velocity;
+    public const string LinearDepth = ClientPlugin.Contracts.CatalogContract.LinearDepth;
+    public const string ObjectId = ClientPlugin.Contracts.CatalogContract.ObjectId;
+    public const string HistoryColor = ClientPlugin.Contracts.CatalogContract.HistoryColor;
+    public const string HiZ = ClientPlugin.Contracts.CatalogContract.HiZ;
+    public const string ReactiveMask = ClientPlugin.Contracts.CatalogContract.ReactiveMask;
+    public const string FullscreenIsolated = ClientPlugin.Contracts.CatalogContract.FullscreenIsolated;
+    public const string HdrColor = ClientPlugin.Contracts.CatalogContract.HdrColor;
+    public const string UpscaledColor = ClientPlugin.Contracts.CatalogContract.UpscaledColor;
+    public const string AvgLuminance = ClientPlugin.Contracts.CatalogContract.AvgLuminance;
+    public const string Bloom = ClientPlugin.Contracts.CatalogContract.Bloom;
+    public const string Dirt = ClientPlugin.Contracts.CatalogContract.Dirt;
+    public const string LitMips = ClientPlugin.Contracts.CatalogContract.LitMips;
+    public const string PointLights = ClientPlugin.Contracts.CatalogContract.PointLights;
+    public const string TileIndices = ClientPlugin.Contracts.CatalogContract.TileIndices;
+    public const string HistoryDepth = ClientPlugin.Contracts.CatalogContract.HistoryDepth;
+    public const string Occupancy = ClientPlugin.Contracts.CatalogContract.Occupancy;
+    public const string PointShadowAtlas = ClientPlugin.Contracts.CatalogContract.PointShadowAtlas;
+    public const string PlayerDepth = ClientPlugin.Contracts.CatalogContract.PlayerDepth;
     /// <summary>
     /// Conventional pack product: remaining sun through a volume (1 = none).
     /// Not reserved — PublishOnly <c>output</c> may use this name.
     /// </summary>
-    public const string VolumeSunShadow = "volumeSunShadow";
+    public const string VolumeSunShadow = ClientPlugin.Contracts.CatalogContract.VolumeSunShadow;
 
-    static readonly object Gate = new();
+    static object Gate = new();
+    internal static object SyncRoot => Gate;
+    static Func<string,string,bool> coreCanOwn;
+    static Action<string,string,bool> coreRetired;
+
+    // Host bridge: bind before installing framework hooks or replaying callbacks.
+    public static void BindCoreCatalog(object gate,Func<string,string,bool> canOwn,Action<string,string,bool> retired)
+    {
+        if(gate==null)throw new ArgumentNullException(nameof(gate));
+        lock(Gate){Gate=gate;coreCanOwn=canOwn;coreRetired=retired;}
+    }
+    internal static bool CanOwn(string owner,string name) => !IsReservedName(name) &&
+        (!Owners.TryGetValue(name,out var previous)||string.Equals(previous,owner,StringComparison.OrdinalIgnoreCase)) &&
+        (coreCanOwn==null||coreCanOwn(owner,name));
     static readonly Dictionary<string, ISharedBuffer> ByName =
         new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, string> Owners =
         new(StringComparer.OrdinalIgnoreCase);
-    static readonly string[] Reserved =
-    {
-        Velocity, LinearDepth, HiZ, HistoryColor, ReactiveMask, FullscreenIsolated,
-        HdrColor, UpscaledColor, AvgLuminance, Bloom, Dirt, LitMips, PointLights,
-        TileIndices, HistoryDepth, Occupancy, PointShadowAtlas, PlayerDepth
-    };
-
     /// <summary>
     /// Current producer for <paramref name="name"/>, or an unavailable
     /// placeholder. Never returns null.
@@ -124,13 +130,13 @@ public static class BufferCatalog
             return false;
         lock (Gate)
         {
-            if (Owners.TryGetValue(name, out var owner) &&
-                !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase))
-                return false;
+            if (!CanOwn(packId,name)) return false;
+            CatalogImages.Release(packId,name,buffer);
             Owners[name] = packId;
-            if (ByName.TryGetValue(name, out var previous) && !ReferenceEquals(previous, buffer))
-                (previous as PublishedBuffer)?.ReleaseUpload();
+            bool replaced=ByName.TryGetValue(name,out var previous)&&!ReferenceEquals(previous,buffer);
+            if(replaced)(previous as PublishedBuffer)?.ReleaseUpload();
             ByName[name] = buffer;
+            if(replaced)coreRetired?.Invoke(packId,name,CatalogImages.IsTarget(name,buffer));
             return true;
         }
     }
@@ -139,6 +145,7 @@ public static class BufferCatalog
     {
         if (string.IsNullOrWhiteSpace(packId) || string.IsNullOrWhiteSpace(name))
             return;
+        packId=packId.Trim();name=name.Trim();
         lock (Gate)
         {
             if (!Owners.TryGetValue(name, out var owner) ||
@@ -148,6 +155,8 @@ public static class BufferCatalog
             if (ByName.TryGetValue(name, out var previous))
                 (previous as PublishedBuffer)?.ReleaseUpload();
             ByName.Remove(name);
+            CatalogImages.Release(packId,name);
+            coreRetired?.Invoke(packId,name,false);
         }
     }
 
@@ -155,6 +164,7 @@ public static class BufferCatalog
     {
         if (string.IsNullOrWhiteSpace(packId))
             return;
+        packId=packId.Trim();
         lock (Gate)
         {
             var drop = new List<string>();
@@ -170,6 +180,8 @@ public static class BufferCatalog
                 if (ByName.TryGetValue(drop[i], out var previous))
                     (previous as PublishedBuffer)?.ReleaseUpload();
                 ByName.Remove(drop[i]);
+                CatalogImages.Release(packId,drop[i]);
+                coreRetired?.Invoke(packId,drop[i],false);
             }
         }
     }
@@ -232,18 +244,7 @@ public static class BufferCatalog
         ClientPlugin.ShaderFramework.PointShadowPass.RequestOccupancy(enabled);
     }
 
-    public static bool IsReservedName(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return true;
-        for (var i = 0; i < Reserved.Length; i++)
-        {
-            if (string.Equals(name, Reserved[i], StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
+    public static bool IsReservedName(string name) => ClientPlugin.Contracts.CatalogContract.IsReserved(name);
 
     internal static void PublishVelocity(IVelocityBuffer buffer)
     {

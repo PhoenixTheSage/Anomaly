@@ -11,6 +11,8 @@ static class GuestCatalogTargets
     sealed class Target
     {
         internal string Owner;
+        internal bool DxRegistered;
+        internal int DxgiFormat;
         internal int Width, Height, Format, AppliedWidth, AppliedHeight, AppliedFormat;
         internal ulong Image;
         internal long Epoch;
@@ -22,19 +24,7 @@ static class GuestCatalogTargets
 
     internal static bool Ensure(string owner, string name, int width, int height, int dxgiFormat)
     {
-        int format;
-        switch (dxgiFormat)
-        {
-            case 2: format = 6; break; // R32G32B32A32_FLOAT
-            case 1: // Legacy public API: FP16 (used by cloud history).
-            case 10: format = 1; break; // R16G16B16A16_FLOAT
-            case 0: // Legacy public API: RGBA8.
-            case 28: format = 0; break; // R8G8B8A8_UNORM
-            case 34: format = 3; break; // R16G16_FLOAT
-            case 41: format = 2; break; // R32_FLOAT
-            case 54: format = 8; break; // R16_FLOAT
-            default: return false;
-        }
+        if(!ClientPlugin.Contracts.CatalogContract.ColorFormat(dxgiFormat,out int dxgi,out int format))return false;
         if (string.IsNullOrWhiteSpace(owner) || string.IsNullOrWhiteSpace(name) || width < 1 || height < 1) return false;
         owner = owner.Trim(); name = name.Trim();
         lock (Gate)
@@ -46,8 +36,30 @@ static class GuestCatalogTargets
                 Targets.Add(name, target = new Target { Owner = owner });
             }
             if (!string.Equals(target.Owner, owner, StringComparison.OrdinalIgnoreCase)) return false;
-            target.Width = width; target.Height = height; target.Format = format;
+            if(target.Width!=width||target.Height!=height||target.DxgiFormat!=dxgi)target.DxRegistered=false;
+            target.Width = width; target.Height = height; target.Format = format;target.DxgiFormat=dxgi;
             return true;
+        }
+    }
+
+    internal static bool Contains(string name){lock(Gate)return name!=null&&Targets.ContainsKey(name.Trim());}
+    internal static void MarkDx11(string name){lock(Gate)if(Targets.TryGetValue(name,out var target))target.DxRegistered=true;}
+    internal static void ReplayDx11(bool reset=false)
+    {
+        lock(Gate)
+        {
+            foreach(var pair in new List<KeyValuePair<string,Target>>(Targets))
+            {
+                var t=pair.Value;
+                if(reset)t.DxRegistered=false;
+                if(!t.DxRegistered)
+                {
+                    if(!Dx11Call.Try("ClientPlugin.Buffers.CatalogImages","EnsureColorTarget",new object[]{t.Owner,pair.Key,t.Width,t.Height,t.DxgiFormat},out var result)||result is not true)
+                        throw new InvalidOperationException("DX11 refused queued catalog target: "+pair.Key);
+                    t.DxRegistered=true;
+                }
+                if(t.Clear!=null&&Dx11Call.Call("ClientPlugin.Buffers.CatalogImages","ClearColorTarget",pair.Key,t.Clear[0],t.Clear[1],t.Clear[2],t.Clear[3]))t.Clear=null;
+            }
         }
     }
 
@@ -104,7 +116,10 @@ static class GuestCatalogTargets
                         throw new InvalidOperationException("SE-Vulkan refused catalog target clear: " + pair.Key);
                     target.Clear = null;
                 }
-                BufferCatalog.Set(pair.Key, new GuestRendererImage(target.Image, target.Width, target.Height, 1, false));
+                string name=pair.Key;ulong id=target.Image;int width=target.Width,height=target.Height,format=target.Format;
+                BufferCatalog.Set(name,new GuestRendererImage(id,width,height,1,false,target.DxgiFormat,()=>{
+                    lock(Gate)return Targets.TryGetValue(name,out var current)&&ReferenceEquals(current,target)&&target.Epoch==epoch&&target.Image==id&&target.AppliedWidth==width&&target.AppliedHeight==height&&target.AppliedFormat==format;
+                }));
             }
         }
     }

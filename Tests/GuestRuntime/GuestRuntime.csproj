@@ -19,6 +19,7 @@
     <Compile Include="NativeStageContracts.cs" />
     <Compile Include="StageBindingContracts.cs" />
     <Compile Include="../../ClientPlugin/Backend/StageBindingModel.cs" />
+    <Compile Include="../../ClientPlugin/Backend/CatalogContract.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestStageBindings.cs" />
     <Compile Include="../../ClientPlugin/Backend/PortablePassRegistry.cs" />
     <Compile Include="../../ClientPlugin/Backend/PortablePassContext.cs" />

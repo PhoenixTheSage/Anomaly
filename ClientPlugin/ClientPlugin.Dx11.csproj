@@ -301,6 +301,7 @@
     <Compile Include="Backend\PackSourceSnapshot.cs" />
     <Compile Include="Backend\FrameEnvironment.cs" />
     <Compile Include="Backend\StageBindingModel.cs" />
+    <Compile Include="Backend\CatalogContract.cs" />
     <Compile Remove="obj\**\*.cs;bin\**\*.cs" />
     <Compile Remove="RichHud\**\*.cs" />
     <Compile Remove="RichHudFramework\**\*.cs" />

@@ -112,3 +112,37 @@ current capture dimensions and nonzero recovery, with zero core/synchronization
 errors. An independent packet regression reproduces the former sizing error and
 checks that ordinary AfterUpscale floor/Replace scaling stays unchanged. The final
 combined actual-core gate passes891 checks with zero core/synchronization errors.
+
+
+## Shared catalog formats, facade and DX11 target lifecycle
+
+Both adapters compile the same device-free names/reservations and color-format
+mapping. Core exposes all20 DX11 catalog constants and matching PublishedBuffer
+properties, constructors and method signatures. Raw SRV/UAV publication remains
+DX11-only. Portable CPU buffers expose IsAvailable, IsStructured, Stride and
+metadata; structured Width is element count. Vulkan NativeResource stays zero,
+Srv/Uav stay null, and SE-Vulkan retains ownership of actual GPU execution.
+
+EnsureColorTarget supports canonical DXGI2/10/28/34/41/54 and legacy0 (RGBA8)/1
+(FP16). DX11 now honors the actual requested format. Shared ownership rejects
+reserved/competing names before allocation, and failed allocation preserves the
+previous upload/target and its requested size. Target descriptions and clears
+accepted before renderer/device availability replay after selection. Acceptance
+is registration; IsAvailable describes resource availability, not completed GPU
+execution. Match Anomaly.dll and Anomaly.Dx11.dll; older satellites are refused
+with an update message before a new format request can be misinterpreted.
+
+DX11 target allocation/clear and retirement run on the renderer thread using
+Keen's RwTextures manager and DisposeTex, with a coalesced renderer update queue
+and frame-begin flush. Unpublish, replacement and direct legacy-satellite calls
+cancel core replay and return owned targets. Borrowed resources keep caller
+ownership. Retained DX11 target wrappers refresh their resource pointer after
+recreation and become unavailable on unregister; native target snapshots also
+invalidate when replaced or resized, so query catalog images for each frame.
+
+The actual-core/linked-production DX11 WARP gate passes134 checks on each runtime,
+including typed pixel reads, pending/canceled work, rollback, deferred GPU reads,
+actual device replacement and16 unregister cycles returning pool counts to zero.
+The engine pooling adapter is not loaded-game acceptance. The native actual-core
+catalog gate passes105 checks with zero validation errors. The final combined
+gate passes894 checks with zero core/synchronization errors; broader stage8 memory/performance acceptance remains.

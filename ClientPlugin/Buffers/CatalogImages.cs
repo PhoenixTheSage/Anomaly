@@ -20,13 +20,74 @@ public static class CatalogImages
 {
     sealed class ColorTarget
     {
-        public IRtvTexture Texture;
-        public int Width;
-        public int Height;
-        public int Format;
+        internal string Owner;
+        internal IRtvTexture Texture;
+        internal int Width,Height,Format,AppliedWidth,AppliedHeight,AppliedFormat;
+        internal float[] Clear;
+        internal SharpDX.Direct3D11.Resource LastResource;
+        internal bool Active=true;
+        internal TargetBuffer Published;
     }
-
-    static readonly Dictionary<string, ColorTarget> Targets = new Dictionary<string, ColorTarget>(StringComparer.Ordinal);
+    sealed class TargetBuffer : ISharedBuffer
+    {
+        readonly ColorTarget target;
+        internal TargetBuffer(ColorTarget target){this.target=target;}
+        public bool IsAvailable { get { lock(BufferCatalog.SyncRoot)return target.Active&&target.Texture?.Resource!=null&&target.Texture.Srv!=null; } }
+        public object Srv { get { lock(BufferCatalog.SyncRoot)return target.Active?target.Texture:null; } }
+        public IntPtr NativeResource { get { lock(BufferCatalog.SyncRoot)return target.Active&&target.Texture?.Resource!=null?target.Texture.Resource.NativePointer:IntPtr.Zero; } }
+        public int Width { get { lock(BufferCatalog.SyncRoot)return target.AppliedWidth; } }
+        public int Height { get { lock(BufferCatalog.SyncRoot)return target.AppliedHeight; } }
+        public int Depth => 1;
+        public int Format { get { lock(BufferCatalog.SyncRoot)return target.AppliedFormat; } }
+    }
+    static readonly Dictionary<string,ColorTarget> Targets = new(StringComparer.OrdinalIgnoreCase);
+    static readonly List<IRtvTexture> Retired = new();
+    static bool queued;
+    static bool OnRenderer => MyRender11.RenderThread==System.Threading.Thread.CurrentThread;
+    static bool Ready => OnRenderer&&MyRender11.DeviceInstance!=null&&MyRender11.RC!=null&&MyRender11.RC.IsInitialized;
+    static void QueueFlush()
+    {
+        if(queued)return;
+        queued=true;MyRender11.EnqueueUpdate(()=>{lock(BufferCatalog.SyncRoot)queued=false;Flush();});
+    }
+    static void ApplyTarget(string name,ColorTarget target)
+    {
+        if(target.Texture==null||target.AppliedWidth!=target.Width||target.AppliedHeight!=target.Height||target.AppliedFormat!=target.Format)
+        {
+            var replacement=MyManagers.RwTextures.CreateRtv("Anomaly.Catalog."+name,target.Width,target.Height,(Format)target.Format);
+            var previous=target.Texture;target.Texture=replacement;
+            target.AppliedWidth=target.Width;target.AppliedHeight=target.Height;target.AppliedFormat=target.Format;
+            if(previous!=null)MyManagers.RwTextures.DisposeTex(ref previous);
+        }
+        var resource=target.Texture.Resource;
+        if(resource==null||target.Texture.Rtv==null)return;
+        if(!ReferenceEquals(resource,target.LastResource)){target.LastResource=resource;if(target.Clear==null)target.Clear=new float[4];}
+        if(target.Clear!=null)
+        {
+            var c=target.Clear;MyRender11.RC.ClearRtv(target.Texture,new RawColor4(c[0],c[1],c[2],c[3]));target.Clear=null;
+        }
+    }
+    internal static void Flush()
+    {
+        if(!Ready)return;
+        lock(BufferCatalog.SyncRoot)
+        {
+            foreach(var retired in Retired){var texture=retired;MyManagers.RwTextures.DisposeTex(ref texture);}
+            Retired.Clear();
+            foreach(var pair in Targets)ApplyTarget(pair.Key,pair.Value);
+        }
+    }
+    internal static bool IsTarget(string name,ISharedBuffer buffer) => Targets.TryGetValue(name,out var target)&&ReferenceEquals(target.Published,buffer);
+    internal static void Release(string owner,string name,ISharedBuffer except=null)
+    {
+        lock(BufferCatalog.SyncRoot)
+        {
+            if(!Targets.TryGetValue(name,out var target)||!string.Equals(owner,target.Owner,StringComparison.OrdinalIgnoreCase)||ReferenceEquals(except,target.Published))return;
+            Targets.Remove(name);target.Active=false;
+            if(target.Texture!=null){Retired.Add(target.Texture);target.Texture=null;target.LastResource=null;}
+            QueueFlush();
+        }
+    }
 
     public static void PublishRgba8(PublishedBuffer target, byte[] rgba, int width, int height)
     {
@@ -54,7 +115,7 @@ public static class CatalogImages
 
     public static void PublishStructuredFloats(PublishedBuffer target, float[] values, int stride)
     {
-        if (target == null || values == null || values.Length == 0 || stride <= 0)
+        if (target == null || values == null || values.Length == 0 || stride <= 0 || stride%4!=0 || (long)values.Length*4%stride!=0)
             return;
         int bytes = values.Length * sizeof(float);
         var desc = new BufferDescription
@@ -81,7 +142,7 @@ public static class CatalogImages
             buffer.Dispose();
             throw;
         }
-        PublishUpload(target, buffer, values.Length, 1, 1, stride);
+        PublishUpload(target, buffer, bytes/stride, 1, 1, stride);
     }
 
     static void PublishUpload(PublishedBuffer target, SharpDX.Direct3D11.Resource resource,
@@ -115,35 +176,43 @@ public static class CatalogImages
         public void Dispose() { Srv.Dispose(); Resource.Dispose(); }
     }
 
-    public static bool EnsureColorTarget(string packId, string name, int width, int height, int format)
+    public static bool EnsureColorTarget(string packId,string name,int width,int height,int format)
     {
-        if (string.IsNullOrWhiteSpace(name) || width <= 0 || height <= 0)
-            return false;
-        var dxgi = format == 1 ? Format.R16G16B16A16_Float : Format.R8G8B8A8_UNorm;
-        if (!Targets.TryGetValue(name, out var target) || target.Texture == null || target.Width != width || target.Height != height || target.Format != format)
+        packId=packId??"anomaly";
+        if(string.IsNullOrWhiteSpace(packId)||string.IsNullOrWhiteSpace(name)||width<1||height<1||
+            !ClientPlugin.Contracts.CatalogContract.ColorFormat(format,out int dxgi,out _))return false;
+        packId=packId.Trim();name=name.Trim();
+        lock(BufferCatalog.SyncRoot)
         {
-            target = new ColorTarget
+            if(!BufferCatalog.CanOwn(packId,name))return false;
+            bool created=!Targets.TryGetValue(name,out var target);
+            if(created){target=new ColorTarget{Owner=packId};target.Published=new TargetBuffer(target);}
+            if(!string.Equals(target.Owner,packId,StringComparison.OrdinalIgnoreCase))return false;
+            int oldWidth=target.Width,oldHeight=target.Height,oldFormat=target.Format;
+            target.Width=width;target.Height=height;target.Format=dxgi;
+            // Allocate before publishing so a failed conversion retains the old
+            // publication and an unsuccessful resize cannot activate later.
+            try{if(Ready)ApplyTarget(name,target);}
+            catch{target.Width=oldWidth;target.Height=oldHeight;target.Format=oldFormat;throw;}
+            if(created)Targets.Add(name,target);
+            if(!BufferCatalog.Publish(packId,name,target.Published))
             {
-                Texture = MyManagers.RwTextures.CreateRtv("Anomaly.Catalog." + name, width, height, dxgi),
-                Width = width,
-                Height = height,
-                Format = format,
-            };
-            Targets[name] = target;
+                if(created){Targets.Remove(name);target.Active=false;if(target.Texture!=null){Retired.Add(target.Texture);target.Texture=null;}}
+                QueueFlush();return false;
+            }
+            if(!Ready)QueueFlush();return true;
         }
-
-        var published = new PublishedBuffer();
-        var resource = target.Texture.Resource;
-        published.Publish(target.Texture, resource != null ? resource.NativePointer : IntPtr.Zero, width, height);
-        BufferCatalog.Publish(packId ?? "anomaly", name, published);
-        return true;
     }
 
-    public static void ClearColorTarget(string name, float r, float g, float b, float a)
+    public static void ClearColorTarget(string name,float r,float g,float b,float a)
     {
-        if (name == null || !Targets.TryGetValue(name, out var target) || target.Texture == null)
-            return;
-        MyRender11.RC.ClearRtv(target.Texture, new RawColor4(r, g, b, a));
+        if(string.IsNullOrWhiteSpace(name))return;
+        foreach(float value in new[]{r,g,b,a})if(float.IsNaN(value)||float.IsInfinity(value))throw new ArgumentOutOfRangeException(nameof(value));
+        lock(BufferCatalog.SyncRoot)
+        {
+            if(!Targets.TryGetValue(name.Trim(),out var target))return;
+            target.Clear=new[]{r,g,b,a};if(Ready)ApplyTarget(name.Trim(),target);else QueueFlush();
+        }
     }
 
     static Texture2D CreateTexture2D(int width, int height, Format format, byte[] rgba, int rowPitch)

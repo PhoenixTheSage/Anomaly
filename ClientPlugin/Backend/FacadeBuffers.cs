@@ -9,15 +9,37 @@ public static class CatalogImages
 {
     public static bool EnsureColorTarget(string packId, string name, int width, int height, int format)
     {
-        if (RendererRoute.UseDx11Device)
-            return Dx11Call.Try(Dx, "EnsureColorTarget", new object[] { packId, name, width, height, format }, out var result) && result is true;
-        return GuestCatalogTargets.Ensure(packId ?? "anomaly", name, width, height, format);
+        packId=packId??"anomaly";
+        if(string.IsNullOrWhiteSpace(packId)||string.IsNullOrWhiteSpace(name)||width<1||height<1||
+            !ClientPlugin.Contracts.CatalogContract.ColorFormat(format,out int dxgi,out _))return false;
+        packId=packId.Trim();name=name.Trim();
+        lock(BufferCatalog.SyncRoot)
+        {
+            if(!BufferCatalog.CanOwn(packId,name))return false;
+            bool dispatched=RendererRoute.UseDx11Device&&Dx11Call.Ready;
+            if(dispatched)
+            {
+                BufferCatalog.BindDx11Catalog();
+                if(!Dx11Call.Try(Dx,"EnsureColorTarget",new object[]{packId,name,width,height,dxgi},out var result)||result is not true)return false;
+            }
+            bool accepted=GuestCatalogTargets.Ensure(packId,name,width,height,dxgi);
+            if(accepted&&dispatched)GuestCatalogTargets.MarkDx11(name);
+            return accepted;
+        }
     }
 
-    public static void ClearColorTarget(string name, float r, float g, float b, float a)
+    public static void ClearColorTarget(string name,float r,float g,float b,float a)
     {
-        if (!RendererRoute.UseDx11Device) { GuestCatalogTargets.Clear(name, r, g, b, a); return; }
-        Dx11Call.Call(Dx, "ClearColorTarget", name, r, g, b, a);
+        GuestCatalogTargets.Clear(name,r,g,b,a);
+        if(RendererRoute.UseDx11Device&&Dx11Call.Ready)
+        {
+            BufferCatalog.BindDx11Catalog();
+            bool described=GuestCatalogTargets.Contains(name);
+            GuestCatalogTargets.ReplayDx11();
+            if(described)return;
+            // Preserve direct-satellite entries that have no core description.
+            Dx11Call.Call(Dx,"ClearColorTarget",name,r,g,b,a);
+        }
     }
 
     const string Dx = "ClientPlugin.Buffers.CatalogImages";
@@ -39,6 +61,10 @@ public sealed class GuestRendererImage
         Depth = depth < 1 ? 1 : depth;
     }
 
+    internal GuestRendererImage(ulong imageId,int width,int height,int depth,bool current,int format,Func<bool> available):this(imageId,width,height,depth,current){Format=format;this.available=available;}
+    public int Format { get; }
+    public object Srv => null;
+    public IntPtr NativeResource => IntPtr.Zero;
     public bool RequiresCurrentFrame { get; }
     public ulong ImageId { get; }
     public bool IsAvailable => ImageId != 0 && resourceEpoch!=0 && resourceEpoch==GuestBridgeClient.ResourceEpoch && (available==null || available());
@@ -49,12 +75,51 @@ public sealed class GuestRendererImage
 
 public static class BufferCatalog
 {
-    public const string HdrColor = "hdrColor";
-    public const string UpscaledColor = "upscaledColor";
+    public const string Velocity=ClientPlugin.Contracts.CatalogContract.Velocity;
+    public const string LinearDepth=ClientPlugin.Contracts.CatalogContract.LinearDepth;
+    public const string ObjectId=ClientPlugin.Contracts.CatalogContract.ObjectId;
+    public const string HistoryColor=ClientPlugin.Contracts.CatalogContract.HistoryColor;
+    public const string HiZ=ClientPlugin.Contracts.CatalogContract.HiZ;
+    public const string ReactiveMask=ClientPlugin.Contracts.CatalogContract.ReactiveMask;
+    public const string FullscreenIsolated=ClientPlugin.Contracts.CatalogContract.FullscreenIsolated;
+    public const string HdrColor=ClientPlugin.Contracts.CatalogContract.HdrColor;
+    public const string UpscaledColor=ClientPlugin.Contracts.CatalogContract.UpscaledColor;
+    public const string AvgLuminance=ClientPlugin.Contracts.CatalogContract.AvgLuminance;
+    public const string Bloom=ClientPlugin.Contracts.CatalogContract.Bloom;
+    public const string Dirt=ClientPlugin.Contracts.CatalogContract.Dirt;
+    public const string LitMips=ClientPlugin.Contracts.CatalogContract.LitMips;
+    public const string PointLights=ClientPlugin.Contracts.CatalogContract.PointLights;
+    public const string TileIndices=ClientPlugin.Contracts.CatalogContract.TileIndices;
+    public const string HistoryDepth=ClientPlugin.Contracts.CatalogContract.HistoryDepth;
+    public const string Occupancy=ClientPlugin.Contracts.CatalogContract.Occupancy;
+    public const string PointShadowAtlas=ClientPlugin.Contracts.CatalogContract.PointShadowAtlas;
+    public const string PlayerDepth=ClientPlugin.Contracts.CatalogContract.PlayerDepth;
+    public const string VolumeSunShadow=ClientPlugin.Contracts.CatalogContract.VolumeSunShadow;
     static readonly Dictionary<string, object> Local = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, string> Owners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     internal static object SyncRoot => Local;
-    static readonly string[] Reserved = { "velocity", "linearDepth", "hiZ", "historyColor", "reactiveMask", "fullscreenIsolated", "hdrColor", "upscaledColor", "avgLuminance", "bloom", "dirt", "litMips", "pointLights", "tileIndices", "historyDepth", "occupancy", "pointShadowAtlas", "playerDepth" };
+    static object dxBinding;
+    internal static bool CanOwn(string packId,string name) => !IsReservedName(name)&&
+        (!Owners.TryGetValue(name,out var owner)||string.Equals(owner,packId,StringComparison.OrdinalIgnoreCase));
+    internal static void BindDx11Catalog()
+    {
+        lock(Local)
+        {
+            if(!Dx11Call.Ready||ReferenceEquals(dxBinding,Dx11Call.BindingIdentity))return;
+            if(!Dx11Call.Call(Dx,"BindCoreCatalog",Local,(Func<string,string,bool>)CanOwn,(Action<string,string,bool>)OnDxRetired))
+                throw new NotSupportedException("Update Anomaly.Dx11.dll: shared catalog ownership and named target formats require the matching satellite.");
+            dxBinding=Dx11Call.BindingIdentity;
+            GuestCatalogTargets.ReplayDx11(true);
+        }
+    }
+    static void OnDxRetired(string owner,string name,bool keepTarget)
+    {
+        lock(Local)
+        {
+            if(keepTarget){if(Owners.TryGetValue(name,out var pack)&&string.Equals(owner,pack,StringComparison.OrdinalIgnoreCase))Set(name,null);}
+            else {GuestCatalogTargets.Release(owner,name);Forget(owner,name);}
+        }
+    }
     static readonly Dictionary<string, Action[]> Lifetimes = new Dictionary<string, Action[]>(StringComparer.OrdinalIgnoreCase);
 
     public static void RegisterLifetime(string packId, Action onResolutionChanged, Action onDeviceEnd)
@@ -95,8 +160,7 @@ public static class BufferCatalog
             return Local.TryGetValue(name ?? "", out var value) ? value : null;
     }
 
-    public static bool IsReservedName(string name) => string.IsNullOrWhiteSpace(name) ||
-        Reserved.Any(reserved => string.Equals(reserved, name.Trim(), StringComparison.OrdinalIgnoreCase));
+    public static bool IsReservedName(string name) => ClientPlugin.Contracts.CatalogContract.IsReserved(name);
 
     internal static bool Reserve(string packId, string name)
     {
@@ -122,13 +186,14 @@ public static class BufferCatalog
         lock (Local)
         {
             if (Owners.TryGetValue(name, out var owner) && !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase)) return false;
+            if(RendererRoute.UseDx11Device&&Dx11Call.Ready)BindDx11Catalog();
             (buffer as PublishedBuffer)?.ApplyDeferred();
             if (RendererRoute.UseDx11Device)
             {
                 object inner = buffer is PublishedBuffer published ? published.Inner ?? published : buffer;
                 if (!Dx11Call.Try(Dx, "Publish", new object[] { packId, name, inner }, out var result) || result is not true) return false;
             }
-            else GuestCatalogTargets.Release(packId, name);
+            GuestCatalogTargets.Release(packId, name);
             Owners[name] = packId;
             Set(name, buffer);
             return true;
@@ -144,7 +209,7 @@ public static class BufferCatalog
             // DX11 may own entries created directly by its compatibility facade.
             if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "Unpublish", packId, name);
             if (!Owners.TryGetValue(name, out var owner) || !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase)) return;
-            if (!RendererRoute.UseDx11Device) GuestCatalogTargets.Release(packId, name);
+            GuestCatalogTargets.Release(packId, name);
             Forget(packId, name);
         }
     }
@@ -156,7 +221,7 @@ public static class BufferCatalog
         lock (Local)
         {
             if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "UnpublishAll", packId);
-            else GuestCatalogTargets.Release(packId);
+            GuestCatalogTargets.Release(packId);
             foreach (string name in Owners.Where(pair => string.Equals(pair.Value, packId, StringComparison.OrdinalIgnoreCase)).Select(pair => pair.Key).ToArray())
                 Forget(packId, name);
         }
@@ -189,6 +254,7 @@ public static class BufferCatalog
 
     internal static void ApplyDeferred()
     {
+        if(RendererRoute.UseDx11Device){BindDx11Catalog();GuestCatalogTargets.ReplayDx11();}
         PublishedBuffer[] pending;
         KeyValuePair<string, Action[]>[] lifetimes;
         lock (Local)
@@ -260,7 +326,13 @@ public sealed class PublishedBuffer
         }
     }
 
-    public IntPtr NativeResource { get; private set; }
+    IntPtr nativeResource;
+    public IntPtr NativeResource { get => RendererRoute.UseDx11Device?(Read("NativeResource") is IntPtr pointer?pointer:nativeResource):IntPtr.Zero; private set=>nativeResource=value; }
+    public bool IsAvailable => RendererRoute.UseDx11Device ? Read("IsAvailable") is true : deviceApplied&&ImageId!=0&&guestEpoch!=0&&guestEpoch==GuestBridgeClient.ResourceEpoch;
+    public int Format => RendererRoute.UseDx11Device&&Read("Format") is int format?format:0;
+    public bool IsStructured => RendererRoute.UseDx11Device?Read("IsStructured") is true:uploadKind==4;
+    public int Stride => RendererRoute.UseDx11Device&&Read("Stride") is int stride?stride:uploadKind==4?structuredStride:0;
+    public object Uav => RendererRoute.UseDx11Device?Read("Uav"):null;
     public int Width { get; private set; }
     public int Height { get; private set; }
     public int Depth { get; private set; } = 1;
@@ -276,6 +348,20 @@ public sealed class PublishedBuffer
     long guestEpoch;
 
     public PublishedBuffer() => EnsureInner();
+    public PublishedBuffer(object srv,IntPtr native,int width,int height){Publish(srv,native,width,height);}
+
+    public void PublishBake(object srv,IntPtr native,int width,int height,int depth,int format,object uav)
+    {
+        if(RendererRoute.RefuseDx11Device("PublishedBuffer.PublishBake"))return;
+        EnsureInner();NativeResource=native;Width=width;Height=height;Depth=depth;uploadKind=0;
+        if(Inner!=null)Dx11Call.CallInstance(Inner,"PublishBake",srv,native,width,height,depth,format,uav);
+    }
+    public void PublishStructured(object srv,IntPtr native,int elementCount,int stride,object uav=null)
+    {
+        if(RendererRoute.RefuseDx11Device("PublishedBuffer.PublishStructured"))return;
+        EnsureInner();NativeResource=native;Width=elementCount;Height=Depth=1;uploadKind=0;
+        if(Inner!=null)Dx11Call.CallInstance(Inner,"PublishStructured",srv,native,elementCount,stride,uav);
+    }
 
     public void Publish(object srv, IntPtr native, int width, int height)
     {
@@ -340,9 +426,10 @@ public sealed class PublishedBuffer
 
     public void PublishStructuredFloats(float[] values, int stride)
     {
-        structured = values==null?null:(float[])values.Clone();
+        if(values==null||values.Length==0||stride<=0||stride%4!=0||(long)values.Length*4%stride!=0)return;
+        structured = (float[])values.Clone();
         structuredStride = stride;
-        Width = values?.Length ?? 0;
+        Width = (int)((long)values.Length*4/stride);
         Height = 1;
         uploadKind = 4;
         deviceApplied = false;

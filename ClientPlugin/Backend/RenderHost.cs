@@ -406,11 +406,12 @@ public static class RenderHost
             {
                 var assembly = SatelliteAssembly.Load(path, typeof(RenderHost).Assembly);
                 Dx11Call.Bind(assembly);
+                global::ClientPlugin.Buffers.BufferCatalog.BindDx11Catalog();
                 Dx11Call.Call("ClientPlugin.Plugin", "InstallFramework", gameInstance);
             }
             catch (Exception e)
             {
-                SetStatus("Renderer: DX11 | " + Summary() + " | Anomaly.Dx11.dll failed (" + path + "): " + e.GetType().Name);
+                SetStatus("Renderer: DX11 | " + Summary() + " | Anomaly.Dx11.dll failed (" + path + "): " + e.GetType().Name + ": " + e.GetBaseException().Message);
                 return;
             }
         }

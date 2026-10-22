@@ -341,6 +341,7 @@ public static class OwnedPassRegistry
 
     internal static void BeginFrame()
     {
+        CatalogImages.Flush();
         OpaqueLightingOwnership.BeginFrame();
         lock (Gate)
         {

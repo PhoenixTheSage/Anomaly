@@ -342,7 +342,7 @@ static class GuestBridgeClient
             }
             object image=ClientPlugin.Buffers.BufferCatalog.Active(name);
             if(image is ClientPlugin.Buffers.GuestRendererImage guest && guest.IsAvailable){width=guest.Width;height=guest.Height;return guest.ImageId;}
-            if(image is ClientPlugin.Buffers.PublishedBuffer published && published.ImageId!=0){width=published.Width;height=published.Height;return published.ImageId;}
+            if(image is ClientPlugin.Buffers.PublishedBuffer published && published.IsAvailable&&!published.IsStructured){width=published.Width;height=published.Height;return published.ImageId;}
             throw new InvalidOperationException("Portable image is unavailable: "+name);
         }
         ulong Helper(string name)
@@ -556,7 +556,7 @@ static class GuestBridgeClient
     {
         var active = ClientPlugin.Buffers.BufferCatalog.Active(name);
         if (active is ClientPlugin.Buffers.PublishedBuffer published)
-            return published.ImageId;
+            return published.IsAvailable?published.ImageId:0;
         if (active is ClientPlugin.Buffers.GuestRendererImage image && image.IsAvailable)
             return image.ImageId;
         return 0;

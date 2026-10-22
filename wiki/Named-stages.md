@@ -423,3 +423,39 @@ older catalog fallback. Managed net48/net10 builds pass. Native ABI/capability
 bits are unchanged. This covers the current native owner catalog; missing owner
 families and legal interface/attachment contracts remain stage6 work. Both
 aggregate capability flags remain false. Stages7 and8 remain ordered afterward.
+
+
+### Native OIT resolve generation — partial stage6 owner
+
+Native bit30 adds owner2048 for `Transparent/OIT/Resolve.hlsl`. Anomaly captures
+and selects the source transaction; SE-Vulkan compiles its authenticated stock
+variant or derived replacement, prepares both HDR pipelines and the reflected
+layout together, activates at the frame boundary and retires the replaced bundle
+after submission completion. Existing ABI-1 packets stay unchanged. The module
+and binding-row bound is117, with108 possible native descriptor owners. Older
+hosts refuse OIT overlays, Transparent injection and global defines actionably.
+
+The actual weighted-OIT publication invocation supplies accumulation/coverage
+inputs, reserved catalog t5..t9, frame b0, extras b6 and stock samplers. It preserves
+native blend/raster semantics. Completed execution is reported only when the
+native transparency scope actually draws; activation alone is insufficient.
+The current builder requires a float4 target preserving blend alpha. Wider legal
+interface compatibility, transparent geometry VS/PS and arbitrary attachment
+outputs remain stage6 work; this owner does not complete the Transparent family.
+
+The32-check actual-core GPU fixture proves independent HDR blend values, catalog
+clears and extras, both HDR formats, exact synchronous/pipelined agreement,
+no-work execution honesty, failed compilation/layout rollback, exact stock
+restoration and completed retirement, with zero core/synchronization errors.
+Six actual previous-bit29-host refusal checks pass. Native mip blits remain copy
+operations, not arbitrary HistoryColor shader execution. Both aggregate named-
+stage and same-draw-attachment capabilities remain false. Finish remaining stage6
+owners and full same-invocation attachments before stages7 and8, including the
+required matched Windows loaded-world acceptance matrix.
+
+The170-check environment integration passes with108 binding-owner rows,117-row
+acceptance and118-row rejection preserving copied rows. The216-check stock
+transparency/particle lifecycle regression and native CTest (16 executed passes,
+one configured reference skip) pass. Both managed target frameworks and focused
+CPU native-stage contracts pass. The full recreation fixture compiles with this
+new fixture; the broad combined recreation suite was not rerun for this batch.

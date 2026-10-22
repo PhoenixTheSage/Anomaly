@@ -225,3 +225,10 @@ named shader replacement and keeps capture at raster size while ordinary
 AfterUpscale remains output-sized. The focused125-check actual-core history gate
 passes with zero core/synchronization errors; the final combined gate passes891
 checks with zero errors.
+
+
+Classic fullscreen optional-resource fidelity now has separate native bit23 and
+device nullDescriptor qualification. Native-owner bit22 alone does not promise
+classic fullscreen null dimensions. Query ClassicNullResourcesSupported on the
+shared ShaderApiCapabilities; named-stage and same-draw aggregate support remain
+partial. See Buffer-catalog for resource types and coordinated-update refusal.

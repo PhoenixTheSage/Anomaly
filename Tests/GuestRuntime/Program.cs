@@ -243,7 +243,7 @@ namespace ClientPlugin.Rendering
         public static long ResourceEpoch => TestResourceEpoch;
         public static readonly List<(ulong Id, int Format)> CreatedImages = new();
         public static readonly List<byte[]> ResourceCommands = new();
-        public static int SupportedPacketFlags { get; set; } = 8207;
+        public static int SupportedPacketFlags { get; set; } = 8207 | GuestBridgeClient.ClassicNullResources;
         public static bool MirrorGpu;
         public static bool FailReset;
         public static bool AcceptSceneDepth=true;

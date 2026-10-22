@@ -1403,3 +1403,23 @@ errors. The six CPU contract groups and both managed builds pass. Final combined
 GPU acceptance passes898 checks with validation enabled and zero errors. Native C++/ABI/library are unchanged. Classic
 fullscreen null dimensions, remaining stage6 owners/attachments, stage7 and
 automated stage8 qualification remain open.
+
+
+### Classic fullscreen optional SRVs — bit23, 22 October
+
+Reproduced missing Texture2D as1x1 on the old classic Vulkan bus against independent
+DX11 zero-dimension controls. Native fullscreen sampled/structured/typed SRVs now
+use genuine null descriptors, with reflected dimensional/numeric compatibility
+checks and frame-local descriptor storage. Compatible image/buffer uploads still
+execute; typed buffers remain distinct from structured uploads. Extended pass
+inputs stay required. ABI-1 packets are unchanged. Device nullDescriptor support
+and native bit23 are explicit requirements; old hosts receive update guidance
+from executable SPIR-V bindings before pipeline allocation. Optimized-out unused
+resources retain older-host compatibility. Shared ClassicNullResourcesSupported
+and aggregate fullscreen support are device-qualified.
+
+The focused actual-core GPU gate passes100 checks with zero validation errors;
+seven older-bit22-host checks pass. Both managed targets, six CPU groups and
+canvas TypeScript pass. Native CTest executes16 passes plus the configured
+gpu_opaque_reference skip. Final combined998 passes with validation enabled and zero errors.
+Other stage6 owners/attachments, stage7 and broad automated stage8 remain open.

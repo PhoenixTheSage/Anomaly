@@ -166,6 +166,13 @@ static class GuestCompiler
                     program.Error = "shared volume resource transport requires updated SE-Vulkan native library";
                     continue;
                 }
+                if(program.ResourceContract==0 && (UsesClassicSrv(program.PixelSpirv)||(!compute&&UsesClassicSrv(program.VertexSpirv))) &&
+                    !GuestBridgeClient.SupportsPacketFlags(GuestBridgeClient.ClassicNullResources))
+                {
+                    program.Status="capability-missing";
+                    program.Error="Update SE-Vulkan: classic fullscreen resources require bit23 true-null SRV support.";
+                    continue;
+                }
                 program.Pipeline = program.ResourceContract == 0
                     ? GuestBridgeClient.CreatePipeline(program.VertexSpirv, program.PixelSpirv, vsEntry, program.PixelEntry)
                     : GuestBridgeClient.CreateExtendedPipeline(program.VertexSpirv, program.PixelSpirv, vsEntry, program.PixelEntry, program.ResourceContract);
@@ -185,6 +192,26 @@ static class GuestCompiler
                 Report(program.Id + ": " + program.Error);
             }
         }
+    }
+
+    // Binding decorations survive Prepare; inspect the executable module rather
+    // than HLSL text so includes, macros and optimized-out resources agree.
+    internal static bool UsesClassicSrv(byte[] bytes)
+    {
+        if(bytes==null||bytes.Length<20||bytes.Length%4!=0||BitConverter.ToUInt32(bytes,0)!=0x07230203)
+            throw new InvalidDataException("Invalid classic resource SPIR-V header.");
+        bool found=false;
+        for(int offset=20;offset<bytes.Length;)
+        {
+            uint instruction=BitConverter.ToUInt32(bytes,offset);int length=checked((int)(instruction>>16)*4);
+            if(length<4||length>bytes.Length-offset)throw new InvalidDataException("Invalid classic resource SPIR-V instruction.");
+            if((instruction&65535)==71&&length==16&&BitConverter.ToUInt32(bytes,offset+8)==33)
+            {
+                uint binding=BitConverter.ToUInt32(bytes,offset+12);found|=binding>=128&&binding<=141;
+            }
+            offset+=length;
+        }
+        return found;
     }
 
     static byte[] Compile(object compiler, string source, string entry, string profile, string assetFolder, string firstInclude = null, bool reportFailure = true, string packRoot = null, string slot = null, string[] capturedIncludes = null, bool capturedOnly = false)

@@ -469,6 +469,17 @@ Goal: Aurora-class packs stop packing scalars into derived constants. Still no p
 
 ## Slice AI — HDR illuminant + IsolatedMix energy + march helper
 
+Shared host follow-up (2026-10-22): optional fullscreen catalog SRVs now have
+true-null dimensions, reads and sampling on Vulkan under native bit23 and device
+nullDescriptor support. The core owns resource-type checks and actionable
+older-host refusal; packs do not supply dummy images or branch on Vulkan internals.
+Query ShaderPackRegistry.GetCapabilities().ClassicNullResourcesSupported.
+Structured uploads remain distinct from typed-buffer views; extended volume/MRT
+inputs remain required. See wiki/Buffer-catalog.md for execution evidence and
+coordinated Anomaly/SE-Vulkan requirements. This does not close other stage6
+owners/attachments, stage7 or the remaining automated ecosystem acceptance.
+
+
 Vulkan guest host follow-up (2026-10-16): startup compilation now waits for the native-bound frame callback, retries renderer availability and late registrations, and uses the renderer's driver SPIR-V preparation. The host supplies manifest binds/priority, slot macros, pack/stock includes, the exact stock frame CB, and native point-light/tile buffers. Owned depth/history/Hi-Z catalog routing and scene dimensions are corrected. Compiler/pipeline failures and submitted counts are explicit. See `Docs/Vulkan.md` and `Tests/GuestRuntime`. In-world visual parity, Vulkan occupancy/pointShadowAtlas/litMips and the volumeReactive producer remain open shared capabilities; do not duplicate them inside packs.
 
 ### Display colour-mode signal (2026-10-02, open; Final Frontier workaround)

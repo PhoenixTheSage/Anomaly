@@ -45,6 +45,8 @@ static class GuestBridgeClient
         ClientPlugin.Buffers.BufferCatalog.Set(name, new ClientPlugin.Buffers.GuestRendererImage(first + (ulong)slot, SceneView.Width, SceneView.Height, 1));
     }
 
+    internal const int ClassicNullResources = 8388608;
+
     public static ulong CreatePipeline(byte[] vs, byte[] ps, string vsEntry, string psEntry)
     {
         var value = Call("CreatePipeline", vs, ps, vsEntry, psEntry);

@@ -156,3 +156,30 @@ so later mip offsets match DX11 subresources and survive device recreation.
 The upload-transition WARP gate passes143 checks on each runtime and the native
 catalog focus passes109 checks with zero validation errors. The combined898-check
 GPU gate passes with zero core/synchronization errors; no native ABI/library change.
+
+
+### Classic fullscreen null SRVs — bit23
+
+Ordinary fullscreen inputs now use genuine null descriptors for absent or
+incompatible catalog images/buffers. Texture2D, Texture3D, Texture2DArray and
+typed-buffer dimensions/reads are zero; StructuredBuffer dimensions report zero
+elements and the shader's declared stride. Sampling a null image returns zero.
+Compatible 2D/3D/structured resources still bind their actual payloads. Structured
+uploads are not typed-buffer views. Extended volume/MRT inputs remain required.
+
+This requires coordinated SE-Vulkan native feature bit23 and device nullDescriptor
+support. ABI-1 packet layouts are unchanged. The compiled SPIR-V resource bindings
+select the requirement; optimized-out unused declarations do not cause refusal.
+Older hosts report capability-missing with an update message before native pipeline
+allocation. ShaderPackRegistry.GetCapabilities().ClassicNullResourcesSupported
+reports host/device support, independently of current-frame shader production.
+No device robustness2 buffer/image access modes are enabled by this change.
+
+The actual-core focused GPU gate passes100 checks with core/synchronization
+validation enabled and zero errors, including both recording modes, missing
+resources, type changes and unregister. Seven older-bit22-host checks pass against
+the previously accepted native library. The shared CPU groups and both managed
+builds pass. The final combined998-check GPU gate passes with validation enabled
+and zero errors. Native CTest executes16 passes plus the configured reference
+skip. Other native owners,
+same-draw attachments, stage7 and broad automated stage8 remain open.

@@ -26,12 +26,26 @@
 #define ANOMALY_PREV_SLOT 15
 #define ANOMALY_BONE_SLOT 16
 
+// Vulkan has one register namespace per descriptor set, so VS b6/t15/t16 would
+// alias Keen's PS b6/t15 and forward t16. Native owners bind these in set 2.
+#ifdef ANOMALY_SPIRV
+#define ANOMALY_VELOCITY_CB register(b0, space2)
+#define ANOMALY_PIXEL_PROBE_CB register(b1, space2)
+#define ANOMALY_PREV_SRV register(t0, space2)
+#define ANOMALY_BONE_SRV register(t1, space2)
+#else
+#define ANOMALY_VELOCITY_CB register(MERGE(b, ANOMALY_CB_SLOT))
+#define ANOMALY_PIXEL_PROBE_CB register(b7)
+#define ANOMALY_PREV_SRV register(MERGE(t, ANOMALY_PREV_SLOT))
+#define ANOMALY_BONE_SRV register(MERGE(t, ANOMALY_BONE_SLOT))
+#endif
+
 #ifdef ANOMALY_VELOCITY
 #ifdef ANOMALY_PIXEL_STAGE
 // Final Target3 wire probe.  Pixel b7 is unused by Keen's GBuffer material
 // shaders (voxel material constants occupy pixel b6). A dedicated 16-byte
 // payload selects MrtWrite independently of the vertex constants.
-cbuffer AnomalyVelocityPixelProbe : register(b7)
+cbuffer AnomalyVelocityPixelProbe : ANOMALY_PIXEL_PROBE_CB
 {
     // Keep the pixel-output diagnostic independent from the 240-byte VS b6
     // layout.  A dedicated float4 at byte zero avoids partial-cbuffer and
@@ -40,7 +54,7 @@ cbuffer AnomalyVelocityPixelProbe : register(b7)
     float4 AnomalyPixelProbe;
 };
 #else
-cbuffer AnomalyVelocity : register(MERGE(b, ANOMALY_CB_SLOT))
+cbuffer AnomalyVelocity : ANOMALY_VELOCITY_CB
 {
     float4x4 AnomalyUnjitteredViewProj;
     float4x4 AnomalyPrevViewProj;
@@ -74,8 +88,8 @@ struct AnomalyPrevInstance
     float4 flags; // x = 1 when previous world is valid (not first frame / teleport / static / clipmap)
 };
 
-StructuredBuffer<AnomalyPrevInstance> AnomalyPrevWorld : register(MERGE(t, ANOMALY_PREV_SLOT));
-StructuredBuffer<float4x4> AnomalyPrevBones : register(MERGE(t, ANOMALY_BONE_SLOT));
+StructuredBuffer<AnomalyPrevInstance> AnomalyPrevWorld : ANOMALY_PREV_SRV;
+StructuredBuffer<float4x4> AnomalyPrevBones : ANOMALY_BONE_SRV;
 
 float2 AnomalyClipToPixelDelta(float4 currClip, float4 prevClip)
 {

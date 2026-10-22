@@ -1758,3 +1758,66 @@ are construction evidence, not per-path execution evidence. Reserved geometry
 bindings, stage-specific constants, transparent/billboard owners, legal
 interface widening and same-invocation attachments remain open. Both aggregate
 capability flags stay false, and stages 7 and 8 still follow.
+
+
+### GBuffer velocity contract on native owners — first admitted path
+
+DX11 binds catalog t5..t9 and the b6 extras only for Lighting, Post.Tonemap,
+Post.HBAO, Transparent and Atmosphere. It binds nothing of that kind for
+GBuffer, Depth, Forward or Highlight. So skipping native geometry owners in
+`StageBindingOwners` is parity, not a gap. DX11's real geometry reservations
+are the `ANOMALY_VELOCITY` contract, applied to GBuffer permutations only
+(never Depth):
+
+- VS b6, the 240-byte `AnomalyVelocity` block;
+- VS t15 previous instances and VS t16 previous bones;
+- PS b7, the 16-byte probe;
+- Target3 velocity, written by the same draw.
+
+The four hash-checked Keen patch transforms now live in the shared
+`GBufferVelocitySource`. DX11 calls them unchanged. Vulkan uses them with
+`ANOMALY_SPIRV`, which drops DX11's internal SV_Target7 audit. Vulkan has one
+register namespace per descriptor set, so those VS registers would alias
+Keen's PS b6/t15 and forward t16. `Anomaly.hlsli` therefore relocates them to
+set 2 under `ANOMALY_SPIRV`. As on DX11, a pack overlay of the same key wins.
+A GBuffer PixelStage overlay must start from the velocity-aware source on both
+hosts.
+
+Native owner flag8 requires `VK_EXT_dynamic_rendering_unused_attachments`.
+Stock pipelines keep three attachments, and only owner pipelines add Target3.
+`CompileNativeOwnerGenerationWithContracts` sends the contract bit, and Anomaly
+sends it only for generations that change sources. Admitted owners are the
+rigid classic GBuffer pipelines 0, 5, 10 and 15. They compile with
+`ANOMALY_VELOCITY` and get a set-2 layout with real per-draw writes:
+
+- b0 holds the replay's view-projections, the render size and the
+  old-pipeline currToPrev rows, at a dynamic offset;
+- b1 is the zero probe;
+- t15 and t16 are bound storage buffers.
+
+The main GBuffer scope adds the motion target only on frames with admitted
+draws. The replay then loads that target and skips those draws. Without
+history, owners write zero, as the replay does.
+
+The 63-check actual-core gate (`--gbuffer-velocity-only`) passes with
+synchronization validation and zero errors:
+
+- Stock replay matches the analytic -1.067 px motion.
+- Owner-emitted Target3 matches both the analytic and replay values.
+- A pack-written (3, -2) reaches Target3, which the replay cannot produce.
+- A non-admitted skinned owner keeps the replay.
+- Results agree across recording modes.
+- Failed compilation keeps the previous generation.
+- Unregistering restores exact stock material and motion bits.
+- Retirement completes.
+
+Still open on this contract:
+
+- generic-instanced and cube paths (t15);
+- skinned (t16);
+- voxel, blended-decal and fade-bank owners;
+- native-cell and GPU-indexed owners;
+- probe modes;
+- pack attachments and packed `GBuffer1.a`.
+
+Both aggregate capability flags stay false.

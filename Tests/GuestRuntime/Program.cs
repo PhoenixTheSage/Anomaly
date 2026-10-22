@@ -290,7 +290,7 @@ namespace ClientPlugin.Rendering
 }
 namespace ClientPlugin.Backend
 {
-    static class RenderHost { public static bool IsDx11=>false; public static bool IsVulkan=>true; }
+    static class RenderHost { public static bool IsDx11=>false; public static bool IsVulkan=>true; public static string AssetFolder=>null; }
     static class RendererRoute { public static bool UseDx11Device; public static bool UseGuestImages = true; }
     static class SceneView { public static int Width, Height; }
     static class GuestColor

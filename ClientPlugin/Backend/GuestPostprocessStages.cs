@@ -84,6 +84,10 @@ internal static class GuestPostprocessStages
                 {if(!injections.TryGetValue(injection.Stage,out var list))injections.Add(injection.Stage,list=new List<string>());list.Add(prefix+injection.RelativePath);}
                 foreach(string raw in pack.Definition.Defines){string name=raw.Split('=')[0].Trim();if(Regex.IsMatch(name,@"^[A-Za-z_][A-Za-z0-9_]*$")&&!name.StartsWith("ANOMALY_ATTACH_",StringComparison.OrdinalIgnoreCase)&&!new[]{"ANOMALY","ANOMALY_VELOCITY","ANOMALY_PACK_GBUFFER1A","RENDERING_PASS","DEPTH_ONLY","CUSTOM_DEPTH"}.Contains(name,StringComparer.OrdinalIgnoreCase))defines[name]="1";}
             }
+            // DX11 compiles every GBuffer permutation against Anomaly's velocity delta;
+            // a pack overlay of the same key still wins, exactly as the DX11 resolver does.
+            bool velocity=geometry&&(extended&VelocityContract)!=0&&(claims.Any(c=>c.Value.Count==1)||injections.Count!=0||defines.Count!=0);
+            if(velocity)AddVelocitySources(files,stock);
             // Publish every unique override before walking includes. Shared headers can
             // affect owners outside their advertised named-stage family, including
             // dependencies introduced by another pack's replacement entry point.
@@ -122,12 +126,13 @@ internal static class GuestPostprocessStages
             defines["ANOMALY"]="1";defines["ANOMALY_SPIRV"]="1";
             using(var stream=new MemoryStream())using(var writer=new BinaryWriter(stream,Encoding.UTF8,true))
             {
-                writer.Write("AnomalyNativeOwners-5;native-cell-gpu-owners");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
+                writer.Write("AnomalyNativeOwners-6;gbuffer-velocity");writer.Write(velocity);foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
                 foreach(var define in defines.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(define.Key);writer.Write(define.Value);}foreach(uint id in selected.OrderBy(v=>v))writer.Write(id);
                 writer.Flush();using(var sha=SHA256.Create())requested=BitConverter.ToString(sha.ComputeHash(stream.ToArray())).Replace("-","").ToLowerInvariant();
             }
             if(activeFingerprint==requested&&preparedEpoch==epoch&&activeFormat==format){if(restoresStock)touched=Array.Empty<uint>();return true;}
-            var result=((extended&7)==7?GuestBridgeClient.Call("CompileNativeOwnerGeneration",requested,files,defines,selected.OrderBy(v=>v).ToArray(),restoresStock):GuestBridgeClient.Call("CompilePostprocessGeneration",requested,files,defines,selected.OrderBy(v=>v).ToArray())) as object[];
+            var result=(velocity?GuestBridgeClient.Call("CompileNativeOwnerGenerationWithContracts",requested,files,defines,selected.OrderBy(v=>v).ToArray(),restoresStock,1u):
+                (extended&7)==7?GuestBridgeClient.Call("CompileNativeOwnerGeneration",requested,files,defines,selected.OrderBy(v=>v).ToArray(),restoresStock):GuestBridgeClient.Call("CompilePostprocessGeneration",requested,files,defines,selected.OrderBy(v=>v).ToArray())) as object[];
             if(result==null)throw new InvalidOperationException("Native postprocess compiler service unavailable.");
             preparedRestoresStock=restoresStock;
             prepared=(ulong)result[0];preparedFingerprint=(string)result[1];preparedEpoch=epoch;preparedRevision=revision;touched=selected.OrderBy(v=>v).ToArray();return true;
@@ -160,6 +165,20 @@ internal static class GuestPostprocessStages
             variants.Add(new NativeStageVariantState{Variant=(uint)entry[0],Source=(string)entry[1],Profile=entry.Length>2?entry[2] as string:null,ActiveToken=(ulong)data[0],Executions=(ulong)data[1],LastSubmissionCompleted=(ulong)data[1]!=0&&(ulong)data[2]<=(ulong)data[3],LastProducedFrame=(uint)data[4],ActiveGeneration=data[6] as string});
         }
         return new NativeStageGenerationState{Stage=stage,RequestedGeneration=requested,PreparedGeneration=prepared==0?null:preparedFingerprint,Error=Error,Variants=variants.AsReadOnly()};
+    }
+    // Native owner extension flag8: GBuffer owners admit the set-2 velocity contract.
+    internal const ulong VelocityContract=8;
+    static void AddVelocitySources(Dictionary<string,byte[]> files,Dictionary<string,byte[]> stock)
+    {
+        string shaders=RenderHost.AssetFolder==null?null:Path.Combine(RenderHost.AssetFolder,"Shaders");
+        if(shaders==null||!File.Exists(Path.Combine(shaders,"Anomaly.hlsli")))throw new FileNotFoundException("Anomaly shader headers unavailable for the GBuffer velocity contract.");
+        var headers=new[]{Path.Combine(shaders,"Anomaly.hlsli")}.Concat(Directory.GetFiles(Path.Combine(shaders,"Anomaly"),"*",SearchOption.AllDirectories).Where(IsSource));
+        foreach(string file in headers){string key=Relative(shaders,file);files[key]=stock[key]=File.ReadAllBytes(file);}
+        foreach(string key in new[]{ClientPlugin.Contracts.GBufferVelocitySource.VertexStage,ClientPlugin.Contracts.GBufferVelocitySource.PixelStage,ClientPlugin.Contracts.GBufferVelocitySource.GBufferWrite})
+        {
+            var stockKey=stock.Keys.FirstOrDefault(k=>string.Equals(k,key,StringComparison.OrdinalIgnoreCase))??throw new FileNotFoundException("Keen source missing: "+key);
+            files[stockKey]=stock[stockKey]=Encoding.UTF8.GetBytes(ClientPlugin.Contracts.GBufferVelocitySource.Patch(key,stock[stockKey],true));
+        }
     }
     static byte[] RewriteStockIncludes(string key,byte[] bytes,Dictionary<string,byte[]> stock)
     {

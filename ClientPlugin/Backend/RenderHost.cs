@@ -28,6 +28,7 @@ public static class RenderHost
     static int choice = -1;
     static int offered = -1;
     static string assetFolder;
+    internal static string AssetFolder => assetFolder;
     static string conflict;
     static string mismatchSeen;
     static string loggedStatus = "";

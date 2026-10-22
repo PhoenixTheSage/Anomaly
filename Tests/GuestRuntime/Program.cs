@@ -308,9 +308,11 @@ namespace ClientPlugin.Buffers
         public readonly ulong ImageId;
         public readonly int Width, Height, Depth;
         readonly Func<bool> available;
+        public bool RequiresCurrentFrame {get;}=true;
         public bool IsAvailable=>ImageId!=0 && (available==null || available());
         public GuestRendererImage(ulong id,int width,int height,int depth,Func<bool> available):this(id,width,height,depth){this.available=available;}
         public GuestRendererImage(ulong id, int width, int height, int depth) { ImageId = id; Width = width; Height = height; Depth = depth; }
+        public GuestRendererImage(ulong id,int width,int height,int depth,bool current):this(id,width,height,depth){RequiresCurrentFrame=current;}
     }
     sealed class PublishedBuffer { public ulong ImageId { get; set; } public int Width {get;set;} public int Height {get;set;} }
     static class BufferCatalog

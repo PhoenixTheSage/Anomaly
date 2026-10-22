@@ -174,3 +174,45 @@ The active goal waives Windows live acceptance. Deterministic execution proof
 for every legal contract, automated lifecycle/temporal/performance qualification,
 documentation and compatibility checks remain required. Loaded-world Windows
 comparison is tracked separately.
+
+
+### Native catalog/extras bindings - bit22
+
+The earlier unavailable-native-binding status above is superseded for the
+existing native lighting, postprocess and HBAO owners. Core reservations now
+freeze before callbacks and resolve image publications afterward. Native rows
+copy owner/frame IDs, reserved t5..t9 image IDs and freshness/history metadata;
+malformed, duplicate and stale rows refuse transactionally. Attachment slots
+take precedence. A stock t5 input remains unchanged unless explicitly reserved.
+
+b6 uses the fixed shared 320-byte extras layout, with full raster dimensions on
+quarter-size HBAO and actual current velocity availability independent of history
+validity. Lighting owns detached custom layouts only when extra bindings require
+them; pipelines/layouts retire together. Base-only restoration reuses stock
+layouts/descriptor sets. DX11 lighting hooks now use their actual Dir/Point/Spot
+stage names so specific requests match on both hosts.
+
+Device nullDescriptor support supplies true zero-valued missing typed resources,
+including zero image dimensions. 2D/3D/array/depth/numeric mismatches fail closed
+and are counted. Structured buffers upload through the protected frame slot.
+The shared facade's typed GetNativeState separates transport/device support,
+registered reservations, queued owner/frame and catalog descriptor records.
+Shader variant execution/frame/completion queries remain the execution evidence.
+
+Persistent targets expose RequiresCurrentFrame=false; ordinary renderer products
+remain fresh-only. Private global target clears run before native owners under
+bit22, including FP16 alpha -1, while explicit callbacks retain their phases.
+Reserved historyColor requires an immediately preceding owned producer and its
+reference freezes before current commands. Unsupported hosts/devices refuse new
+resource contracts and retain the prior valid generation/stock.
+
+The focused resource gate passes194 checks with validation enabled and zero errors:
+all four lighting variants, four compute tone permutations, both HDR formats,
+HBAO clamp/border, true null resources, HDR/negative-alpha histories, first-use
+clears, exact history rejection/recovery, callback mutation and stock restoration.
+Independent DX11 WARP/null and WARP+HAL packed-HDR probes supply the numeric oracle.
+The combined actual-core gate passes664 checks, and the separate native family
+gate passes382, including all82 postprocess/lighting variants and unchanged
+stock highlights. Both report zero core/synchronization errors. Other native owners,
+vertex/geometry contracts, complete same-draw attachments, stage7 and automated
+stage8 remain required; aggregate named-stage/same-draw capabilities stay false.

@@ -28,8 +28,10 @@ public sealed class GuestRendererImage
     readonly Func<bool> available;
     readonly long resourceEpoch;
     internal GuestRendererImage(ulong imageId,int width,int height,int depth,Func<bool> available):this(imageId,width,height,depth){this.available=available;}
-    public GuestRendererImage(ulong imageId, int width, int height, int depth)
+    public GuestRendererImage(ulong imageId, int width, int height, int depth):this(imageId,width,height,depth,true) {}
+    public GuestRendererImage(ulong imageId, int width, int height, int depth, bool requiresCurrentFrame)
     {
+        RequiresCurrentFrame=requiresCurrentFrame;
         resourceEpoch=GuestBridgeClient.ResourceEpoch;
         ImageId = imageId;
         Width = width;
@@ -37,6 +39,7 @@ public sealed class GuestRendererImage
         Depth = depth < 1 ? 1 : depth;
     }
 
+    public bool RequiresCurrentFrame { get; }
     public ulong ImageId { get; }
     public bool IsAvailable => ImageId != 0 && resourceEpoch!=0 && resourceEpoch==GuestBridgeClient.ResourceEpoch && (available==null || available());
     public int Width { get; }

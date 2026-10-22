@@ -19,7 +19,7 @@ static class GuestBridgeClient
         if (image == 0 || epoch == 0) return;
         lock (RetiredImages) RetiredImages.Add(Tuple.Create(epoch, image));
     }
-    internal static void ResetDevice(){haveShadowInputs=false;shadowInputs=null;VolumeIntervalsReady=false;}
+    internal static void ResetDevice(){haveShadowInputs=false;shadowInputs=null;VolumeIntervalsReady=false;GuestStageBindings.Reset();}
     internal static bool VolumeIntervalsReady { get; private set; }
     static readonly string[] VolumeProducts={"volumeScatteringTransmittance","volumeMotion","volumeReactive","volumeRepresentativeDepth","volumeSunVisibility"};
 
@@ -145,6 +145,7 @@ static class GuestBridgeClient
 
     public static void Submit(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
     {
+        var bindings=GuestStageBindings.Freeze(programs);
         GuestVolumes.BeginFrame();
         VolumeIntervalsReady=false;
         try { VolumeRegistryState.ResetIntervals(); VolumeIntervalsReady=true; }
@@ -274,6 +275,7 @@ static class GuestBridgeClient
         if(lastChain)Merge(programs,currentMark,previous,0);
         PortablePassRegistry.Run(callbacks,currentMark,1,programs);
         }
+        GuestStageBindings.Submit(bindings);
         Call("SetNativeSunGlare", !OwnsGlare(programs));
     }
 

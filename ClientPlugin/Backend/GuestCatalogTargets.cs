@@ -90,11 +90,11 @@ static class GuestCatalogTargets
                 }
                 if (target.Clear != null)
                 {
-                    if (!GuestBridgeClient.ResourceCommand(3, target.Image, 1, target.Clear))
+                    if (!GuestBridgeClient.ResourceCommand(3, target.Image, GuestBridgeClient.SupportsPacketFlags(GuestStageBindings.Feature)?0:1, target.Clear))
                         throw new InvalidOperationException("SE-Vulkan refused catalog target clear: " + pair.Key);
                     target.Clear = null;
                 }
-                BufferCatalog.Set(pair.Key, new GuestRendererImage(target.Image, target.Width, target.Height, 1));
+                BufferCatalog.Set(pair.Key, new GuestRendererImage(target.Image, target.Width, target.Height, 1, false));
             }
         }
     }

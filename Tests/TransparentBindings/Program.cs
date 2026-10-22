@@ -96,6 +96,7 @@ float4 PS(float4 p : SV_Position) : SV_Target { return FrameTint * Atlas.SampleL
     static void Main(string[] args)
     {
         using var device = new Device(DriverType.Warp,DeviceCreationFlags.None);
+        if(args.Length>0&&args[0]=="--catalog-nulls"){CatalogNullProbe.Run(device);return;}
         Run(device,false); Run(device,true);
         if (args.Length > 0)
         {

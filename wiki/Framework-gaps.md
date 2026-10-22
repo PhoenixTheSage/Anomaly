@@ -1285,3 +1285,33 @@ The active goal no longer requires Windows live acceptance. Remaining native
 contracts and automated execution, lifecycle, temporal, compatibility and
 performance qualification remain completion gates. Loaded-world Windows
 qualification stays separately tracked.
+
+
+### Native owner resource bindings - bit22
+
+The previously unavailable native binding path now runs on the existing lighting,
+postprocess and HBAO owners. Requests and previous-history references freeze before
+callbacks; native copied rows validate frame/version/owner/mask data. b6 shares the
+fullscreen extras writer and current velocity availability is independent of
+history validity. Catalog reads preserve type/dimension checks, frame production
+and persistent target semantics. True typed nulls match independent DX11 WARP
+queries/loads. Global initialization clears precede native owners and preserve
+FP16 alpha -1. Specific DX11 lighting hooks use Dir/Point/Spot names.
+
+Custom lighting layouts retire with pipelines; base-only restoration reuses
+engine layouts/sets. Typed native binding status distinguishes registration,
+copied descriptor records and native shader execution/completion. The focused194
+resource checks pass with zero core/synchronization errors, including four
+lighting and four compute-tone variants, both HDR modes, HBAO, current/history
+inputs, mutation timing and stock restoration. Old bit21 hosts actionably refuse
+new resources before allocating native generation candidates. The combined gate
+passes664 checks; the separate family gate passes382, including all82 variants
+and stock highlight output. Both report zero core/synchronization errors.
+Catalog lifecycle cleanup is a separate change still under validation.
+
+Remaining: other native stage owners and vertex/geometry programs; full
+same-invocation attachments and named formats; HDR/jitter/vendor stage7;
+automated lifecycle/temporal/visual/performance stage8. Catalog publication
+ownership/case handling and ordinary PublishedBuffer release on unpublish/reload
+still require parity fixes found during this work. No aggregate named-stage or
+same-draw capability is enabled by the resource transport.

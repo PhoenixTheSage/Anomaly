@@ -48,9 +48,9 @@ static class LightingPointBindPatch
     static MethodBase TargetMethod() =>
         AccessTools.Method(typeof(MyLightsRendering), "RenderPointlightsTiled");
 
-    static void Prefix(MyRenderContext rc) => ShaderBindRegistry.Bind(rc, ShaderStages.Lighting);
+    static void Prefix(MyRenderContext rc) => ShaderBindRegistry.Bind(rc, ShaderStages.LightingPoint);
 
-    static void Postfix(MyRenderContext rc) => ShaderBindRegistry.Unbind(rc, ShaderStages.Lighting);
+    static void Postfix(MyRenderContext rc) => ShaderBindRegistry.Unbind(rc, ShaderStages.LightingPoint);
 }
 
 [HarmonyPatch]
@@ -61,9 +61,9 @@ static class LightingSpotBindPatch
     static MethodBase TargetMethod() =>
         AccessTools.Method(typeof(MyLightsRendering), "RenderSpotlights");
 
-    static void Prefix(MyRenderContext rc) => ShaderBindRegistry.Bind(rc, ShaderStages.Lighting);
+    static void Prefix(MyRenderContext rc) => ShaderBindRegistry.Bind(rc, ShaderStages.LightingSpot);
 
-    static void Postfix(MyRenderContext rc) => ShaderBindRegistry.Unbind(rc, ShaderStages.Lighting);
+    static void Postfix(MyRenderContext rc) => ShaderBindRegistry.Unbind(rc, ShaderStages.LightingSpot);
 }
 
 [HarmonyPatch]
@@ -74,9 +74,9 @@ static class LightingDirBindPatch
     static MethodBase TargetMethod() =>
         AccessTools.Method(typeof(MyLightsRendering), "RenderDirectionalEnvironmentLight");
 
-    static void Prefix(MyRenderContext rc) => ShaderBindRegistry.Bind(rc, ShaderStages.Lighting);
+    static void Prefix(MyRenderContext rc) => ShaderBindRegistry.Bind(rc, ShaderStages.LightingDir);
 
-    static void Postfix(MyRenderContext rc) => ShaderBindRegistry.Unbind(rc, ShaderStages.Lighting);
+    static void Postfix(MyRenderContext rc) => ShaderBindRegistry.Unbind(rc, ShaderStages.LightingDir);
 }
 
 [HarmonyPatch]

@@ -123,6 +123,7 @@ internal static class GuestPostprocessStages
             GuestBridgeClient.Call("QueuePostprocessGeneration",token,(Func<bool>)(()=>GuestPassList.SourceRevision==revision&&GuestBridgeClient.ResourceEpoch==epoch));
             bool applied=GuestBridgeClient.Call("ApplyPostprocessGeneration") is true;
             if(!applied){Error="Native postprocess generation activation refused: "+(State(13)?[7] as string);prepared=0;attemptedRevision=-1;return false;}
+            GuestStageBindings.Activated();
             prepared=0;activeFingerprint=requested;activeFormat=attemptedFormat;if(preparedRestoresStock)touched=Array.Empty<uint>();Error=null;return true;
         }
         catch(Exception error){Error=error.GetBaseException().Message;Discard();return false;}

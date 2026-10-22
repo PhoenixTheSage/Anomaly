@@ -28,7 +28,7 @@ public sealed class ShaderApiCapabilities
             PortablePreparationSupported=dx&&Dx11Call.Supports("ClientPlugin.Shaders.OwnedPassRegistry","Register",6)||vulkan&&GuestBridgeClient.SupportsPacketFlags(GuestBridgeClient.LiveResources),
             PortableCommandsSupported=dx&&Dx11Call.Supports("ClientPlugin.Shaders.FullscreenPassRegistry","ExecutePortable",2)||vulkan&&GuestBridgeClient.SupportsPacketFlags(131072),
             NamedStageExecutionSupported=dx,SameDrawAttachmentsSupported=dx,
-            NamedStageStatus=dx?"supported; support does not imply current-frame production":vulkan?"partial owned-raster, native postprocess, deferred lighting, atmosphere, foliage and decal owner generations available through stage state queries; query native binding status for descriptor records; other native owners and same-draw attachments remain unavailable":"waiting for renderer selection"
+            NamedStageStatus=dx?"supported; support does not imply current-frame production":vulkan?"partial owned-raster, native postprocess, deferred lighting, atmosphere, foliage, decal and probe-processing owner generations available through stage state queries; query native binding status for descriptor records; other native owners and same-draw attachments remain unavailable":"waiting for renderer selection"
         };
     }
 }

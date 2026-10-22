@@ -242,3 +242,37 @@ full recreation gate now includes these fixtures but has not been rerun for this
 batch. This evidence does not establish every legal shader interface, other native
 stages, full attachment semantics or parity. Both aggregate named-stage and same-draw attachment flags
 remain false. Stage7 and stage8 follow the remaining stage6 work.
+
+
+### Native probe processing generations — focused stage6 execution gate
+
+Native bit27 extends the generation transaction to captured probe-processing
+owners1280..1283: prefilter, forward sky, six-MRT publication copy and stock-dormant
+factor blending. Selected generations activate at one frame boundary and old
+pipelines/layouts retire after completed submission. Native scope binds the
+actual probe b0 and complete144-byte forward b2 (view, projection, sun, size)
+when a replacement reads beyond the stock64-byte view. Stock uploads retain
+the64-byte path.
+Catalog t5..t9 overrides are explicit; unrequested stock input slots retain their
+ownership, including the publication copy's sixth-face t5. Native mip/base-level
+image copies remain separate from named shader execution. ABI-1 packets retain
+their layouts; module/row capacity is104 with96 possible descriptor owners.
+
+Installed DX11 MyEnvironmentProbe fixes BLEND_USING_FACTOR=false and invokes
+EnvProbeCopy with blendStrength, so EnvProbeBlend can activate but has zero GPU
+execution in that stock path. Its compilation/activation must never imply
+production. This does not claim dispatch support for dormant EnvProbe compute
+entry points or complete geometry/EnvProbe parity.
+
+The focused326-check actual-core GPU gate passes independent per-face/per-mip
+equations on all six probe cubes, exact synchronous/pipelined outputs, held-capture
+execution status, frame-copied catalog changes, invalid compilation/MRT rollback,
+exact stock restoration and retirement with zero validation errors. The existing
+stock-probe regression passes427 checks with zero errors, and six real bit26-host
+checks prove actionable bit27 refusal before compilation/allocation. Both managed
+frameworks and the native build pass. The final combined496-check environment/probe gate passes all96 binding-owner
+rows and oversized-packet preservation with zero errors. Native CTest and focused
+CPU native-stage/binding contracts pass; the broader recreation suite includes
+the new fixtures but has not been rerun for this batch.
+Both aggregate named-stage and same-draw attachment capabilities remain false;
+remaining stage6 work precedes stages7 and8, including Windows live acceptance.

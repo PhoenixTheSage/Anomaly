@@ -51,7 +51,10 @@ public static class BufferCatalog
 {
     public const string HdrColor = "hdrColor";
     public const string UpscaledColor = "upscaledColor";
-    static readonly Dictionary<string, object> Local = new Dictionary<string, object>(StringComparer.Ordinal);
+    static readonly Dictionary<string, object> Local = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+    static readonly Dictionary<string, string> Owners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    internal static object SyncRoot => Local;
+    static readonly string[] Reserved = { "velocity", "linearDepth", "hiZ", "historyColor", "reactiveMask", "fullscreenIsolated", "hdrColor", "upscaledColor", "avgLuminance", "bloom", "dirt", "litMips", "pointLights", "tileIndices", "historyDepth", "occupancy", "pointShadowAtlas", "playerDepth" };
     static readonly Dictionary<string, Action[]> Lifetimes = new Dictionary<string, Action[]>(StringComparer.OrdinalIgnoreCase);
 
     public static void RegisterLifetime(string packId, Action onResolutionChanged, Action onDeviceEnd)
@@ -71,10 +74,12 @@ public static class BufferCatalog
 
     public static void Set(string name, object buffer)
     {
-        if (string.IsNullOrEmpty(name))
+        if (string.IsNullOrWhiteSpace(name))
             return;
         lock (Local)
         {
+            if (Local.TryGetValue(name, out var previous) && !ReferenceEquals(previous, buffer))
+                (previous as PublishedBuffer)?.ReleaseUpload();
             if (buffer == null)
                 Local.Remove(name);
             else
@@ -90,31 +95,71 @@ public static class BufferCatalog
             return Local.TryGetValue(name ?? "", out var value) ? value : null;
     }
 
+    public static bool IsReservedName(string name) => string.IsNullOrWhiteSpace(name) ||
+        Reserved.Any(reserved => string.Equals(reserved, name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    internal static bool Reserve(string packId, string name)
+    {
+        // Caller holds SyncRoot; targets and ordinary publications share ownership.
+        if (IsReservedName(name) || (Owners.TryGetValue(name, out var owner) &&
+            !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase))) return false;
+        Owners[name] = packId;
+        return true;
+    }
+
+    internal static void Forget(string packId, string name)
+    {
+        // Caller holds SyncRoot. Keep CPU data available for an explicit republish.
+        if (!Owners.TryGetValue(name, out var owner) || !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase)) return;
+        Owners.Remove(name);
+        Set(name, null);
+    }
+
     public static bool Publish(string packId, string name, object buffer)
     {
+        if (string.IsNullOrWhiteSpace(packId) || string.IsNullOrWhiteSpace(name) || buffer == null || IsReservedName(name)) return false;
+        packId = packId.Trim(); name = name.Trim();
         lock (Local)
-            Local[name ?? ""] = buffer;
-        if (!RendererRoute.UseDx11Device)
+        {
+            if (Owners.TryGetValue(name, out var owner) && !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase)) return false;
+            (buffer as PublishedBuffer)?.ApplyDeferred();
+            if (RendererRoute.UseDx11Device)
+            {
+                object inner = buffer is PublishedBuffer published ? published.Inner ?? published : buffer;
+                if (!Dx11Call.Try(Dx, "Publish", new object[] { packId, name, inner }, out var result) || result is not true) return false;
+            }
+            else GuestCatalogTargets.Release(packId, name);
+            Owners[name] = packId;
+            Set(name, buffer);
             return true;
-        object inner = buffer is PublishedBuffer published ? published.Inner ?? published : buffer;
-        return Dx11Call.Try(Dx, "Publish", new object[] { packId, name, inner }, out var result) && result is true;
+        }
     }
 
     public static void Unpublish(string packId, string name)
     {
-        if (!RendererRoute.UseDx11Device) GuestCatalogTargets.Release(packId, name);
+        if (string.IsNullOrWhiteSpace(packId) || string.IsNullOrWhiteSpace(name)) return;
+        packId = packId.Trim(); name = name.Trim();
         lock (Local)
-            Local.Remove(name ?? "");
-        if (RendererRoute.UseDx11Device)
-            Dx11Call.Call(Dx, "Unpublish", packId, name);
+        {
+            // DX11 may own entries created directly by its compatibility facade.
+            if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "Unpublish", packId, name);
+            if (!Owners.TryGetValue(name, out var owner) || !string.Equals(owner, packId, StringComparison.OrdinalIgnoreCase)) return;
+            if (!RendererRoute.UseDx11Device) GuestCatalogTargets.Release(packId, name);
+            Forget(packId, name);
+        }
     }
 
     public static void UnpublishAll(string packId)
     {
-        if (!RendererRoute.UseDx11Device) { GuestCatalogTargets.Release(packId); return; }
-        if (RendererRoute.RefuseDx11Device("BufferCatalog.UnpublishAll"))
-            return;
-        Dx11Call.Call(Dx, "UnpublishAll", packId);
+        if (string.IsNullOrWhiteSpace(packId)) return;
+        packId = packId.Trim();
+        lock (Local)
+        {
+            if (RendererRoute.UseDx11Device) Dx11Call.Call(Dx, "UnpublishAll", packId);
+            else GuestCatalogTargets.Release(packId);
+            foreach (string name in Owners.Where(pair => string.Equals(pair.Value, packId, StringComparison.OrdinalIgnoreCase)).Select(pair => pair.Key).ToArray())
+                Forget(packId, name);
+        }
     }
 
     public static void RequestLitMips(int mipLevels = 5)
@@ -176,6 +221,17 @@ public static class BufferCatalog
 
         foreach (var buffer in pending)
             buffer.ApplyDeferred();
+        // Replay publications accepted while renderer selection was pending.
+        if (RendererRoute.UseDx11Device)
+        {
+            lock (Local)
+                foreach (var pair in Owners)
+                    if (Local.TryGetValue(pair.Key, out var value))
+                    {
+                        object inner = value is PublishedBuffer buffer ? buffer.Inner ?? buffer : value;
+                        Dx11Call.Call(Dx, "Publish", pair.Value, pair.Key, inner);
+                    }
+        }
     }
 
     internal static void ResetGuestDevice(bool notifyEnd)
@@ -293,11 +349,17 @@ public sealed class PublishedBuffer
         ApplyDeferred();
     }
 
-    public void Clear()
+    internal void ReleaseUpload()
     {
         GuestBridgeClient.RetireImage(ImageId, guestEpoch);
-        if (Inner != null)
-            Dx11Call.CallInstance(Inner, "Clear");
+        if (Inner != null && uploadKind != 0) Dx11Call.CallInstance(Inner, "Clear");
+        ImageId = 0; guestEpoch = 0; deviceApplied = false;
+    }
+
+    public void Clear()
+    {
+        ReleaseUpload();
+        if (Inner != null && uploadKind == 0) Dx11Call.CallInstance(Inner, "Clear");
         Rgba = null;
         mipData = null;
         structured = null;

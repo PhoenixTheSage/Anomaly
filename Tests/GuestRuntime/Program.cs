@@ -317,7 +317,11 @@ namespace ClientPlugin.Buffers
     sealed class PublishedBuffer { public ulong ImageId { get; set; } public int Width {get;set;} public int Height {get;set;} }
     static class BufferCatalog
     {
-        static readonly Dictionary<string, object> Items = new();
+        static readonly Dictionary<string, object> Items = new(StringComparer.OrdinalIgnoreCase);
+        static readonly Dictionary<string,string> Owners = new(StringComparer.OrdinalIgnoreCase);
+        internal static object SyncRoot => Items;
+        internal static bool Reserve(string owner,string name) { if(Owners.TryGetValue(name,out var old) && !string.Equals(old,owner,StringComparison.OrdinalIgnoreCase))return false;Owners[name]=owner;return true; }
+        internal static void Forget(string owner,string name) { if(Owners.TryGetValue(name,out var old) && string.Equals(old,owner,StringComparison.OrdinalIgnoreCase)){Owners.Remove(name);Items.Remove(name);} }
         public static void Set(string name, object image) => Items[name] = image;
         public static object Active(string name) => Items.TryGetValue(name, out var image) ? image : null;
     }

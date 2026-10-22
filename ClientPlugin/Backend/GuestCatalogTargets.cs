@@ -16,8 +16,8 @@ static class GuestCatalogTargets
         internal long Epoch;
         internal float[] Clear;
     }
-    static readonly object Gate = new object();
-    static readonly Dictionary<string, Target> Targets = new Dictionary<string, Target>(StringComparer.Ordinal);
+    static object Gate => BufferCatalog.SyncRoot;
+    static readonly Dictionary<string, Target> Targets = new Dictionary<string, Target>(StringComparer.OrdinalIgnoreCase);
     static readonly List<Tuple<long, ulong>> Releases = new List<Tuple<long, ulong>>();
 
     internal static bool Ensure(string owner, string name, int width, int height, int dxgiFormat)
@@ -26,7 +26,9 @@ static class GuestCatalogTargets
         switch (dxgiFormat)
         {
             case 2: format = 6; break; // R32G32B32A32_FLOAT
+            case 1: // Legacy public API: FP16 (used by cloud history).
             case 10: format = 1; break; // R16G16B16A16_FLOAT
+            case 0: // Legacy public API: RGBA8.
             case 28: format = 0; break; // R8G8B8A8_UNORM
             case 34: format = 3; break; // R16G16_FLOAT
             case 41: format = 2; break; // R32_FLOAT
@@ -34,9 +36,15 @@ static class GuestCatalogTargets
             default: return false;
         }
         if (string.IsNullOrWhiteSpace(owner) || string.IsNullOrWhiteSpace(name) || width < 1 || height < 1) return false;
+        owner = owner.Trim(); name = name.Trim();
         lock (Gate)
         {
-            if (!Targets.TryGetValue(name, out var target)) Targets.Add(name, target = new Target { Owner = owner });
+            if (!BufferCatalog.Reserve(owner, name)) return false;
+            if (!Targets.TryGetValue(name, out var target))
+            {
+                BufferCatalog.Set(name, null);
+                Targets.Add(name, target = new Target { Owner = owner });
+            }
             if (!string.Equals(target.Owner, owner, StringComparison.OrdinalIgnoreCase)) return false;
             target.Width = width; target.Height = height; target.Format = format;
             return true;
@@ -45,6 +53,8 @@ static class GuestCatalogTargets
 
     internal static void Clear(string name, float r, float g, float b, float a)
     {
+        if (string.IsNullOrWhiteSpace(name)) return;
+        name = name.Trim();
         foreach (float value in new[] { r, g, b, a })
             if (float.IsNaN(value) || float.IsInfinity(value)) throw new ArgumentOutOfRangeException(nameof(value));
         lock (Gate)
@@ -57,10 +67,10 @@ static class GuestCatalogTargets
         {
             var removed = new List<string>();
             foreach (var pair in Targets)
-                if ((name == null || pair.Key == name) && string.Equals(pair.Value.Owner, owner, StringComparison.OrdinalIgnoreCase))
+                if ((name == null || string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase)) && string.Equals(pair.Value.Owner, owner, StringComparison.OrdinalIgnoreCase))
                 {
                     if (pair.Value.Image != 0) Releases.Add(Tuple.Create(pair.Value.Epoch, pair.Value.Image));
-                    BufferCatalog.Set(pair.Key, null); removed.Add(pair.Key);
+                    BufferCatalog.Forget(owner, pair.Key); removed.Add(pair.Key);
                 }
             foreach (string key in removed) Targets.Remove(key);
         }

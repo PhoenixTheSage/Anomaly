@@ -112,7 +112,7 @@ public static class RenderHost
     public static void QueueUnregister(string id)
     {
         GuestPassList.UnregisterRoot(id);
-        GuestCatalogTargets.Release(id);
+        global::ClientPlugin.Buffers.BufferCatalog.UnpublishAll(id);
         lock (Gate) Pending.RemoveAll(item => string.Equals(item[0], id, StringComparison.OrdinalIgnoreCase));
         if (IsDx11) Dx11Call.Call("ClientPlugin.Shaders.ShaderPackRegistry", "Unregister", id);
     }

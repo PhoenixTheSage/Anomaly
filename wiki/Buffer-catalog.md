@@ -49,10 +49,41 @@ foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
 ## Vulkan render-target requests (2026-10-21 candidate)
 
 `CatalogImages.EnsureColorTarget(packId, name, width, height, format)` now retains
-the requested DXGI format (2/10/28/34/41/54), defers device work until the renderer
+the requested DXGI format (2/10/28/34/41/54), plus legacy0 (RGBA8) and1 (FP16), defers device work until the renderer
 callback and reuses its image ID on resize. An identical ensure preserves image
 contents. `ClearColorTarget` queues a floating-point clear, including FP16 alpha
 -1 and HDR values. Names have one target owner; a conflicting owner is refused.
 Unpublish or unregister queues native retirement. Prepare target allocation and
 retirement before queuing frame passes. New operations require SE-Vulkan native
 feature bit13; old hosts return an actionable update refusal.
+
+
+## Core publication ownership and retirement
+
+Core catalog publication uses the DX11 case-insensitive ownership rules. Public
+Publish trims pack/name identifiers and refuses empty names, null buffers,
+reserved products and a second owner. Requested Vulkan targets and ordinary
+publications share the same ownership lock. Wrong-owner unpublish preserves the
+existing entry. Repeating Publish with the same object retains its allocation.
+IsReservedName is exposed through the core reflection facade as on DX11.
+
+Replacing or unpublishing an owned PublishedBuffer queues its native image for
+SE-Vulkan retirement after prior submissions. UnpublishAll and public pack
+unregister remove both uploaded publications and requested targets. CPU payloads
+remain cloned and reusable after unpublish; an explicit republish recreates the
+upload. Clear also discards the retained payload. Target and retirement commands
+flush on the renderer callback; publications accepted during renderer selection
+replay after selection. Borrowed DX11 resources retain their existing ownership semantics.
+
+The focused actual-core lifecycle fixture passes102 checks: malformed and reserved
+publications, competing owners, pending selection, both target/upload transitions,
+legacy FP16 alpha -1, structured/mip-volume cleanup, a pipelined read surviving
+replacement and eight unregister cycles preserving another pack. The combined
+actual-core gate passes766 checks with zero core/synchronization errors. Broader memory-plateau/performance qualification remains
+stage8 work.
+
+The raw SRV methods Publish/Publish3D/PublishBake/PublishStructured described above
+belong to the DX11 device path. Portable CPU uploads use PublishRgba8,
+PublishVolumeRgba8, PublishVolumeMips and PublishStructuredFloats. DX11 target
+format/disposal integration and Vulkan HDR/jitter remain separate parity work;
+the existing DLSS jitter ownership note describes the DX11 path.

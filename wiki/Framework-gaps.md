@@ -1307,11 +1307,33 @@ inputs, mutation timing and stock restoration. Old bit21 hosts actionably refuse
 new resources before allocating native generation candidates. The combined gate
 passes664 checks; the separate family gate passes382, including all82 variants
 and stock highlight output. Both report zero core/synchronization errors.
-Catalog lifecycle cleanup is a separate change still under validation.
+Catalog lifecycle cleanup is qualified below by the102/766-check gates.
 
 Remaining: other native stage owners and vertex/geometry programs; full
 same-invocation attachments and named formats; HDR/jitter/vendor stage7;
 automated lifecycle/temporal/visual/performance stage8. Catalog publication
 ownership/case handling and ordinary PublishedBuffer release on unpublish/reload
-still require parity fixes found during this work. No aggregate named-stage or
+are covered by the separate cleanup change below. No aggregate named-stage or
 same-draw capability is enabled by the resource transport.
+
+
+### Core catalog publication ownership and cleanup
+
+Core publication names and pack ownership now use case-insensitive DX11 rules.
+Malformed/reserved/competing publications fail closed. Requested Vulkan targets
+share ownership with ordinary uploaded publications. Replacement, Unpublish,
+UnpublishAll and public pack unregister queue all owned images for native
+retirement; cloned CPU payloads survive until explicit Clear and can be republished.
+Pending renderer selection replays publications; raw borrowed DX11 resources keep
+their existing ownership semantics. Legacy target formats0/1 now preserve existing
+RGBA8/FP16 callers, including actual cloud history's alpha -1 initialization.
+
+The focused actual-core lifecycle gate passes102 checks, including an in-flight
+GPU read before replacement, texture/structured/mip-volume cleanup, both target/
+upload transitions, pending selection and eight unregister cycles preserving a
+second pack. The final combined gate passes766 checks with validation enabled and
+zero core/synchronization errors. Memory plateau/performance qualification remains
+open, alongside DX11 target format/disposal integration, cached-wrapper liveness
+qualification, late fullscreen history ordering and the remaining native owners,
+full attachments and stage7 display/temporal integration. Aggregate capabilities
+remain false. No quality settings or player profiles were changed.

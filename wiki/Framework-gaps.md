@@ -1389,3 +1389,17 @@ core/synchronization errors. All six CPU groups and both managed builds pass.
 Native C++ sources/library are unchanged. The remaining catalog work is upload-mode
 transition qualification and classic fullscreen true-null/dimension behavior;
 remaining stage6 owners/attachments, stage7 and broad automated stage8 stay open.
+
+
+### CPU catalog upload transitions — 22 October
+
+Shared device-free validation rejects malformed RGBA/mip/structured input before
+replacing a valid publication. Mode switches reset Depth/stride and release
+inactive retained CPU payloads. Volume mip copies strip per-level padding to
+match DX11's subresource pitches; recreation reads the exact expected non-base
+mip after caller-array mutation. Borrowed DX11 resources retain caller ownership.
+WARP143 checks pass on net48/net10; native catalog109 passes with zero validation
+errors. The six CPU contract groups and both managed builds pass. Final combined
+GPU acceptance passes898 checks with validation enabled and zero errors. Native C++/ABI/library are unchanged. Classic
+fullscreen null dimensions, remaining stage6 owners/attachments, stage7 and
+automated stage8 qualification remain open.

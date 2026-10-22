@@ -17,12 +17,12 @@ dotnet run --project Tests/CatalogTargetsDx11 -c Release -f net10.0 --no-build -
 & 'Tests/CatalogTargetsDx11/bin/Release/net48/Anomaly.Dx11.exe' 'T:/Cursor Projects/Anomaly'
 ```
 
-Expected134 checks each: all20 catalog constants and PublishedBuffer reflection
+Expected143 checks each: all20 catalog constants and PublishedBuffer reflection
 members/constructors; legacy0/1 and six DXGI formats with typed GPU pixels;
 pending renderer/device activation and cancellation; wrong-owner/malformed/reserved
 refusal; idempotence; resize and upload/target conversion rollback; a recorded GPU
 read surviving replacement; resource and actual device replacement; worker-thread
 registration/retirement;16 unregister cycles returning the pool to zero; current
-structured stride/element count; and an actionable older-satellite refusal before
+structured stride/element count; volume-to-structured/2D transitions, inactive CPU payload release, malformed-input preservation, padded mip normalization and borrowed-resource ownership; and an actionable older-satellite refusal before
 it receives a format it would misinterpret. Framework/device/game adapters outside
 catalog allocation and publication are inert. No game installation/profile changes.

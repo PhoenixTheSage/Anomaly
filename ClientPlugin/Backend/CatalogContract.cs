@@ -32,6 +32,31 @@ internal static class CatalogContract
         foreach(string item in Reserved)if(string.Equals(item,name.Trim(),StringComparison.OrdinalIgnoreCase))return true;
         return false;
     }
+    internal static bool RgbaBytes(byte[] bytes,int width,int height,int depth)
+    {
+        if(bytes==null||width<1||height<1||depth<1)return false;
+        try{return checked((long)width*height*depth*4)<=bytes.LongLength;}catch(OverflowException){return false;}
+    }
+    internal static bool VolumeMips(byte[][] mips,int size)
+    {
+        if(mips==null||mips.Length==0||size<1)return false;
+        int levels=1;for(int n=size;n>1;n>>=1)levels++;
+        if(mips.Length>levels)return false;
+        foreach(var mip in mips){if(!RgbaBytes(mip,size,size,size))return false;size=Math.Max(1,size/2);}
+        return true;
+    }
+    internal static byte[][] CloneVolumeMips(byte[][] mips,int size)
+    {
+        var copy=new byte[mips.Length][];
+        for(int i=0;i<mips.Length;i++)
+        {
+            int bytes=checked(size*size*size*4);copy[i]=new byte[bytes];Buffer.BlockCopy(mips[i],0,copy[i],0,bytes);size=Math.Max(1,size/2);
+        }
+        return copy;
+    }
+    internal static bool StructuredFloats(float[] values,int stride) => values!=null&&values.Length>0&&stride>0&&stride<=2048&&stride%4==0&&
+        (long)values.Length*4<=int.MaxValue&&(long)values.Length*4%stride==0;
+
     internal static bool ColorFormat(int requested,out int dxgi,out int native)
     {
         switch(requested)

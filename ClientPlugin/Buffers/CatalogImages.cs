@@ -91,7 +91,7 @@ public static class CatalogImages
 
     public static void PublishRgba8(PublishedBuffer target, byte[] rgba, int width, int height)
     {
-        if (target == null || rgba == null || width <= 0 || height <= 0)
+        if (target == null || !ClientPlugin.Contracts.CatalogContract.RgbaBytes(rgba,width,height,1))
             return;
         var texture = CreateTexture2D(width, height, Format.R8G8B8A8_UNorm, rgba, width * 4);
         PublishUpload(target, texture, width, height, 1, 0);
@@ -99,7 +99,7 @@ public static class CatalogImages
 
     public static void PublishVolumeRgba8(PublishedBuffer target, byte[] rgba, int width, int height, int depth)
     {
-        if (target == null || rgba == null || width <= 0 || height <= 0 || depth <= 0)
+        if (target == null || !ClientPlugin.Contracts.CatalogContract.RgbaBytes(rgba,width,height,depth))
             return;
         var texture = CreateTexture3D(width, height, depth, new[] { rgba });
         PublishUpload(target, texture, width, height, depth, 0);
@@ -107,7 +107,7 @@ public static class CatalogImages
 
     public static void PublishVolumeMips(PublishedBuffer target, byte[][] mips, int dim)
     {
-        if (target == null || mips == null || mips.Length == 0 || dim <= 0)
+        if (target == null || !ClientPlugin.Contracts.CatalogContract.VolumeMips(mips,dim))
             return;
         var texture = CreateTexture3D(dim, dim, dim, mips);
         PublishUpload(target, texture, dim, dim, dim, 0);
@@ -115,7 +115,7 @@ public static class CatalogImages
 
     public static void PublishStructuredFloats(PublishedBuffer target, float[] values, int stride)
     {
-        if (target == null || values == null || values.Length == 0 || stride <= 0 || stride%4!=0 || (long)values.Length*4%stride!=0)
+        if (target == null || !ClientPlugin.Contracts.CatalogContract.StructuredFloats(values,stride))
             return;
         int bytes = values.Length * sizeof(float);
         var desc = new BufferDescription

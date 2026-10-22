@@ -353,13 +353,13 @@ public sealed class PublishedBuffer
     public void PublishBake(object srv,IntPtr native,int width,int height,int depth,int format,object uav)
     {
         if(RendererRoute.RefuseDx11Device("PublishedBuffer.PublishBake"))return;
-        EnsureInner();NativeResource=native;Width=width;Height=height;Depth=depth;uploadKind=0;
+        EnsureInner();DiscardPayloads();NativeResource=native;Width=width;Height=height;Depth=Math.Max(depth,1);uploadKind=0;
         if(Inner!=null)Dx11Call.CallInstance(Inner,"PublishBake",srv,native,width,height,depth,format,uav);
     }
     public void PublishStructured(object srv,IntPtr native,int elementCount,int stride,object uav=null)
     {
         if(RendererRoute.RefuseDx11Device("PublishedBuffer.PublishStructured"))return;
-        EnsureInner();NativeResource=native;Width=elementCount;Height=Depth=1;uploadKind=0;
+        EnsureInner();DiscardPayloads();NativeResource=native;Width=elementCount;Height=Depth=1;uploadKind=0;
         if(Inner!=null)Dx11Call.CallInstance(Inner,"PublishStructured",srv,native,elementCount,stride,uav);
     }
 
@@ -367,10 +367,11 @@ public sealed class PublishedBuffer
     {
         if (RendererRoute.RefuseDx11Device("PublishedBuffer.Publish"))
             return;
-        EnsureInner();
+        EnsureInner();DiscardPayloads();
         NativeResource = native;
         Width = width;
         Height = height;
+        Depth = 1;
         uploadKind = 0;
         if (Inner != null)
             Dx11Call.CallInstance(Inner, "Publish", srv, native, width, height);
@@ -380,11 +381,11 @@ public sealed class PublishedBuffer
     {
         if (RendererRoute.RefuseDx11Device("PublishedBuffer.Publish3D"))
             return;
-        EnsureInner();
+        EnsureInner();DiscardPayloads();
         NativeResource = native;
         Width = width;
         Height = height;
-        Depth = depth;
+        Depth = Math.Max(depth,1);
         uploadKind = 0;
         if (Inner != null)
             Dx11Call.CallInstance(Inner, "Publish3D", srv, native, width, height, depth);
@@ -392,7 +393,8 @@ public sealed class PublishedBuffer
 
     public void PublishRgba8(byte[] rgba, int width, int height)
     {
-        Rgba = rgba==null?null:(byte[])rgba.Clone();
+        if(!ClientPlugin.Contracts.CatalogContract.RgbaBytes(rgba,width,height,1))return;
+        DiscardPayloads();Rgba = (byte[])rgba.Clone();
         Width = width;
         Height = height;
         Depth = 1;
@@ -403,7 +405,8 @@ public sealed class PublishedBuffer
 
     public void PublishVolumeRgba8(byte[] rgba, int width, int height, int depth)
     {
-        Rgba = rgba==null?null:(byte[])rgba.Clone();
+        if(!ClientPlugin.Contracts.CatalogContract.RgbaBytes(rgba,width,height,depth))return;
+        DiscardPayloads();Rgba = (byte[])rgba.Clone();
         Width = width;
         Height = height;
         Depth = depth;
@@ -414,7 +417,8 @@ public sealed class PublishedBuffer
 
     public void PublishVolumeMips(byte[][] mips, int dim)
     {
-        mipData = mips?.Select(m=>m==null?null:(byte[])m.Clone()).ToArray();
+        if(!ClientPlugin.Contracts.CatalogContract.VolumeMips(mips,dim))return;
+        DiscardPayloads();mipData = ClientPlugin.Contracts.CatalogContract.CloneVolumeMips(mips,dim);
         Rgba = mipData != null && mipData.Length > 0 ? mipData[0] : null;
         Width = dim;
         Height = dim;
@@ -426,15 +430,17 @@ public sealed class PublishedBuffer
 
     public void PublishStructuredFloats(float[] values, int stride)
     {
-        if(values==null||values.Length==0||stride<=0||stride%4!=0||(long)values.Length*4%stride!=0)return;
-        structured = (float[])values.Clone();
+        if(!ClientPlugin.Contracts.CatalogContract.StructuredFloats(values,stride))return;
+        DiscardPayloads();structured = (float[])values.Clone();
         structuredStride = stride;
         Width = (int)((long)values.Length*4/stride);
-        Height = 1;
+        Height = Depth = 1;
         uploadKind = 4;
         deviceApplied = false;
         ApplyDeferred();
     }
+
+    void DiscardPayloads(){Rgba=null;mipData=null;structured=null;structuredStride=0;}
 
     internal void ReleaseUpload()
     {

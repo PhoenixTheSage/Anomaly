@@ -146,3 +146,13 @@ actual device replacement and16 unregister cycles returning pool counts to zero.
 The engine pooling adapter is not loaded-game acceptance. The native actual-core
 catalog gate passes105 checks with zero validation errors. The final combined
 gate passes894 checks with zero core/synchronization errors; broader stage8 memory/performance acceptance remains.
+
+
+CPU upload mode changes now reset dimension metadata and release inactive CPU
+payloads. Invalid RGBA sizes, mip chains and structured strides leave the prior
+publication intact; structured strides follow DX11's aligned 2048-byte maximum.
+Volume mip upload copies each logical mip extent and excludes trailing padding,
+so later mip offsets match DX11 subresources and survive device recreation.
+The upload-transition WARP gate passes143 checks on each runtime and the native
+catalog focus passes109 checks with zero validation errors. The combined898-check
+GPU gate passes with zero core/synchronization errors; no native ABI/library change.

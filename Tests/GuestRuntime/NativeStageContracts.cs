@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Text;
 using ClientPlugin.Backend;
 using ClientPlugin.Rendering;
 
@@ -7,6 +9,26 @@ static partial class Program
 {
     static void NativeStageContracts()
     {
+        var files=new Dictionary<string,byte[]>(StringComparer.OrdinalIgnoreCase);
+        void Source(string key,string value)=>files[key]=Encoding.UTF8.GetBytes(value);
+        var header=new HashSet<string>(StringComparer.OrdinalIgnoreCase){"Shadows/Shared.hlsli"};
+        object[] entry={256u,"Lighting/Main.hlsl","ps_5_0",new[]{"Lighting/Main.hlsl"}};
+        Source("Lighting/Main.hlsl","#include<Shadows/Shared.hlsli>");Source("Shadows/Shared.hlsli","float Shared(){return 1;}");
+        Require(GuestPostprocessStages.AffectedByHeaders(entry,files,"Lighting/Main.hlsl",header),"Cross-family include was not selected");
+        Source("Lighting/Main.hlsl","/*before*/#include \"../Common.hlsli\"");
+        // Continue an include argument, preserving ordinary preprocessor tokens.
+        Source("Common.hlsli","#include \\\n<Shadows/Shared.hlsli>");
+        Require(GuestPostprocessStages.AffectedByHeaders(entry,files,"Lighting/Main.hlsl",header),"Relative/transitive/continued include was not selected");
+        Source("Lighting/Main.hlsl","#include \"_anomaly/packs/0/Replacement.hlsl\"");Source("_anomaly/packs/0/Replacement.hlsl","#include <Shadows/Shared.hlsli>");
+        Require(GuestPostprocessStages.AffectedByHeaders(entry,files,"Lighting/Main.hlsl",header),"Pack-introduced dependency was not selected");
+        Source("Lighting/Main.hlsl","#include SOME_HEADER");Require(GuestPostprocessStages.AffectedByHeaders(entry,files,"Lighting/Main.hlsl",header),"Macro include failed to choose conservative selection");
+        Source("Lighting/Main.hlsl","// #include <Shadows/Shared.hlsli>\n/* #include <Shadows/Shared.hlsli> */\nfloat main(){return 1;}");
+        Require(!GuestPostprocessStages.AffectedByHeaders(entry,files,"Lighting/Main.hlsl",header),"Comment-only dependency selected an unrelated owner");
+        Require(GuestPostprocessStages.AffectedByHeaders(new object[]{256u,"Lighting/Main.hlsl","ps_5_0",new[]{"Shadows/Shared.hlsli"}},files,"Lighting/Main.hlsl",header),"Authenticated dependency fallback lost an active include");
+        Require(GuestPostprocessStages.AffectedByHeaders(new object[]{256u,"Lighting/Main.hlsl","ps_5_0"},files,"Lighting/Main.hlsl",header),"Older catalog silently ignored a shared header");
+        Source("Lighting/Main.hlsl","#include <Common.hlsli>");Source("Common.hlsli","#include <Lighting/Main.hlsl>");Require(!GuestPostprocessStages.AffectedByHeaders(entry,files,"Lighting/Main.hlsl",header),"Include cycle incorrectly selected an unrelated header");
+        header.Clear();header.Add("Lighting/Aux.hlsl");Source("Lighting/Main.hlsl","#include <Lighting/Aux.hlsl>");Source("Lighting/Aux.hlsl","float Helper(){return 1;}");Require(GuestPostprocessStages.AffectedByHeaders(entry,files,"Lighting/Main.hlsl",header),"An entry-point source included by another owner lost its dependency");
+        Console.WriteLine("PASS: shared native dependency selection across families, pack sources, relative/transitive/continued/macro includes, cycles, comments and older-host fallback");
         int features=GuestBridge.SupportedPacketFlags;long epoch=GuestBridge.TestResourceEpoch;bool ready=GuestBridge.Ready,bound=GuestPostprocessStages.PreparationBound;
         string root=Path.Combine(Path.GetTempPath(),"anomaly-native-stage-contract-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
         try

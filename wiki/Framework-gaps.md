@@ -1586,3 +1586,31 @@ recreation fixture compiles but has not been rerun for this batch.
 This covers two screen-space compute owners; shadow geometry, other Shadows
 sources and full same-invocation attachments remain separate stage6 work. Both
 aggregate capability flags remain false. Stage7 and stage8 follow stage6.
+
+
+### Shared native source dependencies — focused stage6 execution gate
+
+The device-free source transaction selects native consumers by include dependency,
+including dependencies across named-stage families. Native catalog rows retain
+their first three reflection fields and append authenticated stock dependency
+paths. Core also walks copied source includes after publishing every unique
+override, so replacement programs can introduce dependencies on other packs'
+headers or entry-point sources. Relative, transitive, quoted/angle includes and
+line continuations are resolved; comments and cycles do not invent dependencies.
+Macro includes and older three-field catalog rows choose conservative selection.
+Competing overrides retain existing conflict handling. Generic shared header
+extensions are eligible even outside the currently mapped native stage folders.
+The generation fingerprint contract advances to the captured-include-closure
+revision; complete selected closures still activate and roll back atomically.
+
+The21-check actual-core GPU gate changes only Shadows/Csm.hlsli: all authenticated
+CSM consumers in shadows, lighting, decals and particles join the same generation,
+selected shadow pixels change to independently expected values, unrelated tone
+mapping stays untouched, and synchronous/pipelined output agrees. Header reload,
+invalid-header rollback, exact stock shadow/HDR restoration and dependent-layout
+retirement pass with zero core/synchronization errors. The170-check environment
+integration also passes; focused CPU contracts cover dependency selection and
+older catalog fallback. Managed net48/net10 builds pass. Native ABI/capability
+bits are unchanged. This covers the current native owner catalog; missing owner
+families and legal interface/attachment contracts remain stage6 work. Both
+aggregate capability flags remain false. Stages7 and8 remain ordered afterward.

@@ -78,15 +78,11 @@ internal static class GuestPostprocessStages
                 {if(!injections.TryGetValue(injection.Stage,out var list))injections.Add(injection.Stage,list=new List<string>());list.Add(prefix+injection.RelativePath);}
                 foreach(string raw in pack.Definition.Defines){string name=raw.Split('=')[0].Trim();if(Regex.IsMatch(name,@"^[A-Za-z_][A-Za-z0-9_]*$")&&!name.StartsWith("ANOMALY_ATTACH_",StringComparison.OrdinalIgnoreCase)&&!new[]{"ANOMALY","ANOMALY_VELOCITY","ANOMALY_PACK_GBUFFER1A","RENDERING_PASS","DEPTH_ONLY","CUSTOM_DEPTH"}.Contains(name,StringComparer.OrdinalIgnoreCase))defines[name]="1";}
             }
-            // Headers are first-class overlays. Publish them at their canonical include key,
-            // then rebuild the owning family (all families for an uncatalogued shared header).
-            var headerFamilies=new HashSet<string>(StringComparer.OrdinalIgnoreCase);bool sharedPostHeader=false,sharedLightingHeader=false;
-            var entryKeys=new HashSet<string>(catalog.Select(e=>(string)e[1]),StringComparer.OrdinalIgnoreCase);
-            foreach(var claim in claims.Where(c=>c.Value.Count==1&&!entryKeys.Contains(c.Key)))
-            {
-                files[claim.Key]=Encoding.UTF8.GetBytes("#include \""+claim.Value[0]+"\"\n");
-                if(ShaderStages.TryGetStageForKey(claim.Key,out var family))headerFamilies.Add(family);else if(claim.Key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase))sharedLightingHeader=true;else sharedPostHeader=true;
-            }
+            // Publish every unique override before walking includes. Shared headers can
+            // affect owners outside their advertised named-stage family, including
+            // dependencies introduced by another pack's replacement entry point.
+            var changedSources=new HashSet<string>(claims.Where(c=>c.Value.Count==1).Select(c=>c.Key),StringComparer.OrdinalIgnoreCase);
+            foreach(var claim in claims.Where(c=>c.Value.Count==1))files[claim.Key]=Encoding.UTF8.GetBytes("#include \""+claim.Value[0]+"\"\n");
             var selected=new HashSet<uint>(touched);
             foreach(var entry in catalog)
             {
@@ -97,7 +93,8 @@ internal static class GuestPostprocessStages
                 injections.TryGetValue(ShaderStages.Lighting,out var familyInjects);
                 var injects=(stage.StartsWith("Lighting.",StringComparison.OrdinalIgnoreCase)?(familyInjects??new List<string>()).Concat(stageInjects??new List<string>()):stageInjects??new List<string>()).ToArray();
                 bool inject=injects.Length!=0;
-                if(!overlay&&!inject&&defines.Count==0&&!(stage.StartsWith("Lighting.",StringComparison.OrdinalIgnoreCase)?sharedLightingHeader:sharedPostHeader)&&!headerFamilies.Contains(stage))continue;
+                bool dependency=changedSources.Count!=0&&AffectedByHeaders(entry,files,key,changedSources);
+                if(!overlay&&!inject&&defines.Count==0&&!dependency)continue;
                 selected.Add(id);
                 string extras=ShaderStages.ExtrasIncludePath(stage);
                 files[extras]=Encoding.UTF8.GetBytes("#pragma once\n"+(inject?string.Concat(injects.Select(p=>"#include \""+p+"\"\n")):""));
@@ -117,7 +114,7 @@ internal static class GuestPostprocessStages
             defines["ANOMALY"]="1";defines["ANOMALY_SPIRV"]="1";
             using(var stream=new MemoryStream())using(var writer=new BinaryWriter(stream,Encoding.UTF8,true))
             {
-                writer.Write("AnomalyNativeOwners-2");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
+                writer.Write("AnomalyNativeOwners-3;captured-include-closure");foreach(var file in files.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(file.Key);writer.Write(file.Value.Length);writer.Write(file.Value);}
                 foreach(var define in defines.OrderBy(p=>p.Key,StringComparer.Ordinal)){writer.Write(define.Key);writer.Write(define.Value);}foreach(uint id in selected.OrderBy(v=>v))writer.Write(id);
                 writer.Flush();using(var sha=SHA256.Create())requested=BitConverter.ToString(sha.ComputeHash(stream.ToArray())).Replace("-","").ToLowerInvariant();
             }
@@ -185,7 +182,53 @@ internal static class GuestPostprocessStages
             return match.Value;
         }));
     }
-    static bool NativeKey(string key)=>key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Decals/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("EnvProbe/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/GPUParticles/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Shadows/",StringComparison.OrdinalIgnoreCase);
+    // Stock metadata is authenticated by SE-Vulkan. The copied-source walk also
+    // covers includes introduced by overlays, independent of original ownership.
+    internal static bool AffectedByHeaders(object[] entry,Dictionary<string,byte[]> files,string key,HashSet<string> headers)
+    {
+        if(entry.Length>3&&entry[3] is string[] dependencies&&dependencies.Any(headers.Contains))return true;
+        var visited=new HashSet<string>(StringComparer.OrdinalIgnoreCase);var pending=new Stack<string>();pending.Push(key);
+        while(pending.Count!=0)
+        {
+            string current=pending.Pop();if(!visited.Add(current))continue;if(headers.Contains(current))return true;
+            if(!files.TryGetValue(current,out var bytes))continue;
+            string text=IncludeText(Encoding.UTF8.GetString(bytes));
+            foreach(Match include in Regex.Matches(text,@"(?m)^\s*#\s*include\b\s*([^\r\n]+)"))
+            {
+                string value=include.Groups[1].Value.Trim();
+                if(value.Length<3||value[0]!='\"'&&value[0]!='<')return true; // Macro includes conservatively select all affected candidates.
+                int end=value.IndexOf(value[0]=='<'?'>':'\"',1);if(end<0)return true;
+                string path=value.Substring(1,end-1).Replace('\\','/');string folder=Path.GetDirectoryName(current).Replace('\\','/');
+                foreach(string candidate in new[]{folder+"/"+path,path})
+                {
+                    string normalized;try{normalized=Relative(Path.GetTempPath(),PackDefinition.ResolveFile(Path.GetTempPath(),candidate));}catch{continue;}
+                    if(files.ContainsKey(normalized)){pending.Push(normalized);break;}
+                }
+            }
+        }
+        // Older managed hosts have no authenticated dependency column. A header
+        // must never be silently lost because its family differs from the owner.
+        return entry.Length<=3;
+    }
+    static string IncludeText(string text)
+    {
+        // C preprocessing joins continued lines before replacing comments.
+        text=text.Replace("\\\r\n","").Replace("\\\n","");var output=new StringBuilder(text.Length);
+        bool block=false,line=false,quoted=false;
+        for(int i=0;i<text.Length;i++)
+        {
+            char c=text[i],next=i+1<text.Length?text[i+1]:'\0';
+            if(block){if(c=='*'&&next=='/'){block=false;output.Append("  ");i++;}else output.Append(c=='\n'||c=='\r'?c:' ');continue;}
+            if(line){if(c=='\n'||c=='\r'){line=false;output.Append(c);}else output.Append(' ');continue;}
+            if(quoted){output.Append(c);if(c=='\\'&&i+1<text.Length)output.Append(text[++i]);else if(c=='\"')quoted=false;continue;}
+            if(c=='\"'){quoted=true;output.Append(c);}
+            else if(c=='/'&&next=='*'){block=true;output.Append("  ");i++;}
+            else if(c=='/'&&next=='/'){line=true;output.Append("  ");i++;}
+            else output.Append(c);
+        }
+        return output.ToString();
+    }
+    static bool NativeKey(string key)=>key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Decals/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("EnvProbe/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/GPUParticles/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Shadows/",StringComparison.OrdinalIgnoreCase)||new[]{".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(key),StringComparer.OrdinalIgnoreCase);
     static bool NativeStage(string stage)=>stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Foliage,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Decals,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.EnvProbe,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.GpuParticles,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Shadows,StringComparison.OrdinalIgnoreCase);
     static bool IsSource(string path)=>new[]{".hlsl",".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(path),StringComparer.OrdinalIgnoreCase);
     static string Relative(string root,string path)=>Path.GetFullPath(path).Substring(Path.GetFullPath(root).TrimEnd('\\','/').Length+1).Replace('\\','/');

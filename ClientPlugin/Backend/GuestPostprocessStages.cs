@@ -41,6 +41,10 @@ internal static class GuestPostprocessStages
         {
             bool lighting=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>i.Stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)));
             if(lighting&&!GuestBridgeClient.SupportsPacketFlags(1048576))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: lighting owner generations require native bit20.");
+            bool atmosphere=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>string.Equals(i.Stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)));
+            if(atmosphere&&!GuestBridgeClient.SupportsPacketFlags(16777216))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: atmosphere owner generations require native bit24.");
+            bool foliage=sources.Any(s=>s.Definition.Defines.Count!=0||s.Overlays.Any(o=>o.Key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase))||s.Injections.Any(i=>string.Equals(i.Stage,ShaderStages.Foliage,StringComparison.OrdinalIgnoreCase)));
+            if(foliage&&!GuestBridgeClient.SupportsPacketFlags(33554432))throw new NotSupportedException("Update coordinated Anomaly/SE-Vulkan: foliage owner generations require native bit25.");
             var state=State(13);if(state==null)throw new InvalidOperationException("Postprocess generation service unavailable.");
             uint format=(uint)state[9];
             if(revision==attemptedRevision&&epoch==attemptedEpoch&&format==attemptedFormat)return Error==null;
@@ -93,6 +97,8 @@ internal static class GuestPostprocessStages
                 if(!files.ContainsKey(original))files.Add(original,RewriteStockIncludes(key,stock[key],stock));
                 files[key]=Encoding.UTF8.GetBytes("#include \""+extras+"\"\n#include \""+(overlay?owners[0]:original)+"\"\n");
             }
+            // Foliage shares one VS across both GS/PS pairs; preserve its complete dependency closure.
+            if(selected.Any(id=>id>=768&&id<773))foreach(uint id in new uint[]{768,769,770,771,772})selected.Add(id);
             // Include the negative-border HBAO companions in the same owner generation.
             foreach(uint id in selected.ToArray())if(id>=36&&id<=51)selected.Add(id+92);
             if(selected.Count==0)return true;
@@ -169,8 +175,8 @@ internal static class GuestPostprocessStages
             return match.Value;
         }));
     }
-    static bool NativeKey(string key)=>key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase);
-    static bool NativeStage(string stage)=>stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase);
+    static bool NativeKey(string key)=>key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase);
+    static bool NativeStage(string stage)=>stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Foliage,StringComparison.OrdinalIgnoreCase);
     static bool IsSource(string path)=>new[]{".hlsl",".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(path),StringComparer.OrdinalIgnoreCase);
     static string Relative(string root,string path)=>Path.GetFullPath(path).Substring(Path.GetFullPath(root).TrimEnd('\\','/').Length+1).Replace('\\','/');
 }

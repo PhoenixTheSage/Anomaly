@@ -232,3 +232,29 @@ device nullDescriptor qualification. Native-owner bit22 alone does not promise
 classic fullscreen null dimensions. Query ClassicNullResourcesSupported on the
 shared ShaderApiCapabilities; named-stage and same-draw aggregate support remain
 partial. See Buffer-catalog for resource types and coordinated-update refusal.
+
+
+### Environment-family native owners (focused execution gate, 22 October)
+
+Native bit24 adds captured atmosphere compute/main-view/probe owners512..514 to
+the shared preparation/activation transaction. Changed compute generations dirty
+cached LUTs while preserving their actual image layout and synchronization. Probe
+atmosphere retains its two-target format and scope-specific stock inputs. Native
+bit25 adds foliage768..772: one shared vertex module and two geometry/pixel pairs
+form an indivisible generation closure. Each raster invocation binds the merged
+module resource contract; execution counters identify every participating stage.
+Layouts and pipelines retire together after their last completed submission.
+Catalog t5..t9 and b6 extras remain shared host contracts. ABI-1 packets retain
+their layouts. Older hosts receive coordinated-update refusal.
+
+The integrated environment owner batch passes166 actual-core GPU checks with
+core/synchronization validation enabled and zero errors. Independent outputs cover
+LUT/main-view atmosphere, both probe MRTs on all six faces, and shared foliage VS,
+each GS and each PS. Vertex/geometry/pixel-only catalog resources, first-use s1,
+probe-scope constants, immutable extras, both HDR formats, synchronous/pipelined
+execution, incomplete closure/interface/compile rejection, exact stock restoration
+and completion-based retirement are covered. Managed net48/net10 and native builds
+pass. The previous combined998 gate predates this batch; it is not expanded proof.
+Aggregate named-stage/attachment capabilities remain false. Remaining stage6
+owners/attachments precede stage7 and stage8, including matched Windows loaded-world
+acceptance. Native mip blits do not establish arbitrary HistoryColor execution.

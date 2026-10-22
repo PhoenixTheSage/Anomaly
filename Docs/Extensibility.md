@@ -469,6 +469,14 @@ Goal: Aurora-class packs stop packing scalars into derived constants. Still no p
 
 ## Slice AI — HDR illuminant + IsolatedMix energy + march helper
 
+Environment-family continuation (2026-10-22, implementation in progress): shared
+native generations now cover atmosphere LUT/main-view/probe and foliage's
+VS/GS/PS dependency closure under new bits24/25. Source capture, stage injection,
+reserved bindings, atomic activation and completion-based retirement stay in the
+existing Anomaly/SE-Vulkan relationship. Probe/foliage GPU qualification is pending;
+no pack-specific compiler or renderer host was added. See wiki/Named-stages.md.
+
+
 Shared host follow-up (2026-10-22): optional fullscreen catalog SRVs now have
 true-null dimensions, reads and sampling on Vulkan under native bit23 and device
 nullDescriptor support. The core owns resource-type checks and actionable
@@ -1418,3 +1426,15 @@ The final actual-core suite passes355 checks with synchronization validation
 and zero errors. It executes real Fog/Clouds providers and the owned-stage
 synchronous/pipelined replacement/rollback/restoration path with an outstanding
 submission. A matched loaded-game DX11/Vulkan comparison is still required.
+
+
+### Native atmosphere and foliage owners — focused stage6 gate
+
+Native bits24/25 add the actual LUT/main/probe atmosphere modules and shared
+foliage VS/two-GS/two-PS closure. The integrated166-check actual-core GPU gate
+proves all eight modules, reserved resources from every shader stage, both probe
+MRTs on all six faces, failed-candidate rollback, exact stock restoration and
+completion-based pipeline/layout retirement with zero validation errors.
+Aggregate named-stage and same-draw attachment support remains false. Remaining
+stage6 owners/attachments precede stage7 and stage8, including matched Windows
+loaded-world acceptance; native mip blits are not arbitrary HistoryColor execution.

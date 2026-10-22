@@ -1556,3 +1556,33 @@ checks pass. Both managed frameworks, native CTest and focused CPU contracts pas
 The extended full recreation fixture compiles but has not been rerun for this
 batch. Both aggregate flags remain false; this does not close all legal shader
 interfaces, remaining native owners, same-invocation attachments or full parity.
+
+
+### Native screen-shadow generations — focused stage6 execution gate
+
+Native bit29 adds CSM evaluation1792 and optional per-view usage statistics1793
+to the captured-source generation transaction. Each native owner receives its
+actual frame/screen/cascade inputs, shared reserved t5..t9 and b6 extras, fixed
+16x16x1 dispatch contract and native output. Activation moves complete pipeline/
+layout bundles at a frame boundary; retired generations wait for completion.
+ABI-1 module/state packets remain unchanged. Capacity116 includes107 possible
+binding-owner rows. Host capability checks now follow ascending feature versions
+so global defines report the first unavailable owner contract consistently.
+
+DXC encodes HLSL unorm<float> storage as R32f. The derived CSM executable adapts
+that storage-image type to the owning R8_UNORM target and adds the required
+StorageImageExtendedFormats capability, already enabled by SE-Vulkan. Original
+authenticated shader artifacts remain intact. Other storage formats are refused.
+
+The43-check actual-core GPU fixture passes independent CSM UNORM equations, exact
+per-cascade usage counts, frame catalog updates, atomic activation, synchronous/
+pipelined output, inactive usage status, compile/workgroup rollback, exact stock
+restoration and retirement with zero core/synchronization errors. Native and
+managed net48/net10 builds pass. Six real bit28-host refusal checks, the170-check environment/107-row transport
+gate and36-check stock shadow-occlusion regression pass with zero validation
+errors. Native CTest executes16 passes plus the configured reference skip;
+focused CPU contracts and the developer canvas check pass. The extended full
+recreation fixture compiles but has not been rerun for this batch.
+This covers two screen-space compute owners; shadow geometry, other Shadows
+sources and full same-invocation attachments remain separate stage6 work. Both
+aggregate capability flags remain false. Stage7 and stage8 follow stage6.

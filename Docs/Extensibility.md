@@ -1521,7 +1521,8 @@ The module/row bound is114 with105 possible binding owners after aliases merge.
 
 Direct nonzero dispatches report submitted participation separately from
 completion. Indirect simulation/raster participation is credited only when
-completed GPU argument readback proves nonzero groups/indices, with the original
+completed GPU argument readback proves nonzero X/Y/Z and index/instance counts,
+with the original
 frame and matching generation token. Empty work cannot advance those execution
 records; stale generations cannot credit a newer program.
 
@@ -1532,9 +1533,10 @@ Older hosts actionably refuse bit28 before compilation, candidate allocation or
 readback symbol lookup. Existing packet layouts and DX11 callback signatures stay
 unchanged.
 
-The focused65-check actual-core GPU gate proves all eight compute modules with
+The focused84-check actual-core GPU gate proves all eight compute modules with
 independent GPU sentinel writes and the raster pair with expected OIT pixels,
-VS/PS/compute resources, empty indirect participation/recovery, wrong workgroup/
+VS/PS/compute resources, empty index/instance/X/Y/Z participation and recovery,
+wrong workgroup/
 stride/stage-input refusal, malformed readback size/version/range, rollback, exact
 stock restoration and retirement. The existing216-check stock transparency and
 particle lifecycle gate and updated170-check environment/105-row transport gate

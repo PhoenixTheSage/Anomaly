@@ -1808,11 +1808,28 @@ synchronization validation and zero errors, on all five classic streams:
 - Unregistering restores exact stock material and motion bits.
 - Retirement completes.
 
+GPU NEW GBuffer owners compile `USE_SIMPLE_INSTANCING`, which is where DX11
+reads t15. One indirect draw covers many objects there, so b0 is per frame:
+view-projections, size, PrevCount, HasHistory and the camera delta, with
+InstanceBase 0. Vulkan's `SV_InstanceID` already indexes the global instance
+buffer. The GPU adapter replaces the t15 `StructuredBuffer` with a lookup:
+each instance resolves to its actor through the culled references, then reads
+that actor's previous rows, which the indexed replay keeps. The replay
+prepares that history once, before the GBuffer, and then skips owner batches.
+Admission requires the variant's own `USE_SIMPLE_INSTANCING`. t16 has no
+Vulkan consumer: GPU skinned sources keep their classic fallback, where DX11
+also ignores bones. The 40-check `--gbuffer-velocity-gpu-only` gate passes with
+zero errors:
+
+- Owner motion matches the analytic -0.64 px and the indexed replay.
+- Pack-written (3, -2) reaches Target3 through indirect draws.
+- Results agree across recording modes.
+- Unregistering restores exact stock bits.
+
 Still open on this contract:
 
-- GPU NEW owners, the real t15 (`USE_SIMPLE_INSTANCING`) and t16 consumers;
 - voxel, blended-decal and fade-bank owners;
-- native-cell and GPU-indexed owners;
+- native-cell and GPU OLD owners;
 - probe modes;
 - pack attachments and packed `GBuffer1.a`.
 

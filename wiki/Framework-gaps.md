@@ -1878,11 +1878,38 @@ through native generations, and there is no voxel owner to emit velocity. DX11
 gives voxels camera-only velocity from the pass-begin block. Adding voxel
 owners is an owner-family gap, not velocity work.
 
+Pack GBuffer attachments now follow DX11's same-invocation contract on these
+owners. Anomaly generates `GBufferAttachmentDefs.hlsli` and
+`GBufferAttachmentFields.hlsli` from the live requests, gated on
+`ANOMALY_VELOCITY` so only GBuffer owners see them, as DX11 adds the macros
+only to GBuffer permutations:
+
+- `ANOMALY_ATTACH_<NAME>` and `_TARGET` with fields at SV_Target4+slot;
+- packed `GBuffer1.a` via `ANOMALY_PACK_GBUFFER1A`, `ANOMALY_ATTACH_PACKED_NAME`
+  and the pack's `AnomalyGBuffer1A` override.
+
+It declares each slot's format to the host with
+`sevk_declare_gbuffer_attachment`, so a pack needs no Vulkan-only replay
+shader. Owner pipelines add those targets, with UNDEFINED for unused slots.
+The main GBuffer scope binds declared attachment images at index 4+slot. The
+replay pass loads them and skips owner draws, and decal owners write them as
+replace. The 33-check `--gbuffer-attachments-only` gate passes with zero
+errors:
+
+- an R32_UINT attachment carries 777 from the owning invocation (uncovered
+  pixels stay cleared);
+- `GBuffer1.a` carries the pack's 0.5 (stock writes 63/255);
+- velocity stays correct beside both;
+- recording modes agree, and unregistering restores exact stock bits.
+
+The Vulkan-only `GBuffer/<name>.hlsl` write shaders still serve non-owner
+draws.
+
 Still open on this contract:
 
 - voxel owners (not yet native geometry owners);
 - GPU OLD instanced/cube execution fixtures;
 - probe modes;
-- pack attachments and packed `GBuffer1.a`.
+- attachment fixtures on native-cell/GPU owners (they share the format helper).
 
 Both aggregate capability flags stay false.

@@ -87,7 +87,7 @@ internal static class GuestPostprocessStages
             // DX11 compiles every GBuffer permutation against Anomaly's velocity delta;
             // a pack overlay of the same key still wins, exactly as the DX11 resolver does.
             bool velocity=geometry&&(extended&VelocityContract)!=0&&(claims.Any(c=>c.Value.Count==1)||injections.Count!=0||defines.Count!=0);
-            if(velocity)AddVelocitySources(files,stock);
+            if(velocity)AddVelocitySources(files,stock,sources);
             // Publish every unique override before walking includes. Shared headers can
             // affect owners outside their advertised named-stage family, including
             // dependencies introduced by another pack's replacement entry point.
@@ -168,7 +168,7 @@ internal static class GuestPostprocessStages
     }
     // Native owner extension flag8: GBuffer owners admit the set-2 velocity contract.
     internal const ulong VelocityContract=8;
-    static void AddVelocitySources(Dictionary<string,byte[]> files,Dictionary<string,byte[]> stock)
+    static void AddVelocitySources(Dictionary<string,byte[]> files,Dictionary<string,byte[]> stock,PackSourceSnapshot[] sources)
     {
         string shaders=RenderHost.AssetFolder==null?null:Path.Combine(RenderHost.AssetFolder,"Shaders");
         if(shaders==null||!File.Exists(Path.Combine(shaders,"Anomaly.hlsli")))throw new FileNotFoundException("Anomaly shader headers unavailable for the GBuffer velocity contract.");
@@ -179,6 +179,29 @@ internal static class GuestPostprocessStages
             var stockKey=stock.Keys.FirstOrDefault(k=>string.Equals(k,key,StringComparison.OrdinalIgnoreCase))??throw new FileNotFoundException("Keen source missing: "+key);
             files[stockKey]=stock[stockKey]=Encoding.UTF8.GetBytes(ClientPlugin.Contracts.GBufferVelocitySource.Patch(key,stock[stockKey],true));
         }
+        AddAttachmentSources(files,stock,sources);
+    }
+    // DX11 adds ANOMALY_ATTACH_* and ANOMALY_PACK_GBUFFER1A to GBuffer permutations and generates the
+    // attachment fields at SV_Target4+slot. Vulkan owners get the same headers, gated on ANOMALY_VELOCITY
+    // (defined only for admitted GBuffer owners), and each slot's format is declared to the host.
+    static void AddAttachmentSources(Dictionary<string,byte[]> files,Dictionary<string,byte[]> stock,PackSourceSnapshot[] sources)
+    {
+        var live=GuestPassList.SnapshotAttachments().Where(a=>a.Slot>=0&&a.Slot<3&&a.NativeFormat>=0&&a.Status!="format-conflict"&&a.Status!="capacity").GroupBy(a=>a.Slot).Select(g=>g.First()).OrderBy(a=>a.Slot).ToArray();
+        string packed=sources.SelectMany(s=>s.Definition.Attachments).FirstOrDefault(a=>string.Equals(a.Format?.Trim(),"GBuffer1.a",StringComparison.OrdinalIgnoreCase))?.Name?.Trim();
+        var defs=new StringBuilder("#ifndef ANOMALY_GBUFFER_ATTACHMENT_DEFS_HLSLI\n#define ANOMALY_GBUFFER_ATTACHMENT_DEFS_HLSLI\n#ifdef ANOMALY_VELOCITY\n");
+        var fields=new StringBuilder("#ifndef ANOMALY_GBUFFER_ATTACHMENT_FIELDS_HLSLI\n#define ANOMALY_GBUFFER_ATTACHMENT_FIELDS_HLSLI\n");
+        string[] types={"float4","float4","float","float2","uint","float2"};
+        foreach(var a in live)
+        {
+            string macro="ANOMALY_ATTACH_"+a.Name.ToUpperInvariant();int target=4+a.Slot;
+            defs.Append("#define ").Append(macro).Append(" 1\n#define ").Append(macro).Append("_TARGET ").Append(target).Append('\n');
+            fields.Append("#ifdef ").Append(macro).Append("\n    ").Append(types[a.NativeFormat]).Append(' ').Append(a.Name).Append(" : SV_Target").Append(target).Append(";\n#endif\n");
+            if(GuestBridgeClient.Call("DeclareGBufferAttachment",a.Slot,a.NativeFormat) is not true)throw new NotSupportedException("Update coordinated SE-Vulkan: owner GBuffer attachments require attachment slot declaration.");
+        }
+        if(!string.IsNullOrEmpty(packed))defs.Append("#define ANOMALY_ATTACH_").Append(packed.ToUpperInvariant()).Append(" 1\n#define ANOMALY_PACK_GBUFFER1A 1\n#define ANOMALY_ATTACH_PACKED_NAME ").Append(packed).Append('\n');
+        defs.Append("#endif\n#endif\n");fields.Append("#endif\n");
+        files["Anomaly/Extras/GBufferAttachmentDefs.hlsli"]=stock["Anomaly/Extras/GBufferAttachmentDefs.hlsli"]=Encoding.UTF8.GetBytes(defs.ToString());
+        files["Anomaly/Extras/GBufferAttachmentFields.hlsli"]=stock["Anomaly/Extras/GBufferAttachmentFields.hlsli"]=Encoding.UTF8.GetBytes(fields.ToString());
     }
     static byte[] RewriteStockIncludes(string key,byte[] bytes,Dictionary<string,byte[]> stock)
     {

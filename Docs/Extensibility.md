@@ -1849,9 +1849,27 @@ matches the analytic -0.64 px and the indexed replay, pack-written (3, -2)
 reaches Target3, and unregistering restores exact stock bits. The gate drives
 the rigid stream; instanced and cube GPU OLD streams share the same code.
 
+Fade-bank variants of the classic and GPU OLD streams share their base
+stream's per-draw currToPrev rows; the shader applies the fade itself. Blended
+static decals are also admitted. DX11 binds Target3 as an RG replace (blend
+off, RG write mask) for every GBuffer draw, decals included. So Vulkan decal
+owners add a fourth attachment with exactly that state, and their three
+GBuffer blends are unchanged. The classic gate now covers 197 checks:
+
+- the fade-bank owner (2562) matches its replay;
+- the blended-decal owner (128) writes the analytic -1.067 px that the replay
+  never covered;
+- pack-written velocity and exact restoration hold on both.
+
+Voxel GBuffer shaders (classic 20/21) are not native geometry owners on Vulkan:
+they come from the voxel shader library, so packs cannot yet replace them
+through native generations, and there is no voxel owner to emit velocity. DX11
+gives voxels camera-only velocity from the pass-begin block. Adding voxel
+owners is an owner-family gap, not velocity work.
+
 Still open on this contract:
 
-- voxel, blended-decal and fade-bank owners;
+- voxel owners (not yet native geometry owners);
 - GPU OLD instanced/cube execution fixtures;
 - probe modes;
 - pack attachments and packed `GBuffer1.a`.

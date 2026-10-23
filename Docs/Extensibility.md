@@ -1894,6 +1894,23 @@ errors:
 The Vulkan-only `GBuffer/<name>.hlsl` write shaders still serve non-owner
 draws.
 
+Native-cell, GPU NEW and GPU OLD owners write the same attachments from their
+own invocations. Their draws record inside the same main GBuffer scope, so
+they need no separate wiring. The velocity lanes for these paths
+(`--gbuffer-velocity-cells-only`, `--gbuffer-velocity-gpu-only`,
+`--gbuffer-velocity-gpu-old-only`) each add 15 attachment checks, for 55
+each. On each path:
+
+- objectid is 777 at SV_Target4;
+- `GBuffer1.a` is 127 against stock 63;
+- velocity stays correct;
+- recording modes agree;
+- unregistering restores exact GBuffer1 and motion bits.
+
+A declared-only slot has no indexed replay shader. The indexed replay now skips
+it instead of failing with "indexed attachment geometry class unavailable"
+once the owning pack unregisters.
+
 Still open on this contract:
 
 - voxel owners (not yet native geometry owners);

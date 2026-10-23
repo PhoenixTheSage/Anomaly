@@ -11,19 +11,29 @@ producer and native-owner validation does not establish complete plugin behavior
   `RequestFor/ReleaseFor/ReleaseOwner` take an explicit owner. Each new guest
   device replays the union. A disabled DLSS or FSR no longer clears the other's
   bit 4.
-- **HDR display (inputs landed):** core `TonemapInputs` now supplies
-  `Grading` (19 postprocess values in DX11 order), `EnableTonemapping`,
-  `NeedsAlphaLuminance` and `Captured` on both hosts. On Vulkan, the catalog
-  `avgLuminance`, `bloom` and `dirt` are renderer images, valid after the tone
-  stage. Display tenancy, pre-grade handoff and presentation/UI remain:
-  HDR's checked pack registration and 28-float BT.2390 inputs
-  currently live in its DX11 companion and read MyRender11 postprocess/MyCommon.
-  Core has no TonemapInputs facade or equivalent captured grading-value service.
-  DisplayServices flags do not expose output detection/state, UI transfer,
-  screenshots, tearing or queue-latency controls. GuestColor.HasDisplay always
-  returns true; it does not certify an active HDR tenant. Defer affected HDR
-  functions until the host owns captured inputs, display ownership/readiness,
-  pre-grade color/exposure/bloom handoff and presentation/UI services.
+- **HDR display (tenancy landed on Vulkan):** these pieces now exist:
+  - Core `TonemapInputs` supplies `Grading` (19 values in DX11 order),
+    `EnableTonemapping`, `NeedsAlphaLuminance` and `Captured` on both hosts.
+    `RenderClock` supplies frame time.
+  - `GuestColor.HasDisplay` is derived from enabled Display-policy AfterUpscale
+    registrations. Anomaly requests display bit 16 for it, and Display programs
+    and their merges carry packet flag 16384.
+  - On an HDR swapchain the renderer grades them at the tone position into FP16,
+    in place of Keen's tonemap, as DX11 `CompleteDisplayWithoutUpscale` does.
+    They read pre-tonemap HDR plus the `avgLuminance`, `bloom` and `dirt`
+    renderer images. Guest frame service bit 32 confirms the grade.
+  - LDR billboards, FXAA, highlights and chromatic then draw into that FP16
+    image. DLSS (IsHDR) and FSR upscale it.
+  - Without an HDR display, Display programs never run and the stock tonemap
+    stands.
+  - `DisplayServices.SetHdrUi` applies HdrRender's HUD paper white, gain,
+    shoulder and peak to presented sprites on the HDR swapchain.
+  - HdrRender registers its pack and writes uniforms on Vulkan through these
+    facades.
+
+  Still open: display output detection and state, screenshots, tearing and
+  queue-latency controls. HUD sprites use a per-sprite transform rather than
+  DX11's composited UI layer.
 - **RayScene:** the geometry/material/light frame snapshot, completion,
   far-sun product and opaque-lighting ownership remain DX11-only. Core compiles
   Backend and selected shared files, with no RayScene facade. SE-RT's renderer

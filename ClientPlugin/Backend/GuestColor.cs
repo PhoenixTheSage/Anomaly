@@ -40,7 +40,25 @@ static class GuestColor
     public static string UpscaleId => upscaleId ?? "";
     public static bool HasUpscale => !string.IsNullOrEmpty(upscaleId);
     public static bool Notified => notified;
-    public static bool HasDisplay => true;
+    /// <summary>True while a Display-policy AfterUpscale program is registered and enabled, as DX11 derives the tenant.</summary>
+    public static bool HasDisplay => displayTenant;
+    static bool displayTenant;
+    const string DisplayOwner = "anomaly.display-tenant";
+
+    /// <summary>
+    /// Derives display tenancy from active registrations and requests the renderer's tenant service. The renderer
+    /// grades only on an HDR swapchain once the program's pipeline is ready (guest frame service bit 32).
+    /// </summary>
+    internal static void SyncDisplay()
+    {
+        bool tenant = false;
+        foreach (var program in GuestPassList.Snapshot())
+            if (program.Mark == GuestMark.AfterUpscale && (program.Policy & 8) != 0 && program.Enabled && !program.ConflictDisabled) { tenant = true; break; }
+        if (tenant == displayTenant) return;
+        displayTenant = tenant;
+        if (tenant) ClientPlugin.Shaders.DisplayServices.RequestFor(DisplayOwner, ClientPlugin.Shaders.DisplayServices.DisplayTenant);
+        else ClientPlugin.Shaders.DisplayServices.ReleaseFor(DisplayOwner, ClientPlugin.Shaders.DisplayServices.DisplayTenant);
+    }
 
     public static string Status => HasUpscale ? "upscale=" + upscaleId : "upscale=bilinear";
 

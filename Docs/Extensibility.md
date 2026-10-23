@@ -10,9 +10,11 @@ identifies consumer contracts still needed after the producer/native-owner work:
   through reflection. `RequestFor/ReleaseFor/ReleaseOwner` name the owner
   explicitly. Each new guest device replays the union, and DLSS/FSR release
   their bit on dispose.
-- Captured TonemapInputs/postprocess grading values, exclusive display readiness
-  and ownership, pre-grade/exposure/bloom handoff and presentation/UI services
-  for HDR. An FP16 request and GuestColor.HasDisplay=true are insufficient.
+- Resolved on Vulkan: portable TonemapInputs grading values and display
+  tenancy. Display-policy programs grade at the tone position into FP16 on an
+  HDR swapchain, and the LDR overlays, FXAA and chromatic follow in FP16.
+  `DisplayServices.SetHdrUi` sets the HUD transform. Display detection,
+  screenshot, tearing and latency services remain open.
 - A device-free RayScene frame/material/light/geometry/completion/far-sun and
   portable lighting/output contract. SE-RT's native sun query does not replace
   the DX11 scene and reconstruction stack.

@@ -378,6 +378,8 @@ public static class DisplayServices
     public const int Hdr = 1;
     public const int FrameGeneration = 2;
     public const int TemporalUpscale = 4;
+    /// <summary>Anomaly's display tenant request; owned by Anomaly, not by packs.</summary>
+    public const int DisplayTenant = 16;
     const int Managed = 0xFFFF;
 
     static readonly object Gate = new object();
@@ -459,8 +461,32 @@ public static class DisplayServices
         }
     }
 
-    /// <summary>A new guest device starts with no display flags; resend the union.</summary>
-    internal static void RestoreDevice() => Push(true);
+    static float[] hdrUi;
+
+    /// <summary>
+    /// HUD brightness on an HDR swapchain, matching HdrRender's DX11 UI composite: scene paper white (nits) times
+    /// uiGain, an inverse-Reinhard shoulder, and a peak cap (nits). paperWhiteNits 0 disables. DX11 composites
+    /// its own UI layer, so this applies on Vulkan only.
+    /// </summary>
+    public static void SetHdrUi(float paperWhiteNits, float uiGain, float shoulder, float peakNits)
+    {
+        var values = new[] { Math.Max(0f, paperWhiteNits * uiGain) / 80f, Math.Max(0f, Math.Min(.9f, shoulder)), Math.Max(0f, peakNits) / 80f };
+        lock (Gate)
+        {
+            if (hdrUi != null && hdrUi[0] == values[0] && hdrUi[1] == values[1] && hdrUi[2] == values[2]) return;
+            hdrUi = values;
+        }
+        if (RendererRoute.UseGuestImages) GuestBridgeClient.SetHdrUi(values[0], values[1], values[2]);
+    }
+
+    /// <summary>A new guest device starts with no display flags or HUD transform; resend both.</summary>
+    internal static void RestoreDevice()
+    {
+        Push(true);
+        float[] ui;
+        lock (Gate) ui = hdrUi;
+        if (ui != null && RendererRoute.UseGuestImages) GuestBridgeClient.SetHdrUi(ui[0], ui[1], ui[2]);
+    }
 
     static void Push(bool force)
     {

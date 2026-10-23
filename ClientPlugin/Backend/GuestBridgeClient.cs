@@ -46,6 +46,8 @@ static class GuestBridgeClient
     }
 
     internal const int ClassicNullResources = 8388608;
+    /// <summary>Packet flag marking a Display-policy AfterUpscale program (HDR display tenancy).</summary>
+    internal const int DisplayGrade = 16384;
 
     public static ulong CreatePipeline(byte[] vs, byte[] ps, string vsEntry, string psEntry)
     {
@@ -287,6 +289,8 @@ static class GuestBridgeClient
             // independent DX11 merge equations apply afterward at destination size.
             int flags=program.Flags;
             if(SupportsPacketFlags(EarlyOwnedProducers)&&IsEarlyOwned(program))flags|=4096;
+            // Display-policy AfterUpscale programs: the renderer grades them at the tone position on an HDR display.
+            if(program.Mark==GuestMark.AfterUpscale&&(program.Policy&8)!=0)flags|=DisplayGrade;
             if(program.Id=="anomaly.owned.HistoryCopy")
             {
                 // Copy immutable command values now, then append capture after all
@@ -313,7 +317,7 @@ static class GuestBridgeClient
                 {
                     GuestTemporal.FromIsolated(programs,program,storage);
                     previous=storage;lastChain=compose==3;
-                    if(compose!=3 && compose!=5)Merge(programs,program.Mark,storage,MergeMode(compose));
+                    if(compose!=3 && compose!=5)Merge(programs,program.Mark,storage,MergeMode(compose),flags&DisplayGrade);
                 }
             }
             if(!string.IsNullOrEmpty(program.HistoryName) && program.HistoryImage!=0)
@@ -395,12 +399,13 @@ static class GuestBridgeClient
         foreach(var p in programs)if(p!=null && p.Helper && p.Id=="anomaly.helper.Merge"+mode)return p.Pipeline;
         return 0;
     }
-    static bool Merge(System.Collections.Generic.IReadOnlyList<GuestProgram> programs,int mark,ulong source,int mode)
+    // A Display program's merge carries DisplayGrade so the renderer composites it at the tone position too.
+    static bool Merge(System.Collections.Generic.IReadOnlyList<GuestProgram> programs,int mark,ulong source,int mode,int flags=0)
     {
         ulong pipeline=MergePipeline(programs,mode);if(pipeline==0)return false;
         var dimensions=new GuestProgram{Mark=mark,Scale=1f,Compose="Replace"};PassSize(dimensions,out int width,out int height);
         var sampled=new ulong[14];sampled[0]=source;sampled[1]=mark>=5?Upscale:Hdr;
-        Call("Submit",mark,4,width,height,pipeline,Hdr,Array.Empty<byte>(),sampled,0);return true;
+        Call("Submit",mark,4,width,height,pipeline,Hdr,Array.Empty<byte>(),sampled,flags);return true;
     }
 
     static System.Collections.Generic.IEnumerable<GuestProgram> Ordered(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
@@ -585,6 +590,7 @@ static class GuestBridgeClient
 
     public static void SetUpscaleOwner(string id) => Call("SetUpscaleOwner", id ?? "");
     internal static float[] TonemapValues() => Call("TonemapValues") as float[];
+    internal static void SetHdrUi(float paperWhite, float shoulder, float peak) => Call("SetHdrUi", paperWhite, shoulder, peak);
     internal static double FrameSeconds() => Call("FrameSeconds") is double seconds ? seconds : 0;
     internal static ulong[] TonemapInputImages() => Call("TonemapInputImages") as ulong[];
 

@@ -263,6 +263,7 @@ public static class RenderHost
     {
         if(!IsVulkan||string.IsNullOrEmpty(assetFolder)||!GuestDevice.Synchronize())return;
         GuestVelocityProbe.Apply();
+        GuestColor.SyncDisplay();
         GuestNamedStages.DeferActivation=true;
         long revision;lock(GuestPassList.Gate)revision=GuestPassList.SourceRevision;
         if(GuestCompiler.HasPending)GuestCompiler.CompilePending(assetFolder);

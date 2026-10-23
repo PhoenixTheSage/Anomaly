@@ -39,6 +39,7 @@ static partial class Program
             Require(ReferenceEquals(p.PixelSpirv, binaries[i++]), "retry unnecessarily recompiled HLSL");
         }
         Require(!GuestCompiler.HasPending, "ready programs should not trigger repeated compilation");
+        if(Array.IndexOf(args,"--ssgi-feedback-gpu")>=0){NativeProbe.SsgiFeedbackGpu(assets,root);NativeProbe.Close();return;}
         if(Array.IndexOf(args,"--owned-stage-gpu")>=0){NativeProbe.OwnedStageGpu(assets);NativeProbe.Close();return;}
         if(Array.IndexOf(args,"--portable-gpu")>=0){PortableContracts();NativeProbe.PortableGpuContracts();NativeProbe.CapturedPackGpu(assets);NativeProbe.Close();return;}
         ResourceContracts();
@@ -75,7 +76,9 @@ static partial class Program
             File.WriteAllText(mipProbe, "Texture2D<float4> Source : register(t0); SamplerState Linear : register(s1); cbuffer Params : register(b7) { float4 Params; }; float4 __pixel_shader(float4 p : SV_Position, float2 uv : TEXCOORD0) : SV_Target0 { return float4(Source.SampleLevel(Linear, uv, Params.x).rgb * 0.25, 1); }");
             GuestPassList.AddProgram("fixture.mips", "AfterLighting", mipProbe, "PublishOnly");
             GuestCompiler.CompilePending(assets);
-            NativeProbe.DrawMipProbe(GuestPassList.Snapshot().Single(p => p.Id == "fixture.mips").Pipeline);
+            var mipSampler = GuestPassList.Snapshot().Single(p => p.Id == "fixture.mips");
+            Require(mipSampler.Pipeline != 0, "lit mip consumer pipeline unavailable: " + mipSampler.Status + "; " + mipSampler.Error);
+            NativeProbe.DrawMipProbe(mipSampler.Pipeline);
             string boxProbe = Path.Combine(Path.GetTempPath(), "anomaly-guest-sources", "box-probe.hlsl");
             File.WriteAllText(boxProbe, File.ReadAllText(Path.Combine(assets, "Shaders/OccupancyStamp.hlsl")).Replace("void __compute_shader(", "void OriginalStamp(") +
                 "\n[numthreads(64,1,1)] void __compute_shader(uint3 id : SV_DispatchThreadID) { if(id.x==0) { Occupancy[uint2(0,0)]=BoxCount; Occupancy[uint2(1,0)]=Dim; Occupancy[uint2(2,0)]=Boxes[0].center.x; Occupancy[uint2(3,0)]=Boxes[0].halfExt.x; Occupancy[uint2(4,0)]=Boxes[64].center.x; } }\n");
@@ -114,16 +117,17 @@ static partial class Program
 
     static void Occupancy()
     {
+        int savedFlags = GuestBridge.SupportedPacketFlags;
         var programs = GuestPassList.Snapshot();
         var splat = programs.Single(p => p.Id == GuestOccupancy.SplatId);
         GuestOccupancy.Request(false);
         GuestBridgeClient.Submit(programs);
         Require(ClientPlugin.Buffers.BufferCatalog.Active("occupancy") == null, "unrequested occupancy published");
         GuestOccupancy.Request(true);
-        GuestBridge.SupportedPacketFlags = 15;
+        GuestBridge.SupportedPacketFlags = savedFlags & ~48;
         GuestBridgeClient.Submit(programs);
         Require(ClientPlugin.Buffers.BufferCatalog.Active("occupancy") == null && splat.Status == "capability-missing", "old native falsely advertised occupancy");
-        GuestBridge.SupportedPacketFlags = 63;
+        GuestBridge.SupportedPacketFlags = savedFlags | 48;
         GuestBridgeClient.Submit(programs);
         var packet = GuestBridge.Packets.Single(p => p.Pipeline == splat.Pipeline);
         Require(packet.Width == SceneView.Width && packet.Height == SceneView.Height, "occupancy dispatch used atlas dimensions");
@@ -163,6 +167,7 @@ static partial class Program
         GuestBridgeClient.Submit(programs);
         Require(ClientPlugin.Buffers.BufferCatalog.Active("occupancy") == null, "clear request retained stale occupancy");
         Console.WriteLine("PASS: occupancy demand/capability/scene gating, dispatch/catalog sizes, depth input and world-box policy");
+        GuestBridge.SupportedPacketFlags = savedFlags;
     }
 
     static void Publication()
@@ -195,16 +200,17 @@ static partial class Program
 
     static void LitMips()
     {
+        int savedFlags = GuestBridge.SupportedPacketFlags;
         var programs = GuestPassList.Snapshot();
         var lit = programs.Single(p => p.Id == "anomaly.owned.LitMips");
         GuestOwned.RequestLitMips(0);
         GuestBridgeClient.Submit(programs);
         Require(ClientPlugin.Buffers.BufferCatalog.Active("litMips") == null, "unrequested lit mips allocated");
         GuestOwned.RequestLitMips(5);
-        GuestBridge.SupportedPacketFlags = 7;
+        GuestBridge.SupportedPacketFlags = savedFlags & ~8;
         GuestBridgeClient.Submit(programs);
         Require(ClientPlugin.Buffers.BufferCatalog.Active("litMips") == null && lit.Status == "capability-missing", "older renderer falsely published ungenerated mips");
-        GuestBridge.SupportedPacketFlags = 15;
+        GuestBridge.SupportedPacketFlags = savedFlags;
         GuestBridgeClient.Submit(programs);
         Require(lit.Status == "pipeline" && lit.Error == null, "capability recovery left stale failure");
         Require((lit.ImageFormat >> 16) == 5, "explicit lit mip count missing");

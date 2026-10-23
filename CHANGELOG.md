@@ -2,6 +2,15 @@
 
 Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage below is reconstructed from repository history so the current version reflects shipped capability rather than the inherited SE-DLSS version.
 
+## 1.14.0 — 2026-10-23
+
+- Share pack admission, authenticated immutable source capture, stage reservations, binding diagnostics and fenced catalog upload/target ownership across renderers.
+- Activate coordinated frame-boundary native generations for owned raster, lighting/postprocess, atmosphere/foliage, decals, probes, particles, shadows, geometry, OIT, glass/holo and billboard owners, with rollback and execution evidence.
+- Generate same-invocation GBuffer velocity and pack attachment headers for admitted classic, skinned, instanced/cube, native-cell and GPU geometry owners.
+- Restore portable callbacks and temporal participation; isolate fullscreen composition/null resources, freeze previous-frame histories and capture late render-sized color history.
+- Add the shared Vulkan velocity debug probe, celestial probe-face shader variant and strict stage-interface checks; extend SSGI feedback and owner regressions.
+- Record plugin parity audit findings, host-blocked clock/display/debug capabilities and scoped native-owner acceptance.
+
 ## 1.13.0 — 2026-10-17
 
 - Add feature-gated guest pipelines, extended resources/constants, atomic batch submission, format validation, and recovery-aware compiler/pipeline diagnostics.

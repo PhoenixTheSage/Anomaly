@@ -12,6 +12,7 @@ static partial class Program
 {
     static void PointShadows(string assets)
     {
+        int savedFlags = GuestBridge.SupportedPacketFlags;
         Require(NativeProbe.Supports(448), "native shadow geometry features missing; rebuild native");
         var all = GuestPassList.Snapshot();
         var geometry = all.Single(p => p.Id == GuestPointShadows.GeometryId);
@@ -64,10 +65,10 @@ static partial class Program
         Require(GuestCharacterGeometry.CopyTriangles(unusedVertex,blend,unusedWeights,new[]{Matrix.Identity},new[]{triangles}).SequenceEqual(mesh),
             "unreferenced zero-weight vertex invalidated opaque indexed geometry");
         GuestOccupancy.LocalActorId=20; GuestOccupancy.RequestPointShadows(6,face);
-        GuestBridge.SupportedPacketFlags=63;
+        GuestBridge.SupportedPacketFlags=savedFlags & ~448;
         GuestBridgeClient.Submit(programs);
         Require(BufferCatalog.Active("pointShadowAtlas")==null && geometry.Status=="capability-missing", "older guest advertised a character atlas");
-        GuestBridge.SupportedPacketFlags=511;
+        GuestBridge.SupportedPacketFlags=savedFlags | 511;
         GuestBridge.MirrorGpu=NativeProbe.Enabled;
         void Submit()
         {
@@ -123,7 +124,7 @@ static partial class Program
             string source=Path.Combine(Path.GetTempPath(),"anomaly-guest-sources","point-sampler-probe.hlsl");
             File.WriteAllText(source,"#include <AnomalyPointShadows.hlsli>\nTexture2D<float4> Atlas : register(t7); float4 __pixel_shader(float4 p:SV_Position,float2 uv:TEXCOORD0):SV_Target0 { uint row=AnomalyPointShadowMatchRow(Atlas,float3(4,0,-8),20); float visibility=AnomalyPointShadowVisibility(Atlas,row,float3(uv.x<.5?-1:1,0,0),8,.01); return float4(visibility,1-visibility,0,1); }\n");
             GuestPassList.AddProgram("fixture.pointsampler","AfterLighting",source,"PublishOnly");GuestCompiler.CompilePending(assets);
-            var sampler=GuestPassList.Snapshot().Single(p=>p.Id=="fixture.pointsampler");Require(sampler.Pipeline!=0,"shared point sampler pipeline missing");
+            var sampler=GuestPassList.Snapshot().Single(p=>p.Id=="fixture.pointsampler");Require(sampler.Pipeline!=0,"shared point sampler pipeline missing: "+sampler.Status+"; "+sampler.Error);
             NativeProbe.ImageCreate(930,8,8,1,0);NativeProbe.ResetQueue();var sampled=new ulong[14];sampled[7]=geometry.StorageImage;
             NativeProbe.Queue(1,5,8,8,sampler.Pipeline,930,Array.Empty<byte>(),sampled,0);NativeProbe.Replay(1);
             var pixels=NativeProbe.ReadRaw(930,8*8*4);
@@ -160,6 +161,7 @@ static partial class Program
         GuestOccupancy.RequestPointShadows(0,face);GuestPointShadows.RequestWorldBoxes(false);GuestBridgeClient.Submit(programs);
         GuestBridge.MirrorGpu=false;GuestBridge.FrameOverride=null;GuestBridge.Character=null;
         SceneView.Width=savedWidth;SceneView.Height=savedHeight;
+        GuestBridge.SupportedPacketFlags=savedFlags;
         Console.WriteLine((NativeProbe.Enabled?"GPU PASS: ":"PASS: ")+"shared character atlas/mask submission, skin equation, six faces, independent observer, animated pose, world boxes and missing-producer cleanup");
     }
 

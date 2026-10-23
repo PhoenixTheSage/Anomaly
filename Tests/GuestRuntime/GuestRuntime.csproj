@@ -12,6 +12,7 @@
     <Compile Include="TargetContracts.cs" />
     <Compile Include="FrameContracts.cs" />
     <Compile Include="ColorHistoryContracts.cs" />
+    <Compile Include="SsgiFeedbackGpu.cs" />
     <Compile Include="CompositionContracts.cs" />
     <Compile Include="TemporalContracts.cs" />
     <Compile Include="PortableContracts.cs" />

@@ -434,7 +434,7 @@ static class GuestBridgeClient
         for (int i = 0; i < programs.Count; i++)
         {
             var program = programs[i];
-            if (program == null || !program.Enabled || program.Pipeline == 0 || (program.Flags & DepthTest) == 0)
+            if (program == null || !program.Enabled || program.Pipeline == 0 || (program.Flags & DepthTest) == 0 || (program.Flags & ProbeFace) != 0)
                 continue;
             if (!GuestColor.NativeGlare(program.Id))
                 return true;
@@ -442,6 +442,9 @@ static class GuestBridgeClient
         return false;
     }
 
+    internal const string CelestialProbeSuffix = ".probe";
+    /// <summary>Native owner capability flag64: probe-face celestial passes.</summary>
+    internal const ulong CelestialProbeFeature = 64;
     public const ulong Hdr = 0xFFFF000000000001UL;
     public const ulong Depth = 0xFFFF000000000002UL;
     public const ulong GBuffer0 = 0xFFFF000000000003UL;
@@ -471,6 +474,8 @@ static class GuestBridgeClient
     internal static object[] CaptureSceneDepth()=>Call("CaptureSceneDepth") as object[];
     public const int Viewport = 128;
     public const int ClearFar = 256;
+    /// <summary>Celestial probe variant: draws on each environment-probe face, never at its frame mark.</summary>
+    public const int ProbeFace = 512;
 
     internal static bool SupportsPacketFlags(int flags)
     {
@@ -545,6 +550,8 @@ static class GuestBridgeClient
         }
         if (id.EndsWith(".present", StringComparison.Ordinal))
             sampled[7] = Catalog("sharedVolume." + id.Substring(0, id.Length - ".present".Length));
+        // A celestial probe variant reads its provider's data and art.
+        if ((program.Flags & ProbeFace) != 0 && id.EndsWith(CelestialProbeSuffix, StringComparison.Ordinal)) id = id.Substring(0, id.Length - CelestialProbeSuffix.Length);
         if (GuestColor.Celestial.Data.TryGetValue(id, out var data))
             sampled[1] = data;
         if (id.EndsWith("CameraVelocity", StringComparison.Ordinal))

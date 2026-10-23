@@ -13,7 +13,19 @@ From the Anomaly repository:
 ```powershell
 dotnet run --project Tests/GuestRuntime -c Release -- .
 dotnet run --project Tests/GuestRuntime -c Release -- . --packs --gpu
+dotnet run --project Tests/GuestRuntime -c Release -- . --gpu --ssgi-feedback-gpu
 ```
+
+`--ssgi-feedback-gpu` runs 778 targeted Vulkan feedback checks using the real
+SSGI temporal, moments, spatial, history-copy, composite and previous-scene
+programs. Controlled trace/depth/normal input isolates feedback from stochastic
+tracing. Covers half/quarter resolution, 0/3/7 spatial iterations, retained
+filtered HDR radiance/variance, history invalidation and diffuse/metal gating.
+It manually queues the production shader chain; adapter scheduling and core
+ordering are tested separately. `ANOMALY_TEST_NATIVE_DLL` selects a private
+native build; `VK_LAYER_PATH` locates SDK validation layers. Enable
+`VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT` in
+`VK_LAYER_ENABLES` when reproducing the recorded validation run.
 
 The base lane compiles all ten owned programs with the real compiler, verifies renderer-unavailable recovery without recompiling, and verifies terminal HLSL diagnostics. Production GuestBridgeClient drives a recording renderer/catalog fixture to check scene resolution, Hi-Z size, depth ping-pong and history invalidation on resize. Lit-mip checks cover explicit/automatic demand, sticky maximum, producer order, small-size clamping, disabling consumers and missing native capability/recovery. Occupancy checks cover demand/features/scene gating, current-depth provenance, output/dispatch dimensions, world-box exclusions and large-coordinate subtraction, incumbent selection and bounded work. Those packet checks are not GPU execution evidence.
 

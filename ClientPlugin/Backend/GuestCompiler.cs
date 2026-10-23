@@ -69,8 +69,8 @@ static class GuestCompiler
             if (vertexSpirv == null)
                 vertexSpirv = Compile(bundled, WriteTemp("anomaly-guest-vs.hlsl", VertexSource), "main", "vs_5_0", assetFolder);
             PrepareVolume(assetFolder);
-            string celestialIncludes = WriteCelestialIncludes();
-            CompilePrograms(bundled,assetFolder,GuestPassList.Snapshot(),celestialIncludes);
+            string celestialIncludes = WriteCelestialIncludes(false), celestialProbeIncludes = WriteCelestialIncludes(true);
+            CompilePrograms(bundled,assetFolder,GuestPassList.Snapshot(),celestialIncludes,celestialProbeIncludes);
             foreach (var attachment in GuestPassList.SnapshotAttachments())
             {
                 if (attachment.Slot < 0)
@@ -103,12 +103,12 @@ static class GuestCompiler
         try
         {
             if(vertexSpirv==null)vertexSpirv=Compile(bundled,WriteTemp("anomaly-guest-vs.hlsl",VertexSource),"main","vs_5_0",assetFolder);
-            CompilePrograms(bundled,assetFolder,programs,null);
+            CompilePrograms(bundled,assetFolder,programs,null,null);
         }
         finally{(bundled as IDisposable)?.Dispose();}
     }
 
-    static void CompilePrograms(object bundled,string assetFolder,System.Collections.Generic.IReadOnlyList<GuestProgram> programs,string celestialIncludes)
+    static void CompilePrograms(object bundled,string assetFolder,System.Collections.Generic.IReadOnlyList<GuestProgram> programs,string celestialIncludes,string celestialProbeIncludes)
     {
         foreach (var program in programs)
         {
@@ -121,7 +121,7 @@ static class GuestCompiler
             }
 
             bool compute = (program.Flags & GuestBridgeClient.Compute) != 0;
-            string firstInclude = (program.Flags & GuestBridgeClient.DepthTest) != 0 ? celestialIncludes : null;
+            string firstInclude = (program.Flags & GuestBridgeClient.DepthTest) == 0 ? null : (program.Flags & GuestBridgeClient.ProbeFace) != 0 ? celestialProbeIncludes : celestialIncludes;
             if (compute) program.VertexSpirv = new byte[] { 1, 0, 0, 0 };
             else if (string.IsNullOrEmpty(program.VertexFile)) program.VertexSpirv = vertexSpirv;
             else if (program.VertexSpirv == null)
@@ -377,9 +377,10 @@ static class GuestCompiler
         "  return float4(VolumeScatter.Load(int3(uint2(position.xy), 0)).rgb, 0);\n" +
         "}\n";
 
-    static string WriteCelestialIncludes()
+    // probe selects DX11's ANOMALY_CELESTIAL_PROBE entry: face rays, isProbe=1 and no scene fog.
+    static string WriteCelestialIncludes(bool probe)
     {
-        string dir = Path.Combine(Path.GetTempPath(), "anomaly-guest-celestial");
+        string dir = Path.Combine(Path.GetTempPath(), probe ? "anomaly-guest-celestial-probe" : "anomaly-guest-celestial");
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "Frame.hlsli"),
             "struct AnomalyGuestLight { float3 directionalLightVec; float SunDiscIntensity; float3 SunDiscColor; float skyboxBrightness; float3 directionalLightColor; float envSkyboxBrightness; };\n" +
@@ -407,7 +408,7 @@ static class GuestCompiler
             "  float2 ndc = uv * float2(2, -2) + float2(-1, 1);\n" +
             "  float3 localRay = float3(ndc / max(CelestialView.zw, float2(1e-4, 1e-4)), -1);\n" +
             "  input.direction = normalize(float3(dot(localRay, CelestialViewR0.xyz), dot(localRay, CelestialViewR1.xyz), dot(localRay, CelestialViewR2.xyz)));\n" +
-            "  input.isProbe = 0;\n" +
+            (probe ? "  input.isProbe = 1;\n" : "  input.isProbe = 0;\n") +
             "  input.angularPixel = AnomalyCelestialFootprint(input.direction);\n" +
             "  input.directionDx = ddx(input.direction); input.directionDy = ddy(input.direction);\n" +
             "  input.sunDirection = normalize(-frame_.Light.directionalLightVec);\n" +
@@ -416,7 +417,7 @@ static class GuestCompiler
             "  if (AnomalyCelestialDepth.Load(int3(uint2(position.xy), 0)) > 0) discard;\n" +
             "  float3 color = AnomalyEvaluateCelestial(input);\n" +
             "  if (!all(isfinite(color))) discard;\n" +
-            "  color = lerp(max(color, 0), frame_.Fog.color, frame_.Fog.sky);\n" +
+            (probe ? "" : "  color = lerp(max(color, 0), frame_.Fog.color, frame_.Fog.sky);\n") +
             "  return float4(max(color, 0), 1);\n" +
             "}\n");
         return dir;

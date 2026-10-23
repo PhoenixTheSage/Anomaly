@@ -259,6 +259,7 @@ public static class CelestialBackgroundRegistry
         if (RendererRoute.UseDx11Device) { Device("SetNativeSunGlare", id, enabled); return; }
         GuestColor.SetGlare(id, enabled);
     }
+    static string Probe(string id) => id + GuestBridgeClient.CelestialProbeSuffix;
     public static bool Register(string id, string shaderFile)
     {
         if (RendererRoute.UseDx11Device)
@@ -267,23 +268,32 @@ public static class CelestialBackgroundRegistry
             return false;
         GuestPassList.AddProgram(id, "AfterLighting", shaderFile, "Replace");
         GuestPassList.SetFlags(id, GuestBridgeClient.DepthTest, 0);
+        // DX11 also draws the provider on every environment-probe face (CelestialProbePatch).
+        if (GuestBridgeClient.Call("NativeOwnerFeatures") is ulong features && (features & GuestBridgeClient.CelestialProbeFeature) != 0)
+        {
+            GuestPassList.AddProgram(Probe(id), "AfterLighting", shaderFile, "Replace");
+            GuestPassList.SetFlags(Probe(id), GuestBridgeClient.DepthTest | GuestBridgeClient.ProbeFace, 0);
+        }
         return true;
     }
     public static void Unregister(string id)
     {
         if (RendererRoute.UseDx11Device) { Device("Unregister", id); return; }
         GuestPassList.SetEnabled(id, false);
+        GuestPassList.SetEnabled(Probe(id), false);
     }
     public static void SetEnabled(string id, bool enabled)
     {
         if (RendererRoute.UseDx11Device) { Device("SetEnabled", id, enabled); return; }
         GuestPassList.SetEnabled(id, enabled);
+        GuestPassList.SetEnabled(Probe(id), enabled);
     }
     public static void Retry(string id) => Device("Retry", id);
     public static void SetUniforms(string id, float[] values)
     {
         if (RendererRoute.UseDx11Device) { Device("SetUniforms", id, values); return; }
         GuestPassList.SetUniforms(id, values);
+        GuestPassList.SetUniforms(Probe(id), values);
     }
     public static void SetData(string id, float[] values)
     {

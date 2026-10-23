@@ -820,6 +820,87 @@ validation errors:
 - the additive pipelines survive an HDR format switch;
 - recording modes agree, and unregistering restores exact stock bits.
 
+### Owner stage interfaces follow Vulkan interface matching
+
+Owner VS/PS (and GS) pairs and fullscreen owners were linked by exact
+per-Location formats. Some checks also required `flat` to agree, and none
+understood `Component` decorations. That refused legal interfaces. One shared
+matcher (`Native/src/stage_interface.h`) now checks the rules from the
+specification's Interface Matching section:
+
+- every consumer input needs a producer output at the same Location and
+  Component, with the same component type, width, matrix columns and array
+  length;
+- with `maintenance4` (enabled when the device reports it), the output vector
+  may carry more components than the input;
+- interpolation decorations (`flat`, `noperspective`, `centroid`, `sample`) are
+  exempt;
+- outputs that the next stage does not read are legal;
+- overlapping output Component slots, and 16/32-bit vectors that span a
+  Location, are refused.
+
+The matcher covers decal, transparent, billboard, particle and foliage
+owners, and the GPU indexed stock pairs. Fullscreen owners (postprocess,
+lighting, atmosphere, probe processing, OIT) are checked against the stock
+fullscreen VS outputs, reflected when that shader loads. A refusal happens
+before activation and keeps the previous owner.
+
+Evidence:
+
+- The 19-case CPU test (`stage_interface`) covers widening, Component
+  packing, interpolation exemptions, unread outputs, built-ins, type,
+  signedness, width, array and overlap failures.
+- The GPU lane `--stage-interface-only` passes 18 checks with zero validation
+  errors, using OIT resolve owners:
+  - a scalar `TEXCOORD0` input reads the x of the float2 fullscreen output
+    exactly (the centre pixel scales by 2*32.5/64);
+  - a `nointerpolation float2` input links and executes;
+  - an `int` input ("type mismatch") and an input with no producer output
+    ("no matching output") are refused, and the previous owner stays active.
+
+### GBuffer velocity developer probes
+
+`Config.VelocityProbe` now applies on Vulkan, as on DX11. Anomaly forwards it
+between frames (`SetGBufferVelocityProbe`, native
+`sevk_set_gbuffer_velocity_probe`); older hosts keep stock motion. Every owner
+reads the mode as b0 `AnomalyProbeMode`, which covers classic, cell, GPU NEW
+and GPU OLD owners. Target3 handling follows DX11's `ClearTarget` and
+`ApplySchedulerEndProbe`:
+
+- **TargetClear** clears Target3 to +X, and geometry overwrites it.
+- **MrtWrite** clears to −X. The PS b1 (DX11 b7) payload is (8, 0, 1, 0), so the
+  owning invocation emits +X.
+- **HistoryCoverage** reports +X for a previous-world hit and +Y for a miss.
+- **PassEndClear** clears Target3 to +X after every owner and replay draw.
+
+The replay pass uses the same clear values. Draws without owners still
+replay real motion, because they have no owner shader to probe.
+
+### Celestial providers on environment-probe faces
+
+On DX11, `CelestialProbePatch` draws the registered provider's
+`ANOMALY_CELESTIAL_PROBE` variant on every environment-probe face, after
+`MyEnvProbeProcessing.RunForwardPostprocess`. Vulkan now does the same.
+
+When the host advertises native owner flag64,
+`CelestialBackgroundRegistry.Register` also adds an `<id>.probe` program
+flagged `ProbeFace` (512):
+
+- it compiles against a probe entry (`isProbe=1`, face rays, no scene fog);
+- it reads its provider's data and art;
+- it follows the provider's enable state and uniforms;
+- it never owns glare.
+
+Native skips flag-512 passes at their frame mark. Instead it draws them on
+each probe cube's face, right after that face's ForwardPostprocess:
+
+- b6 view block: the face view's rotation rows, then
+  (face size, face size, projection M11, projection M22);
+- depth: the face depth, both sampled and attached read-only;
+- target: the face (B10G11R11), loaded.
+
+This closes the Codex plugin audit's P5 host path.
+
 Still open on this contract:
 
 - voxel owners (not yet native geometry owners);

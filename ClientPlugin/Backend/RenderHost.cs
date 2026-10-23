@@ -262,6 +262,7 @@ public static class RenderHost
     public static void PrepareShaderGenerations()
     {
         if(!IsVulkan||string.IsNullOrEmpty(assetFolder)||!GuestDevice.Synchronize())return;
+        GuestVelocityProbe.Apply();
         GuestNamedStages.DeferActivation=true;
         long revision;lock(GuestPassList.Gate)revision=GuestPassList.SourceRevision;
         if(GuestCompiler.HasPending)GuestCompiler.CompilePending(assetFolder);

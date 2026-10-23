@@ -1,5 +1,62 @@
 # Framework gaps
 
+## Dual-renderer plugin audit — remaining consumer blockers (2026-10-23)
+
+These are function-level deferrals, not a claim of plugin parity. Existing
+producer and native-owner validation does not establish complete plugin behavior.
+
+- **Display service ownership:** `DisplayServices.Request/Release(int)` has no
+  client identity. DLSS and FSR both update bit 4; the disabled plugin's release
+  can clear the enabled plugin's request because native masked flags are
+  last-writer-wins. Add owner-qualified retained demand, union aggregation,
+  release-on-unload and epoch replay. Defer combined-service parity; do not put
+  a second shared flag registry in the packs.
+- **HDR display:** HDR's checked pack registration and 28-float BT.2390 inputs
+  currently live in its DX11 companion and read MyRender11 postprocess/MyCommon.
+  Core has no TonemapInputs facade or equivalent captured grading-value service.
+  DisplayServices flags do not expose output detection/state, UI transfer,
+  screenshots, tearing or queue-latency controls. GuestColor.HasDisplay always
+  returns true; it does not certify an active HDR tenant. Defer affected HDR
+  functions until the host owns captured inputs, display ownership/readiness,
+  pre-grade color/exposure/bloom handoff and presentation/UI services.
+- **RayScene:** the geometry/material/light frame snapshot, completion,
+  far-sun product and opaque-lighting ownership remain DX11-only. Core compiles
+  Backend and selected shared files, with no RayScene facade. SE-RT's renderer
+  ray-query switch supplies sun visibility only. Defer indirect/reflection,
+  local/emissive/environment lighting, transmission and reconstruction parity
+  until a device-free RayScene and portable output/lighting contract exist.
+- **Celestial probe backgrounds:** core CelestialBackgroundRegistry.Register
+  creates only a depth-tested AfterLighting program. DX11 also connects the
+  registry to probe background rendering. Native EnvProbe processing generations
+  do not supply registry-driven per-face background draws/view/data constants.
+  Defer FinalFrontier reflection-probe replacement until this host path exists.
+- **Renderer DLSS sharpness:** SE-Vulkan ngx_configure has no sharpness field and
+  evaluation hard-codes zero; DX11 forwards the pack setting. Coordinate the
+  renderer configuration API or a shared sharpening service before claiming the
+  setting applies. This dependency is in SE-Vulkan, not a new pack shader API.
+- **Neutral render clock:** Aurora and Clouds AnomalyScene.FrameSeconds reflect
+  MyCommon.FrameTime from VRage.Render11 only on DX11. Guest/pending routes now
+  skip that lookup and return zero. Aurora animation and cloud wind/studio/weather timing depend on it.
+  SceneView has camera/sun/dimensions but no clock. Expose a shared render clock
+  with matching timebase/reset semantics before porting those animated functions;
+  do not load the DX11 renderer or substitute wall time on Vulkan. Static shader
+  output/texture tests do not prove animation parity.
+- **Studio debug wireframes:** SE-Vulkan MessageCatalog marks DebugDrawLine3D
+  Pending (DebugDrawLine3DBatch is a baseline no-op). Clouds studio placement
+  boxes use this message and therefore cannot have visible Vulkan parity yet.
+  The pack now calls the correct VRage.Render proxy/six-argument signature on
+  DX11 and skips the blocked Vulkan function. Add renderer replay before
+  enabling the wireframe path there.
+
+The bounded plugin audit fixed shared game Graphics AA, SSGI filtered history,
+native startup/teardown and renderer-boundary issues. All ten plugins build on
+both runtimes. Targeted checks include 778 Vulkan SSGI feedback checks with
+validation enabled and zero errors, the strict multi-pack GPU lane, and actual
+cloud/shadow bridge checks (39/162 on each runtime). Aurora passes 112 adapter
+checks per runtime. Recording-host checks do not prove effect pixels. Matched
+live game, vendor SDK, actual device-loss and performance acceptance remains
+separate; these deferred functions are not reported as complete parity.
+
 ## Four requested producer gaps — closed (2026-10-16)
 
 The missing Vulkan implementations for **occupancy**, **pointShadowAtlas/playerDepth**, **litMips**, and the shared **froxel/volumeReactive** producer are filled. Their public requests, catalog names/layouts, producer ordering, current-frame validity, fallback/history behavior and device-epoch restoration have targeted GPU and live parity evidence.
@@ -1030,6 +1087,31 @@ need integration; the failing four-panel live ordering gate remains open.
 These CPU checks do not qualify that visible gap. Details and identities are
 recorded in SE-Vulkan/Docs/LightingParity.md; no native/shader ABI changed.
 
+2026-10-20 general lighting/material milestone: the later retained OLD identity
+producer and native/GPU sort propagation close the four-panel visible ordering
+failure described above. The stock missing-normal fallback and non-stock
+large-camera probe restart are also corrected. Under the user's clarified
+standard (common stock features/appearance, documented GPU tolerances, minor
+edge cases deferred), general lighting/material parity is accepted on1.2.0.
+
+Fresh paired live runs DX11 c0e7f193b2144e23a2ee985122d6897f and Vulkan
+2c0c3ca588554f7c8ef8b1830147c88f match actual quality and pass all requested
+occupancy/point-atlas/lit-mip/shared-volume availability plus real closed/open/
+resealed room checks. Medium-off/on images are reviewed and closely match.
+The26,391 exact-input pixels have HDR RGB mean errors approximately
+5.39e-5/5.62e-5/2.87e-5 and maximum0.015625/channel. Vulkan validation is
+enabled with zero errors and it unloads, disposes and exits normally. The DX11
+reference delivered all captures but stalled on host menu unload and was
+stopped at its private deadline; its teardown is not claimed clean.
+
+Rare resource/LOD/instance ties, unusual optional accelerated cull overrides,
+read-only decal temporal extension outputs and exact timed-probe history
+convergence remain documented follow-ups. Broader unmatched foreground
+highlight differences are retained with their measured scope. This closes the
+general lighting/material milestone rather than every renderer feature gap.
+Final evidence and limitations: SE-Vulkan/Docs/LightingParity.md,
+lighting-general-parity-{comparison,acceptance}.json in local TestResults.
+
 2026-10-21 full shader-parity candidate foundation: shared structured manifests
 and the stage catalog now exist in both Anomaly adapters. Required-program and
 duplicate ownership rejection preserve existing registration; target formats,
@@ -2010,6 +2092,87 @@ validation errors:
 - a failed compile keeps the closure;
 - the additive pipelines survive an HDR format switch;
 - recording modes agree, and unregistering restores exact stock bits.
+
+### Owner stage interfaces follow Vulkan interface matching
+
+Owner VS/PS (and GS) pairs and fullscreen owners were linked by exact
+per-Location formats. Some checks also required `flat` to agree, and none
+understood `Component` decorations. That refused legal interfaces. One shared
+matcher (`Native/src/stage_interface.h`) now checks the rules from the
+specification's Interface Matching section:
+
+- every consumer input needs a producer output at the same Location and
+  Component, with the same component type, width, matrix columns and array
+  length;
+- with `maintenance4` (enabled when the device reports it), the output vector
+  may carry more components than the input;
+- interpolation decorations (`flat`, `noperspective`, `centroid`, `sample`) are
+  exempt;
+- outputs that the next stage does not read are legal;
+- overlapping output Component slots, and 16/32-bit vectors that span a
+  Location, are refused.
+
+The matcher covers decal, transparent, billboard, particle and foliage
+owners, and the GPU indexed stock pairs. Fullscreen owners (postprocess,
+lighting, atmosphere, probe processing, OIT) are checked against the stock
+fullscreen VS outputs, reflected when that shader loads. A refusal happens
+before activation and keeps the previous owner.
+
+Evidence:
+
+- The 19-case CPU test (`stage_interface`) covers widening, Component
+  packing, interpolation exemptions, unread outputs, built-ins, type,
+  signedness, width, array and overlap failures.
+- The GPU lane `--stage-interface-only` passes 18 checks with zero validation
+  errors, using OIT resolve owners:
+  - a scalar `TEXCOORD0` input reads the x of the float2 fullscreen output
+    exactly (the centre pixel scales by 2*32.5/64);
+  - a `nointerpolation float2` input links and executes;
+  - an `int` input ("type mismatch") and an input with no producer output
+    ("no matching output") are refused, and the previous owner stays active.
+
+### GBuffer velocity developer probes
+
+`Config.VelocityProbe` now applies on Vulkan, as on DX11. Anomaly forwards it
+between frames (`SetGBufferVelocityProbe`, native
+`sevk_set_gbuffer_velocity_probe`); older hosts keep stock motion. Every owner
+reads the mode as b0 `AnomalyProbeMode`, which covers classic, cell, GPU NEW
+and GPU OLD owners. Target3 handling follows DX11's `ClearTarget` and
+`ApplySchedulerEndProbe`:
+
+- **TargetClear** clears Target3 to +X, and geometry overwrites it.
+- **MrtWrite** clears to −X. The PS b1 (DX11 b7) payload is (8, 0, 1, 0), so the
+  owning invocation emits +X.
+- **HistoryCoverage** reports +X for a previous-world hit and +Y for a miss.
+- **PassEndClear** clears Target3 to +X after every owner and replay draw.
+
+The replay pass uses the same clear values. Draws without owners still
+replay real motion, because they have no owner shader to probe.
+
+### Celestial providers on environment-probe faces
+
+On DX11, `CelestialProbePatch` draws the registered provider's
+`ANOMALY_CELESTIAL_PROBE` variant on every environment-probe face, after
+`MyEnvProbeProcessing.RunForwardPostprocess`. Vulkan now does the same.
+
+When the host advertises native owner flag64,
+`CelestialBackgroundRegistry.Register` also adds an `<id>.probe` program
+flagged `ProbeFace` (512):
+
+- it compiles against a probe entry (`isProbe=1`, face rays, no scene fog);
+- it reads its provider's data and art;
+- it follows the provider's enable state and uniforms;
+- it never owns glare.
+
+Native skips flag-512 passes at their frame mark. Instead it draws them on
+each probe cube's face, right after that face's ForwardPostprocess:
+
+- b6 view block: the face view's rotation rows, then
+  (face size, face size, projection M11, projection M22);
+- depth: the face depth, both sampled and attached read-only;
+- target: the face (B10G11R11), loaded.
+
+This closes the Codex plugin audit's P5 host path.
 
 Still open on this contract:
 

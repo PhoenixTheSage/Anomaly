@@ -13,7 +13,10 @@ static partial class Program
 {
     static void ExtendedVolume(string assets,bool packs)
     {
-        GuestBridge.SupportedPacketFlags = 1023;
+        int savedFlags=GuestBridge.SupportedPacketFlags;
+        try
+        {
+        GuestBridge.SupportedPacketFlags = savedFlags | 1023;
         string root = Path.Combine(assets,"Shaders");
         string folder = Path.Combine(Path.GetTempPath(),"anomaly-volume-transport-probe");
         Directory.CreateDirectory(folder);
@@ -65,11 +68,11 @@ RWTexture2D<float> E:register(u4);
                 configuration++;
             }
         }
-        GuestBridge.SupportedPacketFlags=511;
+        GuestBridge.SupportedPacketFlags=(savedFlags | 511) & ~512;
         GuestCompiler.CompilePending(assets);
         Require(light.Status=="capability-missing" && light.PixelSpirv!=null,"older native advertised extended volume support");
         var compiledLight=light.PixelSpirv;
-        GuestBridge.SupportedPacketFlags=1023;
+        GuestBridge.SupportedPacketFlags=savedFlags | 1023;
         GuestCompiler.CompilePending(assets);
         Require(ReferenceEquals(compiledLight,light.PixelSpirv),"capability recovery recompiled shared volume source");
         foreach(var p in products)
@@ -226,6 +229,8 @@ RWTexture2D<float> E:register(u4);
             for(int i=0;i<w*h;i++) Require(BitConverter.ToSingle(comparison,i*4)==comparisonDepth,"depth comparison sampler did not follow volume shadow contract");
         }
         Console.WriteLine("GPU PASS: extended 3D/five-UAV/copied-CB transport, resource rejection, shadow comparison, shared sealed-room packing/open recovery and production shared volume kernels");
+        }
+        finally { GuestBridge.SupportedPacketFlags=savedFlags; }
     }
 }
 

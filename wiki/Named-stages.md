@@ -759,20 +759,21 @@ The catalog lists all 20 pairs, and each stock artifact compiles through its
 pass `Declarations.hlsli`. The DX11 overlays, Transparent injections and
 header dependencies select a pair as they do for other families.
 
-Owners keep the stock glass descriptor contract. They also admit the pack
-extras (b6) and the reserved catalog resources (t5-t9). Activation swaps the
+Owners keep the stock glass descriptor contract. They may declare b6 and
+t5-t9, but DX11 binds Transparent reserved inputs only around `ResolveOIT`,
+never for glass draws. So, as on DX11, glass owners read them unbound: null
+t5-t9 and a zero b6. Activation swaps the
 no-cull, culled and depth-only pipelines into the stock slots. OIT glass and
 the glass decal depth layers write each owner's reflected bindings, including
-dynamic offsets in binding order. Native stage-binding rows admit these PS
-ids, and the row cap rose from 117 to 137.
+dynamic offsets in binding order. Glass owners take no stage-binding rows.
 
 The `--transparent-owners-only` lane passes 44 checks with zero validation
 errors:
 
 - stock glass resolves to the material ColorAdd (0.25, 0.5, 0.75);
 - an owner that swizzles its OIT color gives (0.75, 0.5, 0.25);
-- scaling by a catalog SRV (t7) and the b6 render size gives the same at
-  0.25, and doubles when the catalog value doubles;
+- an owner that scales by t7 and b6 reads them unbound and outputs zero, even
+  with a Transparent catalog SRV requested;
 - the pair executes in the current frame, and never in frames without glass;
 - a failed compile keeps the previous pair;
 - a TransparentForDecals owner that discards every depth fragment removes
@@ -900,6 +901,33 @@ each probe cube's face, right after that face's ForwardPostprocess:
 - target: the face (B10G11R11), loaded.
 
 This closes the Codex plugin audit's P5 host path.
+
+### Voxel owners and stage-6 parity conclusions
+
+**Voxel owners.** Voxel GBuffer (20, 21) and depth (52, 53) pipelines are now
+native geometry owners, keyed by the shared GBuffer and Depth pass files. DX11
+compiles voxel GBuffer permutations with `ANOMALY_VELOCITY` and gives them
+camera-only motion. Voxels are static and their object rows are
+camera-relative, so the per-draw currToPrev rows are exactly that motion. The
+`--voxel-owners-only` lane passes 36 checks with zero validation errors:
+
+- the owner replaces the voxel material;
+- it writes motion of -1.0664 px against an analytic -1.0667;
+- pack-written velocity reaches Target3;
+- unregistering restores exact stock bits.
+
+**Reserved geometry bindings.** DX11 binds pack catalog SRVs and fullscreen
+extras only for Atmosphere, the Lighting stages, Post.HBAO, Post.Tonemap and
+OIT resolve; it never binds them for GBuffer, Depth, Forward or Highlight
+geometry. The geometry reserved-binding contract is therefore the velocity
+contract (VS b6, PS b7, VS t15/t16), now complete across classic, skinned,
+instanced/cube, decal, fade-bank, voxel, native-cell and GPU owners. Geometry
+owners take no stage-binding rows, as on DX11.
+
+**HistoryColor.** Pack `Anomaly.HistoryColor/HistoryCopy.hlsl` overlays and
+injections already run as owned raster generations (`--owned-stage` lanes).
+History mips are a non-shader copy on both hosts (DX11 GenerateMips, native
+blits).
 
 Still open on this contract:
 

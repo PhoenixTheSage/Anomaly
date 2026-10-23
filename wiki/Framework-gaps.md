@@ -54,12 +54,12 @@ producer and native-owner validation does not establish complete plugin behavior
   Clouds AnomalyScene.FrameSeconds still need to read it instead of reflecting
   VRage.Render11. Static shader output/texture tests do not prove animation
   parity.
-- **Studio debug wireframes:** SE-Vulkan MessageCatalog marks DebugDrawLine3D
-  Pending (DebugDrawLine3DBatch is a baseline no-op). Clouds studio placement
-  boxes use this message and therefore cannot have visible Vulkan parity yet.
-  The pack now calls the correct VRage.Render proxy/six-argument signature on
-  DX11 and skips the blocked Vulkan function. Add renderer replay before
-  enabling the wireframe path there.
+- **Studio debug wireframes (resolved):** SE-Vulkan replays DebugDrawLine3D like
+  stock MyLinesRenderer. Lines draw after the game scene and before sprites.
+  DepthRead lines test scene depth; the others ignore it. Colours are sRGB with
+  premultiplied alpha. Persistent messages and DebugClearPersistentMessages are
+  handled. DebugDrawLine3DBatch stays a no-op, as on DX11. Clouds studio boxes
+  call the proxy on both renderers.
 
 The bounded plugin audit fixed shared game Graphics AA, SSGI filtered history,
 native startup/teardown and renderer-boundary issues. All ten plugins build on

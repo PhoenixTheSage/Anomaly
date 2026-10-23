@@ -28,9 +28,8 @@ identifies consumer contracts still needed after the producer/native-owner work:
   and weather timing on DX11. Guest/pending routes now skip that lookup and
   return zero. SceneView has no equivalent clock; defer those functions
   rather than substitute wall time or consult the inactive DX11 renderer.
-- Clouds studio wireframes depend on SE-Vulkan replay of DebugDrawLine3D,
-  currently Pending in MessageCatalog. Keep that function skipped until the
-  renderer handles the game proxy message; no pack-owned Vulkan debug renderer.
+- Resolved: SE-Vulkan replays DebugDrawLine3D (stock MyLinesRenderer semantics),
+  so Clouds studio wireframes use the game proxy on both renderers.
 
 Details and source ownership are in [Framework gaps](../wiki/Framework-gaps.md),
 section "Dual-renderer plugin audit". Affected functions are deferred pending

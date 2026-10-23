@@ -45,6 +45,22 @@ public static class TonemapInputs
         get { lock (Gate) return captured; }
     }
 
+    /// <summary>MyRender11.Postprocess grading values, in the portable TonemapInputs.Grading order.</summary>
+    public static float[] Grading
+    {
+        get
+        {
+            ref var pp = ref MyRender11.Postprocess;
+            var d = pp.Data;
+            return new[] { d.BloomMult, d.BloomDirtRatio, d.GrainStrength, d.GrainAmount, d.GrainSize, d.Contrast,
+                d.Brightness, d.Saturation, d.BrightnessFactorR, d.BrightnessFactorG, d.BrightnessFactorB, d.Vibrance,
+                d.SepiaStrength, d.LightColor.X, d.LightColor.Y, d.LightColor.Z, d.DarkColor.X, d.DarkColor.Y, d.DarkColor.Z };
+        }
+    }
+
+    /// <summary>MyCommon.FrameTime in seconds; the portable RenderClock forwards here on DX11.</summary>
+    public static double FrameSeconds => MyCommon.FrameTime.Seconds;
+
     internal static void BeginFrame()
     {
         lock (Gate)

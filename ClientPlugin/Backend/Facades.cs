@@ -499,6 +499,71 @@ public static class DisplayServices
     }
 }
 
+/// <summary>
+/// Portable Keen MyToneMapping inputs for Display tenants. On Vulkan the renderer supplies the
+/// postprocess grading values and publishes avgLuminance/bloom/dirt; on DX11 the companion's
+/// TonemapInputs captures them from MyToneMapping.Run and MyRender11.Postprocess.
+/// </summary>
+public static class TonemapInputs
+{
+    public const string AvgLuminance = "avgLuminance";
+    public const string Bloom = "bloom";
+    public const string Dirt = "dirt";
+    /// <summary>Length of <see cref="Grading"/>.</summary>
+    public const int GradingCount = 19;
+    const string Dx = "ClientPlugin.Shaders.TonemapInputs";
+
+    /// <summary>Keen <c>enableTonemapping</c> for this frame.</summary>
+    public static bool EnableTonemapping => GuestColor.Open ? Value(19, 1f) != 0 : Dx11Flag("EnableTonemapping", true);
+
+    /// <summary>Keen <c>needsAlphaLuminance</c>: FXAA reads dest.a as luma.</summary>
+    public static bool NeedsAlphaLuminance => GuestColor.Open ? Value(20, 0f) != 0 : Dx11Flag("NeedsAlphaLuminance", false);
+
+    /// <summary>True when this frame's inputs are available.</summary>
+    public static bool Captured => GuestColor.Open ? GuestBridgeClient.TonemapValues() != null : Dx11Flag("Captured", false);
+
+    /// <summary>
+    /// Postprocess grading values: BloomMult, BloomDirtRatio, GrainStrength, GrainAmount, GrainSize,
+    /// Contrast, Brightness, Saturation, BrightnessFactorR/G/B, Vibrance, SepiaStrength, LightColor xyz,
+    /// DarkColor xyz. Null when the renderer does not supply them.
+    /// </summary>
+    public static float[] Grading
+    {
+        get
+        {
+            if (GuestColor.Open)
+            {
+                var values = GuestBridgeClient.TonemapValues();
+                if (values == null || values.Length < GradingCount) return null;
+                var grading = new float[GradingCount];
+                Array.Copy(values, grading, GradingCount);
+                return grading;
+            }
+            return RenderHost.IsDx11 ? Dx11Call.Get(Dx, "Grading") as float[] : null;
+        }
+    }
+
+    static float Value(int index, float fallback)
+    {
+        var values = GuestBridgeClient.TonemapValues();
+        return values != null && values.Length > index ? values[index] : fallback;
+    }
+
+    static bool Dx11Flag(string property, bool fallback) =>
+        RenderHost.IsDx11 && Dx11Call.Get(Dx, property) is bool value ? value : fallback;
+}
+
+/// <summary>
+/// Neutral render clock: the draw time DX11 exposes as MyCommon.FrameTime, with the same timebase
+/// on Vulkan. Zero before the renderer reports a frame.
+/// </summary>
+public static class RenderClock
+{
+    public static double FrameSeconds =>
+        GuestColor.Open ? GuestBridgeClient.FrameSeconds()
+        : RenderHost.IsDx11 && Dx11Call.Get("ClientPlugin.Shaders.TonemapInputs", "FrameSeconds") is double seconds ? seconds : 0;
+}
+
 public static class GBufferTargetRegistry
 {
     public static bool Request(string name, string format, string file = null)

@@ -584,6 +584,9 @@ static class GuestBridgeClient
         Call("Submit", mark, compose, width, height, pipeline, storage, uniforms, sampled, flags);
 
     public static void SetUpscaleOwner(string id) => Call("SetUpscaleOwner", id ?? "");
+    internal static float[] TonemapValues() => Call("TonemapValues") as float[];
+    internal static double FrameSeconds() => Call("FrameSeconds") is double seconds ? seconds : 0;
+    internal static ulong[] TonemapInputImages() => Call("TonemapInputImages") as ulong[];
 
     public static void SetViewClip(float farPlane) => Call("SetViewClip", farPlane);
 

@@ -11,7 +11,12 @@ producer and native-owner validation does not establish complete plugin behavior
   `RequestFor/ReleaseFor/ReleaseOwner` take an explicit owner. Each new guest
   device replays the union. A disabled DLSS or FSR no longer clears the other's
   bit 4.
-- **HDR display:** HDR's checked pack registration and 28-float BT.2390 inputs
+- **HDR display (inputs landed):** core `TonemapInputs` now supplies
+  `Grading` (19 postprocess values in DX11 order), `EnableTonemapping`,
+  `NeedsAlphaLuminance` and `Captured` on both hosts. On Vulkan, the catalog
+  `avgLuminance`, `bloom` and `dirt` are renderer images, valid after the tone
+  stage. Display tenancy, pre-grade handoff and presentation/UI remain:
+  HDR's checked pack registration and 28-float BT.2390 inputs
   currently live in its DX11 companion and read MyRender11 postprocess/MyCommon.
   Core has no TonemapInputs facade or equivalent captured grading-value service.
   DisplayServices flags do not expose output detection/state, UI transfer,
@@ -33,13 +38,12 @@ producer and native-owner validation does not establish complete plugin behavior
 - **Renderer DLSS sharpness (resolved):** SE-Vulkan `sevk_ngx_set_sharpness`
   passes SE-DLSS's setting to the NGX `Sharpness` evaluation parameter, as on
   DX11. Older renderers lack the export, and the DLSS status says so.
-- **Neutral render clock:** Aurora and Clouds AnomalyScene.FrameSeconds reflect
-  MyCommon.FrameTime from VRage.Render11 only on DX11. Guest/pending routes now
-  skip that lookup and return zero. Aurora animation and cloud wind/studio/weather timing depend on it.
-  SceneView has camera/sun/dimensions but no clock. Expose a shared render clock
-  with matching timebase/reset semantics before porting those animated functions;
-  do not load the DX11 renderer or substitute wall time on Vulkan. Static shader
-  output/texture tests do not prove animation parity.
+- **Neutral render clock (host landed):** core `RenderClock.FrameSeconds` is the
+  render draw time. DX11 forwards to the companion's `MyCommon.FrameTime`; on
+  Vulkan it is the renderer's draw time, which uses the same timebase. Aurora and
+  Clouds AnomalyScene.FrameSeconds still need to read it instead of reflecting
+  VRage.Render11. Static shader output/texture tests do not prove animation
+  parity.
 - **Studio debug wireframes:** SE-Vulkan MessageCatalog marks DebugDrawLine3D
   Pending (DebugDrawLine3DBatch is a baseline no-op). Clouds studio placement
   boxes use this message and therefore cannot have visible Vulkan parity yet.

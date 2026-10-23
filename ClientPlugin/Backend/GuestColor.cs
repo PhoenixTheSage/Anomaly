@@ -89,6 +89,14 @@ static class GuestColor
         BufferCatalog.Set(BufferCatalog.HdrColor, new GuestRendererImage(GuestBridgeClient.Hdr, width, height, 1));
         BufferCatalog.Set(BufferCatalog.UpscaledColor, new GuestRendererImage(GuestBridgeClient.Upscale, outputWidth, outputHeight, 1));
         BufferCatalog.Set("displayColor", new GuestRendererImage(GuestBridgeClient.Display, outputWidth, outputHeight, 1));
+        // Keen tonemap inputs for post-tonemap readers (t4-t6), as DX11 TonemapInputs publishes them.
+        var tonemap = GuestBridgeClient.TonemapInputImages();
+        if (tonemap != null && tonemap.Length == 3)
+        {
+            BufferCatalog.Set(ClientPlugin.Shaders.TonemapInputs.AvgLuminance, new GuestRendererImage(tonemap[0], 1, 1, 1));
+            BufferCatalog.Set(ClientPlugin.Shaders.TonemapInputs.Bloom, new GuestRendererImage(tonemap[1], width, height, 1));
+            BufferCatalog.Set(ClientPlugin.Shaders.TonemapInputs.Dirt, new GuestRendererImage(tonemap[2], 1, 1, 1));
+        }
     }
 
     public static void SetCelestialData(string id, float[] values)

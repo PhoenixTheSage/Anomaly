@@ -1922,6 +1922,20 @@ A declared-only slot has no indexed replay shader. The indexed replay now skips
 it instead of failing with "indexed attachment geometry class unavailable"
 once the owning pack unregisters.
 
+GPU OLD generic-instanced, cube and deformed-cube owners (pipelines 2, 3 and
+4) are covered too. They read their instance records from the source buffer,
+and their velocity comes from the same per-draw currToPrev rows as rigid
+draws. The GPU OLD lane now runs each stream against its own source record
+and checks that:
+
+- velocity matches the analytic value and the stock replay (-0.64 px);
+- objectid 777 and `GBuffer1.a` 127 come from the owning invocation;
+- recording modes agree;
+- pack-written (3, -2) velocity reaches Target3;
+- unregistering restores exact stock bits.
+
+The lane passes 140 checks, and no native change was needed.
+
 Still open on this contract:
 
 - voxel owners (not yet native geometry owners);

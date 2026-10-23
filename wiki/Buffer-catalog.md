@@ -607,10 +607,23 @@ previous world. The replay skips owner groups. The 40-check
 matches the analytic -0.64 px and the cell replay, pack-written (3, -2)
 reaches Target3, and unregistering restores exact stock bits.
 
+GPU OLD owners compile Keen's classic streams, so DX11's contract for them is
+the per-draw b6 currToPrev rows and `HasPrevWorld`. One indirect draw covers
+many objects, so the GPU adapter renames those cbuffer members and fills
+shader statics per draw instead. It computes `Prev * Invert(Curr)` from the
+draw's actor history row (`draw.reserved`) and the current object rows that
+the culling compute writes. The 240-byte cbuffer layout is unchanged, and the
+replay skips owner batches. Admission covers classic GBuffer pipelines below
+20; GPU skinned sources stay on their fallback. The 40-check
+`--gbuffer-velocity-gpu-old-only` gate passes with zero errors: owner motion
+matches the analytic -0.64 px and the indexed replay, pack-written (3, -2)
+reaches Target3, and unregistering restores exact stock bits. The gate drives
+the rigid stream; instanced and cube GPU OLD streams share the same code.
+
 Still open on this contract:
 
 - voxel, blended-decal and fade-bank owners;
-- GPU OLD owners (one indirect draw would need per-object currToPrev);
+- GPU OLD instanced/cube execution fixtures;
 - probe modes;
 - pack attachments and packed `GBuffer1.a`.
 

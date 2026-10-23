@@ -1936,6 +1936,44 @@ and checks that:
 
 The lane passes 140 checks, and no native change was needed.
 
+### Transparent glass and holo owners
+
+Stock glass and holo transparent geometry now has native owner generations,
+advertised by native owner flag16 (ids 2304-2343). Owner i's VS is 2304+2*i
+and its PS is 2305+2*i:
+
+- i<10 is OIT glass pipeline i, keyed `Geometry/Passes/Transparent/*Stage.hlsli`;
+- i>=10 is decal-depth glass pipeline 50+i, keyed
+  `Geometry/Passes/TransparentForDecals/*Stage.hlsli`.
+
+The catalog lists all 20 pairs, and each stock artifact compiles through its
+pass `Declarations.hlsli`. The DX11 overlays, Transparent injections and
+header dependencies select a pair as they do for other families.
+
+Owners keep the stock glass descriptor contract. They also admit the pack
+extras (b6) and the reserved catalog resources (t5-t9). Activation swaps the
+no-cull, culled and depth-only pipelines into the stock slots. OIT glass and
+the glass decal depth layers write each owner's reflected bindings, including
+dynamic offsets in binding order. Native stage-binding rows admit these PS
+ids, and the row cap rose from 117 to 137.
+
+The `--transparent-owners-only` lane passes 44 checks with zero validation
+errors:
+
+- stock glass resolves to the material ColorAdd (0.25, 0.5, 0.75);
+- an owner that swizzles its OIT color gives (0.75, 0.5, 0.25);
+- scaling by a catalog SRV (t7) and the b6 render size gives the same at
+  0.25, and doubles when the catalog value doubles;
+- the pair executes in the current frame, and never in frames without glass;
+- a failed compile keeps the previous pair;
+- a TransparentForDecals owner that discards every depth fragment removes
+  the glass surface, so a lit transparent decal (1.0586) composites to
+  exactly zero;
+- recording modes agree, and unregistering restores exact stock bits.
+
+Billboards (`Transparent/Billboards.hlsl`, stock ids 20-51 and LDR 100-131)
+have no owner family yet.
+
 Still open on this contract:
 
 - voxel owners (not yet native geometry owners);

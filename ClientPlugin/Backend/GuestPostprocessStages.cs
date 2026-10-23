@@ -115,6 +115,8 @@ internal static class GuestPostprocessStages
             // Foliage shares one VS across both GS/PS pairs; preserve its complete dependency closure.
             if(selected.Any(id=>id>=768&&id<773))foreach(uint id in new uint[]{768,769,770,771,772})selected.Add(id);
             foreach(uint id in selected.Where(id=>id>=1024&&id<1034).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
+            // Glass/holo transparent owners (Transparent, TransparentForDecals) activate as VS/PS pairs.
+            foreach(uint id in selected.Where(id=>id>=2304&&id<2344).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
             if(selected.Any(id=>id>=1536&&id<1546))foreach(uint id in Enumerable.Range(1536,10).Select(v=>(uint)v))selected.Add(id);
             foreach(uint id in selected.Where(id=>id>=4096&&id<10912).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
             foreach(uint id in selected.Where(id=>id>=16384&&id<16440||id>=32768&&id<32824||id>=49152&&id<54464).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}

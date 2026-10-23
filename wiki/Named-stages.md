@@ -646,10 +646,20 @@ zero errors:
 - Results agree across recording modes.
 - Unregistering restores exact stock bits.
 
+Native-cell GBuffer owners also compile `USE_SIMPLE_INSTANCING`. They draw
+each group with firstInstance 0, so b0 is per group and
+`InstanceBase = history_offset / 64`, matching DX11's
+`t15[SV_InstanceID + InstanceBase]`. t15 is the current slot's per-instance
+history stream; its unused bytes 48..63 now carry flags.x = 1 for a known
+previous world. The replay skips owner groups. The 40-check
+`--gbuffer-velocity-cells-only` gate passes with zero errors: owner motion
+matches the analytic -0.64 px and the cell replay, pack-written (3, -2)
+reaches Target3, and unregistering restores exact stock bits.
+
 Still open on this contract:
 
 - voxel, blended-decal and fade-bank owners;
-- native-cell and GPU OLD owners;
+- GPU OLD owners (one indirect draw would need per-object currToPrev);
 - probe modes;
 - pack attachments and packed `GBuffer1.a`.
 

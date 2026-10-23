@@ -367,24 +367,128 @@ public static class FrameTemporal
 /// upscale, an HDR swapchain, and one extra present. Bits: 1 HDR, 2 frame
 /// generation, 4 temporal upscale. Vendor SDKs stay in the pack on DX11.
 /// </summary>
+/// <summary>
+/// Display services are retained per owner and the renderer receives their union, so one
+/// plugin releasing a bit cannot clear another's request. Request/Release(int) attribute the
+/// call to the calling plugin assembly; RequestFor/ReleaseFor name the owner explicitly.
+/// The union is replayed on every new guest device.
+/// </summary>
 public static class DisplayServices
 {
     public const int Hdr = 1;
     public const int FrameGeneration = 2;
     public const int TemporalUpscale = 4;
+    const int Managed = 0xFFFF;
 
-    public static void Request(int flags)
+    static readonly object Gate = new object();
+    static readonly Dictionary<string, int> requests = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    static int sent = -1;
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public static void Request(int flags) => RequestFor(Caller(), flags);
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public static void Release(int flags) => ReleaseFor(Caller(), flags);
+
+    public static void RequestFor(string owner, int flags)
     {
-        if (!RendererRoute.UseGuestImages || flags == 0)
+        flags &= Managed;
+        if (string.IsNullOrWhiteSpace(owner) || flags == 0)
             return;
-        GuestBridgeClient.SetDisplayFlags((flags << 16) | flags);
+        lock (Gate)
+        {
+            requests.TryGetValue(owner.Trim(), out int held);
+            requests[owner.Trim()] = held | flags;
+        }
+        Push(false);
     }
 
-    public static void Release(int flags)
+    public static void ReleaseFor(string owner, int flags)
     {
-        if (!RendererRoute.UseGuestImages || flags == 0)
+        flags &= Managed;
+        if (string.IsNullOrWhiteSpace(owner) || flags == 0)
             return;
-        GuestBridgeClient.SetDisplayFlags(flags << 16);
+        lock (Gate)
+        {
+            if (!requests.TryGetValue(owner.Trim(), out int held))
+                return;
+            held &= ~flags;
+            if (held == 0) requests.Remove(owner.Trim());
+            else requests[owner.Trim()] = held;
+        }
+        Push(false);
+    }
+
+    /// <summary>Drops every request the owner holds, e.g. when a plugin unloads.</summary>
+    public static void ReleaseOwner(string owner)
+    {
+        if (string.IsNullOrWhiteSpace(owner))
+            return;
+        lock (Gate)
+        {
+            if (!requests.Remove(owner.Trim()))
+                return;
+        }
+        Push(false);
+    }
+
+    /// <summary>Union of all retained requests.</summary>
+    public static int Flags
+    {
+        get { lock (Gate) { int union = 0; foreach (var held in requests.Values) union |= held; return union; } }
+    }
+
+    public static int OwnerFlags(string owner)
+    {
+        if (string.IsNullOrWhiteSpace(owner))
+            return 0;
+        lock (Gate) return requests.TryGetValue(owner.Trim(), out int held) ? held : 0;
+    }
+
+    public static string Status
+    {
+        get
+        {
+            lock (Gate)
+            {
+                var parts = new List<string>();
+                foreach (var pair in requests) parts.Add(pair.Key + "=" + pair.Value);
+                parts.Sort(StringComparer.OrdinalIgnoreCase);
+                return parts.Count == 0 ? "display=none" : "display=" + string.Join(",", parts);
+            }
+        }
+    }
+
+    /// <summary>A new guest device starts with no display flags; resend the union.</summary>
+    internal static void RestoreDevice() => Push(true);
+
+    static void Push(bool force)
+    {
+        if (!RendererRoute.UseGuestImages)
+            return;
+        int union = Flags;
+        lock (Gate)
+        {
+            if (!force && union == sent)
+                return;
+            sent = union;
+        }
+        GuestBridgeClient.SetDisplayFlags(unchecked((Managed << 16) | union));
+    }
+
+    static string Caller()
+    {
+        var self = typeof(DisplayServices).Assembly;
+        var frames = new System.Diagnostics.StackTrace(1, false).GetFrames();
+        if (frames != null)
+            foreach (var frame in frames)
+            {
+                var assembly = frame.GetMethod()?.DeclaringType?.Assembly;
+                if (assembly == null || assembly == self || assembly == typeof(object).Assembly)
+                    continue;
+                return assembly.GetName().Name;
+            }
+        return "anonymous";
     }
 
     public static void SetFarClip(float farPlane)

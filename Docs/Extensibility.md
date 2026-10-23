@@ -5,9 +5,11 @@
 Re-examination of DLSS/FSR/FG/RT/HDR/SSGI/Aurora/Clouds/Shadows/FinalFrontier
 identifies consumer contracts still needed after the producer/native-owner work:
 
-- Owner-qualified DisplayServices demand and union aggregation; disabled
-  DLSS/FSR currently issue conflicting masked updates to shared bit 4. Include
-  unload cleanup and retained device-epoch replay in the host contract.
+- Resolved: DisplayServices keeps retained per-owner demand and sends the union.
+  `Request/Release(int)` attribute the call to the calling plugin assembly, even
+  through reflection. `RequestFor/ReleaseFor/ReleaseOwner` name the owner
+  explicitly. Each new guest device replays the union, and DLSS/FSR release
+  their bit on dispose.
 - Captured TonemapInputs/postprocess grading values, exclusive display readiness
   and ownership, pre-grade/exposure/bloom handoff and presentation/UI services
   for HDR. An FP16 request and GuestColor.HasDisplay=true are insufficient.
@@ -17,8 +19,8 @@ identifies consumer contracts still needed after the producer/native-owner work:
 - Celestial registry execution in reflection-probe background faces, including
   view and catalog/art inputs. Native EnvProbe processing generations alone
   do not connect the main-view-only guest registration to that path.
-- Coordinate SE-Vulkan DLSS configuration for sharpness (currently hard-coded
-  zero). This is a renderer dependency, not a pack-private shader workaround.
+- Resolved: SE-Vulkan `sevk_ngx_set_sharpness` carries SE-DLSS's sharpness to
+  the NGX `Sharpness` evaluation parameter, as on DX11.
 - Neutral render time with matching DX11 timebase/reset semantics: Aurora and
   Clouds still reflect MyCommon.FrameTime in Render11 for animation/wind/studio
   and weather timing on DX11. Guest/pending routes now skip that lookup and

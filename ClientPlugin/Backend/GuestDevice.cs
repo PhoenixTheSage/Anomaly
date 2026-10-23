@@ -25,7 +25,7 @@ internal static class GuestDevice
         GuestFrame.ResetDevice();GuestBridgeClient.ResetDevice();GuestTemporal.ResetDevice();GuestOccupancy.ResetDevice();GuestPointShadows.ResetDevice();GuestVolumes.ResetDevice();GuestColor.ResetDevice();
         if(errors.Count!=0){VolumeRegistryState.SetStatus("Guest device reset incomplete: "+new AggregateException(errors).Message);return false;}
         try {
-            if(current!=0){BufferCatalog.ApplyDeferred();GuestColor.RestoreDevice();}
+            if(current!=0){BufferCatalog.ApplyDeferred();GuestColor.RestoreDevice();ClientPlugin.Shaders.DisplayServices.RestoreDevice();}
             pending=false;return true;
         }catch(Exception error){VolumeRegistryState.SetStatus("Guest device restore pending: "+error.GetBaseException().Message);return false;}
     }

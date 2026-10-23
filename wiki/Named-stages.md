@@ -780,8 +780,45 @@ errors:
   exactly zero;
 - recording modes agree, and unregistering restores exact stock bits.
 
-Billboards (`Transparent/Billboards.hlsl`, stock ids 20-51 and LDR 100-131)
-have no owner family yet.
+### Billboard owners
+
+Stock billboards now have native owner generations, advertised by native owner
+flag32 (ids 2560-2624):
+
+- variant k (stock id 20+k) is the VS/PS pair 2560+2*k / 2561+2*k;
+- 2624 is the `LDR` vertex shader used by the even additive variants for their
+  LDR and PostPP programs.
+
+All 65 modules come from `Transparent/Billboards.hlsl` and activate as one
+closure. Owners keep the stock billboard descriptor contract, because no named
+stage carries reserved bindings or extras for them. Activation swaps the
+rebuilt HDR pair, top pair and LDR pipeline into the stock slots. The PostPP
+output program receives the owner modules and layout, and builds at the output
+format on first use. HDR format switches swap the owner pairs as they swap
+stock.
+
+Billboards have no named stage, and `Overlay/Transparent/*` maps to the
+Transparent stage. So on both hosts a raw `Overlay/Transparent/Billboards.hlsl`
+is skipped as an unknown named-stage file. Packs reach billboards through
+shared headers, such as `Transparent/OIT/Globals.hlsli` (TransparentColorOutput).
+Anomaly selects the closure from those header dependencies; injections never
+select it.
+
+Framework gap, both hosts: a direct billboard overlay needs a named stage or a
+raw-path escape that does not collide with the Transparent stage folder.
+
+The `--billboard-owners-only` lane overlays `Globals.hlsli` and exchanges red
+and blue after fog and in the premultiplied path. It passes 58 checks with zero
+validation errors:
+
+- Standard OIT (variant 0), AdditiveBottom and AdditiveTop (variant 8) each give
+  the stock (0.25, 0.5, 0.75) as (0.75, 0.5, 0.25);
+- the LDR and PostPP programs give the stock 137/188/225 as 225/188/137, and
+  run the owner LDR vertex shader in the current frame;
+- there is no execution in frames without billboards;
+- a failed compile keeps the closure;
+- the additive pipelines survive an HDR format switch;
+- recording modes agree, and unregistering restores exact stock bits.
 
 Still open on this contract:
 

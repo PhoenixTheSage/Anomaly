@@ -97,19 +97,21 @@ internal static class GuestPostprocessStages
             foreach(var entry in catalog)
             {
                 uint id=(uint)entry[0];string key=(string)entry[1];
-                if(!ShaderStages.TryGetStageForKey(key,out var stage))continue;
+                bool named=ShaderStages.TryGetStageForKey(key,out var stage);
+                if(!named&&!RawOwnerKey(key))continue;
                 bool overlay=claims.TryGetValue(key,out var owners)&&owners.Count==1;
-                injections.TryGetValue(stage,out var stageInjects);
-                injections.TryGetValue(ShaderStages.Lighting,out var familyInjects);
-                var injects=(stage.StartsWith("Lighting.",StringComparison.OrdinalIgnoreCase)?(familyInjects??new List<string>()).Concat(stageInjects??new List<string>()):stageInjects??new List<string>()).ToArray();
+                List<string> stageInjects=null,familyInjects=null;
+                if(named){injections.TryGetValue(stage,out stageInjects);injections.TryGetValue(ShaderStages.Lighting,out familyInjects);}
+                var injects=(named&&stage.StartsWith("Lighting.",StringComparison.OrdinalIgnoreCase)?(familyInjects??new List<string>()).Concat(stageInjects??new List<string>()):stageInjects??new List<string>()).ToArray();
                 bool inject=injects.Length!=0;
                 bool dependency=changedSources.Count!=0&&AffectedByHeaders(entry,files,key,changedSources);
                 if(!overlay&&!inject&&defines.Count==0&&!dependency)continue;
                 selected.Add(id);
-                string extras=ShaderStages.ExtrasIncludePath(stage);
-                files[extras]=Encoding.UTF8.GetBytes("#pragma once\n"+(inject?string.Concat(injects.Select(p=>"#include \""+p+"\"\n")):""));
                 string original="_anomaly/stock/"+key;
                 if(!files.ContainsKey(original))files.Add(original,RewriteStockIncludes(key,stock[key],stock));
+                if(!named){files[key]=Encoding.UTF8.GetBytes("#include \""+(overlay?owners[0]:original)+"\"\n");continue;}
+                string extras=ShaderStages.ExtrasIncludePath(stage);
+                files[extras]=Encoding.UTF8.GetBytes("#pragma once\n"+(inject?string.Concat(injects.Select(p=>"#include \""+p+"\"\n")):""));
                 files[key]=Encoding.UTF8.GetBytes("#include \""+extras+"\"\n#include \""+(overlay?owners[0]:original)+"\"\n");
             }
             // Foliage shares one VS across both GS/PS pairs; preserve its complete dependency closure.
@@ -117,6 +119,8 @@ internal static class GuestPostprocessStages
             foreach(uint id in selected.Where(id=>id>=1024&&id<1034).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
             // Glass/holo transparent owners (Transparent, TransparentForDecals) activate as VS/PS pairs.
             foreach(uint id in selected.Where(id=>id>=2304&&id<2344).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
+            // Billboard variants share one source file and the LDR vertex shader; they activate together.
+            if(selected.Any(id=>id>=2560&&id<2625))foreach(uint id in Enumerable.Range(2560,65).Select(v=>(uint)v))selected.Add(id);
             if(selected.Any(id=>id>=1536&&id<1546))foreach(uint id in Enumerable.Range(1536,10).Select(v=>(uint)v))selected.Add(id);
             foreach(uint id in selected.Where(id=>id>=4096&&id<10912).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
             foreach(uint id in selected.Where(id=>id>=16384&&id<16440||id>=32768&&id<32824||id>=49152&&id<54464).ToArray()){selected.Add(id&~1u);selected.Add(id|1u);}
@@ -281,6 +285,9 @@ internal static class GuestPostprocessStages
         return output.ToString();
     }
     static bool NativeKey(string key)=>key.StartsWith("Geometry/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("GBuffer/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Postprocess/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Lighting/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/Atmosphere/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Foliage/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Decals/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("EnvProbe/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/GPUParticles/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Shadows/",StringComparison.OrdinalIgnoreCase)||key.StartsWith("Transparent/OIT/",StringComparison.OrdinalIgnoreCase)||new[]{".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(key),StringComparer.OrdinalIgnoreCase);
+    // Native owner sources outside the named stages. Overlay/Transparent/* maps to the Transparent stage, so packs (DX11 too)
+    // reach these only through shared headers: dependencies select them, injections never do.
+    static bool RawOwnerKey(string key)=>string.Equals(key,"Transparent/Billboards.hlsl",StringComparison.OrdinalIgnoreCase);
     static bool NativeStage(string stage)=>new[]{ShaderStages.GBuffer,ShaderStages.Forward,ShaderStages.Highlight}.Contains(stage,StringComparer.OrdinalIgnoreCase)||stage.StartsWith("Post.",StringComparison.OrdinalIgnoreCase)||stage.StartsWith("Lighting",StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Atmosphere,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Foliage,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Decals,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.EnvProbe,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.GpuParticles,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Shadows,StringComparison.OrdinalIgnoreCase)||string.Equals(stage,ShaderStages.Transparent,StringComparison.OrdinalIgnoreCase);
     static bool IsSource(string path)=>new[]{".hlsl",".hlsli",".h",".inl",".inc"}.Contains(Path.GetExtension(path),StringComparer.OrdinalIgnoreCase);
     static string Relative(string root,string path)=>Path.GetFullPath(path).Substring(Path.GetFullPath(root).TrimEnd('\\','/').Length+1).Replace('\\','/');

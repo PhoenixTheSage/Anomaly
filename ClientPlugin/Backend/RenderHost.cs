@@ -34,6 +34,9 @@ public static class RenderHost
     static string loggedStatus = "";
     static int nextGuestCompile;
     static bool guestCompileAttempted;
+    // Absolute camera from SE-Vulkan's scene listener. The guest frame's
+    // camera_to_world is view-at-zero (DX11 InvViewAt0 parity), so it has no position.
+    static double[] guestSceneCamera;
 
     public static bool IsDx11 => committed && choice == 0;
     public static bool IsVulkan => committed && choice == 1;
@@ -280,6 +283,7 @@ public static class RenderHost
     }
     static void PrepareSceneVulkan(double[] camera,float[] sunToward)
     {
+        if(IsVulkan && camera!=null && camera.Length>=3)guestSceneCamera=camera;
         if(IsVulkan && !string.IsNullOrEmpty(assetFolder))GuestVolumeShadows.Prepare(camera,sunToward);
     }
 
@@ -465,10 +469,12 @@ public static class RenderHost
 
     static void PullGuestScene()
     {
-        // Guest frame camera-to-world translation; sun_toward has the opposite
-        // convention to SceneView.SunLightDirection, just as on the DX11 path.
+        // SceneView carries the absolute camera, as DX11 SceneSnapshot does. The guest
+        // frame camera-to-world translation is the fallback for hosts without the scene
+        // listener. sun_toward has the opposite convention to SceneView.SunLightDirection.
+        var camera = guestSceneCamera;
         SceneView.Set((int)GuestFrame.U32(8), (int)GuestFrame.U32(12),
-            GuestFrame.F32(312), GuestFrame.F32(316), GuestFrame.F32(320),
+            camera?[0] ?? GuestFrame.F32(312), camera?[1] ?? GuestFrame.F32(316), camera?[2] ?? GuestFrame.F32(320),
             -GuestFrame.F32(88), -GuestFrame.F32(92), -GuestFrame.F32(96));
     }
 

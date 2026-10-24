@@ -2280,4 +2280,24 @@ Still open on this contract:
   identify them, so they bake once per version;
 - capture coverage for skinned and instanced actors, voxels and
   billboard/GPU emitters (they arrive as unknown coverage boxes);
-- hardware ray-query tracing of the SE-RT stack (option C).
+- hardware ray-query tracing of the SE-RT stack (option C): done, see below.
+
+**Hardware ray query (option C).** The session also builds tenant acceleration
+structures (commands 9 and 10, binding kind 8, `CreateAccel`), and
+`CompileShader` profile 4 compiles `cs_6_5` ray-query compute. SE-RT's
+`SoftwareVulkan` in ray-query mode builds:
+
+- one BLAS per mesh root, rebuilt each frame for skinned roots;
+- a unit AABB BLAS scaled to each unknown-coverage instance;
+- a TLAS per frame.
+
+Identify, Trace and Refine compile `SERT_RAY_QUERY` variants of `traceScene`
+and `traceVisibility`, which keep the software material rules. On the armor
+scene the ray-query stack:
+
+- traces all 400 surface pixels (the software BVH misses 6 on shared triangle
+  edges);
+- matches the software lighting to 0.25/255 mean difference;
+- raises zero validation errors.
+
+The tenant lane adds 5 analytic ray-query checks (30 total).

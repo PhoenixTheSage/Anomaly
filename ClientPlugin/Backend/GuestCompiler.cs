@@ -272,14 +272,15 @@ static class GuestCompiler
     }
 
     /// <summary>
-    /// RayScene tenant shaders on Vulkan (RayScene.CompileShader): DX11 profile ids 0 vs, 1 ps, 3 cs with the
+    /// RayScene tenant shaders on Vulkan (RayScene.CompileShader): DX11 profile ids 0 vs, 1 ps, 3 cs, plus 4 for
+    /// compute with inline ray tracing (cs_6_5, RayQuery against a tenant TLAS), with the
     /// stock entry names, compiled to guest-band SPIR-V for SE-Vulkan's tenant session. Throws with the compiler log.
     /// The game shader folder is the first include root, as for DX11's MyShaderCompiler, so a tenant's own
     /// Common.hlsli cannot shadow the one Keen's headers include.
     /// </summary>
     internal static byte[] CompileRayTenant(string path, int profile)
     {
-        if (profile != 0 && profile != 1 && profile != 3) throw new ArgumentOutOfRangeException(nameof(profile), "Vulkan ray tenants compile vertex, pixel and compute shaders.");
+        if (profile != 0 && profile != 1 && profile != 3 && profile != 4) throw new ArgumentOutOfRangeException(nameof(profile), "Vulkan ray tenants compile vertex, pixel, compute and ray-query compute shaders.");
         var compiler = Find("ClientPlugin.Rendering.Shaders.VulkanShaderCompiler") ?? throw new InvalidOperationException("waiting for SE-Vulkan shader compiler");
         string cache = Path.Combine(Path.GetTempPath(), "anomaly-guest-spirv"); Directory.CreateDirectory(cache);
         var bundled = compiler.GetMethod("CreateBundled", BindingFlags.Public | BindingFlags.Static)?.Invoke(null, new object[] { cache })
@@ -288,7 +289,7 @@ static class GuestCompiler
         {
             string error = null;
             var bytes = Compile(bundled, path, profile == 0 ? "__vertex_shader" : profile == 1 ? "__pixel_shader" : "__compute_shader",
-                profile == 0 ? "vs_5_0" : profile == 1 ? "ps_5_0" : "cs_5_0", null, failed: message => error = message, contentDirectory: GameShaderDirectory());
+                profile == 0 ? "vs_5_0" : profile == 1 ? "ps_5_0" : profile == 4 ? "cs_6_5" : "cs_5_0", null, failed: message => error = message, contentDirectory: GameShaderDirectory());
             return bytes ?? throw new InvalidOperationException("Ray tenant shader compilation failed: " + path + "\n" + (error ?? "no SPIR-V produced"));
         }
         finally { (bundled as IDisposable)?.Dispose(); }

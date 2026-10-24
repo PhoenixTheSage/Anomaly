@@ -53,11 +53,17 @@ On Vulkan the same v1 frame is delivered before guest submission each frame. Fie
   - `Readback(id, layer, offset, bytes)` (diagnostics)
   - `Stats()`
 - **Commands and bindings** are the 128-byte `SevkTenantCommand` and 32-byte `SevkTenantBinding` records documented in `se_vulkan.h`. Commands: dispatch, fullscreen MRT draw, fill, clear, copy, upload. Bindings use guest register bands (b → 0, t → 128, s → 256, u → 384).
+- **Ray query** (devices with ray query; the session's `RayQuery` reports it):
+  - `CreateAccel(top)` creates an acceleration-structure id.
+  - Command 9 builds a BLAS from a tenant vertex buffer and a uint32 index range, or from 24-byte AABBs.
+  - Command 10 builds a TLAS from 80-byte instance records: `VkTransformMatrixKHR` rows, custom index, mask, flags, BLAS id.
+  - Binding kind 8 binds a TLAS. An unbound or unbuilt one is an empty TLAS.
+  - Geometry is non-opaque, so `RayQuery<RAY_FLAG_FORCE_NON_OPAQUE>` sees every candidate and the tenant's material rules decide each one.
 - **Unbound or null bindings** read zero, like DX11 null views.
 - **Image formats:** storage images bind any compatible format; SPIR-V storage formats are retyped Unknown.
 - **When the list runs:** after deferred lighting, before AfterLighting guest passes, where DX11 composes into LBuffer. HDR is the only renderer draw target. Sampling HDR reads that frame's snapshot.
 - **Resources:** `Destroy` retires a resource once the GPU is done with it, so tenants need no retirement query. A new session object means a new renderer; ids from an old session are gone.
-- **`CompileShader(path, profile)`** returns guest-band SPIR-V for profiles 0, 1 and 3, using the stock entry names. The game shader folder is the first include root, so a tenant's own `Common.hlsli` cannot shadow Keen's.
+- **`CompileShader(path, profile)`** returns guest-band SPIR-V for profiles 0, 1 and 3, using the stock entry names. Profile 4 (Vulkan only) compiles compute with inline ray tracing (`cs_6_5`, `SPV_KHR_ray_query`). The game shader folder is the first include root, so a tenant's own `Common.hlsli` cannot shadow Keen's.
 - **`RegisterCompleted`** gets no device context, and the session has no GPU timestamps yet, so adaptive budgets keep their current scale.
 - **Field 15** (far sun) is null until the Vulkan far-sun pass exists.
 - **Capture gaps** (absent or unknown coverage boxes): skinned and instanced actors, voxels, and billboard/GPU emitters.

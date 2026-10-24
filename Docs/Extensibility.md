@@ -16,9 +16,10 @@ identifies consumer contracts still needed after the producer/native-owner work:
   `DisplayServices.SetHdrUi` sets the HUD transform. `DisplayServices.Info`,
   display bits 32/64 (tearing/low latency) and `SetHdrScreenshot` (EXR plus a
   paper-white SDR PNG) complete the display contract (P4).
-- A device-free RayScene frame/material/light/geometry/completion/far-sun and
-  portable lighting/output contract. SE-RT's native sun query does not replace
-  the DX11 scene and reconstruction stack.
+- RayScene: the portable OpaqueLightingOwnership and RayScene v1 facades are in
+  core (Vulkan state, DX11 forwarding). Still needed: the Vulkan
+  frame/material/light/geometry producer and SE-RT's reconstruction stack on
+  Vulkan. SE-RT's native sun query does not replace them.
 - Celestial registry execution in reflection-probe background faces, including
   view and catalog/art inputs. Native EnvProbe processing generations alone
   do not connect the main-view-only guest registration to that path.

@@ -64,6 +64,7 @@ internal static class PortablePassRegistry
         foreach(var pass in snapshot)
         {
             if(pass.Mark!=mark || pass.Phase!=phase)continue;
+            if(!ClientPlugin.Shaders.OpaqueLightingOwnership.ShouldRun(pass.Id))continue;
             var dimensions=new GuestProgram{Mark=mark,Scale=1,Compose="Replace"};GuestBridgeClient.PassSize(dimensions,out int width,out int height);
             var context=new PortablePassContext(pass.Slot,phase,pass.Policy,width,height,GuestFrame.Open?GuestFrame.U32(16):0);
             try{pass.Callback(context);GuestBridgeClient.ExecutePortable(mark,context.Finish(),programs);pass.Error=null;}

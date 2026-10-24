@@ -44,12 +44,19 @@ producer and native-owner validation does not establish complete plugin behavior
   P4 has no remaining host gap. Known differences: HUD sprites use a per-sprite
   transform rather than DX11's composited UI layer. Tearing and latency apply
   live on Vulkan rather than at restart.
-- **RayScene:** the geometry/material/light frame snapshot, completion,
-  far-sun product and opaque-lighting ownership remain DX11-only. Core compiles
-  Backend and selected shared files, with no RayScene facade. SE-RT's renderer
-  ray-query switch supplies sun visibility only. Defer indirect/reflection,
-  local/emissive/environment lighting, transmission and reconstruction parity
-  until a device-free RayScene and portable output/lighting contract exist.
+- **RayScene (steps 1–2 landed):** core now carries portable
+  `OpaqueLightingOwnership` and RayScene API v1 in one assembly, as SE-RT binds
+  them. On DX11 both forward to the companion. On Vulkan they keep the same
+  state: claim, commit and contribution rules, registrations, frame and far-sun
+  flags, emitters and completion callbacks. Guest submission and portable
+  callbacks skip programs whose signals a committed tenant owns.
+
+  Still open:
+  - the Vulkan scene producer that fills the v1 frame (step 3);
+  - SE-RT's compute stack on Vulkan (step 4);
+  - composite and acceptance (step 5).
+
+  SE-RT's renderer ray-query switch still supplies only sun visibility.
 - **Celestial probe backgrounds:** core CelestialBackgroundRegistry.Register
   creates only a depth-tested AfterLighting program. DX11 also connects the
   registry to probe background rendering. Native EnvProbe processing generations

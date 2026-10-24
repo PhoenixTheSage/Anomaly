@@ -264,6 +264,7 @@ public static class RenderHost
         if(!IsVulkan||string.IsNullOrEmpty(assetFolder)||!GuestDevice.Synchronize())return;
         GuestVelocityProbe.Apply();
         GuestColor.SyncDisplay();
+        ClientPlugin.Shaders.OpaqueLightingOwnership.BeginFrame();
         GuestNamedStages.DeferActivation=true;
         long revision;lock(GuestPassList.Gate)revision=GuestPassList.SourceRevision;
         if(GuestCompiler.HasPending)GuestCompiler.CompilePending(assetFolder);

@@ -265,6 +265,8 @@ static class GuestBridgeClient
         {
             if(program==null || program.Mark!=currentMark)continue;
             if(program==null || program.Helper)continue;
+            // A committed ray tenant owns these opaque-lighting signals this frame, as DX11 DrawOne skips them.
+            if(!ClientPlugin.Shaders.OpaqueLightingOwnership.ShouldRun(program.Id))continue;
             GuestPassList.RefreshPreparedInputs(program);
             if(GuestVolumes.SuppressFallback(program))continue;
             if (GuestOccupancy.Handles(program, programs) || GuestPointShadows.Handles(program, programs)) continue;

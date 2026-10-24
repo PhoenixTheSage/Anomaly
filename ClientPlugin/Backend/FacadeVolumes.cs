@@ -6,6 +6,13 @@ using ClientPlugin.Backend;
 namespace ClientPlugin.Shaders;
 
 /// <summary>Shared CPU registration and immutable frame transactions; device work is routed separately.</summary>
+/// <remarks>
+/// Gate is a leaf lock: guest-pass updates run after it is released. Guest submission holds GuestPassList.Gate
+/// while pack pass callbacks run, and packs call this facade from those callbacks (Clouds publishes its medium
+/// each frame). Taking GuestPassList.Gate inside Gate deadlocked a game-thread update against the render thread.
+/// Enable updates read the registry under GuestPassList.Gate (never the reverse), so concurrent callers converge
+/// on its latest state.
+/// </remarks>
 public static class VolumetricMediumRegistry
 {
     public const int ContractVersion=VolumeRegistryState.ContractVersion;
@@ -25,47 +32,49 @@ public static class VolumetricMediumRegistry
     public static void Configure(int quality,float distance,int debugView)=>Run("Configure",()=>VolumeRegistryState.Configure(quality,distance,debugView),quality,distance,debugView);
     public static void InvalidateHistory(string id)=>Run("InvalidateHistory",()=>VolumeRegistryState.InvalidateHistory(id),id);
     public static void SetIntervalCallback(string id,Action<float> callback)=>Run("SetIntervalCallback",()=>VolumeRegistryState.SetIntervalCallback(id,callback),id,callback);
-    public static void SetOrigin(string id,double x,double y,double z)=>Run("SetOrigin",()=>{
-        VolumeRegistryState.SetOrigin(id,x,y,z);
-        if(!VolumeRegistryState.IsRegistered(id)) return;
+    public static void SetOrigin(string id,double x,double y,double z)
+    {
+        if(!Local("SetOrigin",()=>VolumeRegistryState.SetOrigin(id,x,y,z),id,x,y,z) || !VolumeRegistryState.IsRegistered(id)) return;
         GuestPassList.SetOrigin(id,(float)x,(float)y,(float)z);
-    },id,x,y,z);
+    }
     public static bool Register(string id,string shaderFile,string[] catalogBindings)
     {
         lock(Gate)
         {
             if(DxReady) return Dx11Call.Try(Dx,"Register",new object[]{id,shaderFile,catalogBindings},out var result) && result is true;
             if(!VolumeRegistryState.Register(id,shaderFile,catalogBindings)) return false;
-            // Retain the existing unsuppressed guest fallback until the shared
-            // producer has a complete current-frame transaction.
-            var existing=GuestPassList.Snapshot().FirstOrDefault(p=>string.Equals(p.Id,id,StringComparison.OrdinalIgnoreCase));
-            if(existing==null || string.IsNullOrEmpty(existing.SourceFile??existing.File) || !string.Equals(Path.GetFullPath(existing.SourceFile??existing.File),Path.GetFullPath(shaderFile),StringComparison.OrdinalIgnoreCase))
-            {
-                GuestPassList.AddProgram(id,"AfterAtmosphere",shaderFile,"PublishOnly");
-                GuestPassList.SetFlags(id,GuestBridgeClient.Compute|GuestBridgeClient.Volume,1);
-                GuestPassList.SetMedium(id,catalogBindings,0,0,0,0,0,0);
-                GuestPassList.SetEnabled(id,false);
-            }
-            return true;
         }
+        // Retain the existing unsuppressed guest fallback until the shared
+        // producer has a complete current-frame transaction.
+        var existing=GuestPassList.Snapshot().FirstOrDefault(p=>string.Equals(p.Id,id,StringComparison.OrdinalIgnoreCase));
+        if(existing==null || string.IsNullOrEmpty(existing.SourceFile??existing.File) || !string.Equals(Path.GetFullPath(existing.SourceFile??existing.File),Path.GetFullPath(shaderFile),StringComparison.OrdinalIgnoreCase))
+        {
+            GuestPassList.AddProgram(id,"AfterAtmosphere",shaderFile,"PublishOnly");
+            GuestPassList.SetFlags(id,GuestBridgeClient.Compute|GuestBridgeClient.Volume,1);
+            GuestPassList.SetMedium(id,catalogBindings,0,0,0,0,0,0);
+            GuestPassList.SetEnabled(id,false);
+        }
+        return true;
     }
-    public static void Unregister(string id)=>Run("Unregister",()=>{
-        bool registered=VolumeRegistryState.IsRegistered(id);
-        VolumeRegistryState.Unregister(id);
-        if(!registered) return;
+    public static void Unregister(string id)
+    {
+        bool registered=false;
+        if(!Local("Unregister",()=>{registered=VolumeRegistryState.IsRegistered(id);VolumeRegistryState.Unregister(id);},id) || !registered) return;
         GuestPassList.SetEnabled(id,false); GuestPassList.SetEnabled(id+".present",false);
-    },id);
-    public static void SetEnabled(string id,bool enabled)=>Run("SetEnabled",()=>{
-        VolumeRegistryState.SetEnabled(id,enabled);
-        if(!VolumeRegistryState.IsRegistered(id)) return;
-        GuestPassList.SetEnabled(id,enabled); GuestPassList.SetEnabled(id+".present",enabled);
-    },id,enabled);
-    public static void SetParameters(string id,float[] uniforms,double[] bounds,float[] motion)=>Run("SetParameters",()=>{
-        VolumeRegistryState.SetParameters(id,uniforms,bounds,motion);
-        if(!VolumeRegistryState.IsRegistered(id)) return;
+    }
+    public static void SetEnabled(string id,bool enabled)
+    {
+        if(!Local("SetEnabled",()=>VolumeRegistryState.SetEnabled(id,enabled),id,enabled) || !VolumeRegistryState.IsRegistered(id)) return;
+        // Read the registry under the pass list's gate so the last pass update applies the latest registry state.
+        lock(GuestPassList.Gate)
+        { bool current=VolumeRegistryState.IsEnabled(id); GuestPassList.SetEnabled(id,current); GuestPassList.SetEnabled(id+".present",current); }
+    }
+    public static void SetParameters(string id,float[] uniforms,double[] bounds,float[] motion)
+    {
+        if(!Local("SetParameters",()=>VolumeRegistryState.SetParameters(id,uniforms,bounds,motion),id,uniforms,bounds,motion) || !VolumeRegistryState.IsRegistered(id)) return;
         GuestPassList.SetUniforms(id,uniforms);
         GuestPassList.SetMotion(id,motion[0],motion[1],motion[2]);
-    },id,uniforms,bounds,motion);
+    }
     public static bool OwnsNearInterval(string id,uint frame)
     {
         lock(Gate) return DxReady
@@ -75,6 +84,10 @@ public static class VolumetricMediumRegistry
 
     static void Run(string method,Action local,params object[] args)
     { lock(Gate) { if(DxReady) Dx11Call.Call(Dx,method,args); else local(); } }
+    // Routes like Run; true when the shared state was updated locally, so the caller applies its guest passes
+    // after Gate is released.
+    static bool Local(string method,Action state,params object[] args)
+    { lock(Gate) { if(DxReady) { Dx11Call.Call(Dx,method,args); return false; } state(); return true; } }
 
     // Called only after the companion and its assets have initialized. Holding
     // the routing gate keeps concurrent pack updates in the pending snapshot

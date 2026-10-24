@@ -42,6 +42,7 @@
     <Compile Include="../../ClientPlugin/Backend/FacadeVolumes.cs" />
     <Compile Include="../../ClientPlugin/Backend/Dx11Call.cs" />
     <Compile Include="VolumeRouteProbe.cs" />
+    <Compile Include="VolumeLockOrder.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestBridgeClient.cs" />
     <Compile Include="../../ClientPlugin/Backend/RayFacades.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestCatalogTargets.cs" />

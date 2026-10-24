@@ -181,6 +181,8 @@ internal static class VolumeRegistryState
     { lock (Gate) return Requests.OrderBy(id=>id,StringComparer.OrdinalIgnoreCase).ToArray(); }
     internal static bool IsRegistered(string id)
     { lock (Gate) return id != null && Media.ContainsKey(id); }
+    internal static bool IsEnabled(string id)
+    { lock (Gate) return id != null && Media.TryGetValue(id, out var medium) && medium.Enabled; }
 
     internal static Medium[] Capture(out long capturedRevision,out long capturedHistoryRevision,
         out int quality,out float distance,out int debugView)

@@ -214,7 +214,7 @@ static class GuestCompiler
         return found;
     }
 
-    static byte[] Compile(object compiler, string source, string entry, string profile, string assetFolder, string firstInclude = null, bool reportFailure = true, string packRoot = null, string slot = null, string[] capturedIncludes = null, bool capturedOnly = false)
+    static byte[] Compile(object compiler, string source, string entry, string profile, string assetFolder, string firstInclude = null, bool reportFailure = true, string packRoot = null, string slot = null, string[] capturedIncludes = null, bool capturedOnly = false, Action<string> failed = null, string contentDirectory = null)
     {
         var requestType = Find("ClientPlugin.Rendering.Shaders.VulkanShaderRequest");
         if (requestType == null)
@@ -232,6 +232,7 @@ static class GuestCompiler
         Set(request, "Defines", defines);
         if (!string.IsNullOrEmpty(slot)) defines["ANOMALY_FULLSCREEN_SLOT_" + slot.ToUpperInvariant()] = "1";
         Set(request, "NativeAbiVersion", (uint)1);
+        if (contentDirectory != null) Set(request, "ContentDirectory", contentDirectory);
         var includes = new System.Collections.Generic.List<string>();
         if (!string.IsNullOrEmpty(firstInclude))
             includes.Add(firstInclude);
@@ -255,7 +256,8 @@ static class GuestCompiler
         try { result = compile?.Invoke(compiler, new[] { request }); }
         catch (Exception error)
         {
-            if (reportFailure) Report(source + " [" + entry + "]: " + error.GetBaseException().Message);
+            if (failed != null) failed(error.GetBaseException().Message);
+            else if (reportFailure) Report(source + " [" + entry + "]: " + error.GetBaseException().Message);
             return null;
         }
         var path = result?.GetType().GetField("SpirvPath")?.GetValue(result) as string
@@ -267,6 +269,29 @@ static class GuestCompiler
             ?.GetMethod("Prepare", BindingFlags.Public | BindingFlags.Static);
         if (prepare == null) { Report("SE-Vulkan runtime SPIR-V preparation is unavailable"); return null; }
         return prepare.Invoke(null, new object[] { File.ReadAllBytes(path) }) as byte[];
+    }
+
+    /// <summary>
+    /// RayScene tenant shaders on Vulkan (RayScene.CompileShader): DX11 profile ids 0 vs, 1 ps, 3 cs with the
+    /// stock entry names, compiled to guest-band SPIR-V for SE-Vulkan's tenant session. Throws with the compiler log.
+    /// The game shader folder is the first include root, as for DX11's MyShaderCompiler, so a tenant's own
+    /// Common.hlsli cannot shadow the one Keen's headers include.
+    /// </summary>
+    internal static byte[] CompileRayTenant(string path, int profile)
+    {
+        if (profile != 0 && profile != 1 && profile != 3) throw new ArgumentOutOfRangeException(nameof(profile), "Vulkan ray tenants compile vertex, pixel and compute shaders.");
+        var compiler = Find("ClientPlugin.Rendering.Shaders.VulkanShaderCompiler") ?? throw new InvalidOperationException("waiting for SE-Vulkan shader compiler");
+        string cache = Path.Combine(Path.GetTempPath(), "anomaly-guest-spirv"); Directory.CreateDirectory(cache);
+        var bundled = compiler.GetMethod("CreateBundled", BindingFlags.Public | BindingFlags.Static)?.Invoke(null, new object[] { cache })
+            ?? throw new InvalidOperationException("SE-Vulkan bundled shader compiler unavailable");
+        try
+        {
+            string error = null;
+            var bytes = Compile(bundled, path, profile == 0 ? "__vertex_shader" : profile == 1 ? "__pixel_shader" : "__compute_shader",
+                profile == 0 ? "vs_5_0" : profile == 1 ? "ps_5_0" : "cs_5_0", null, failed: message => error = message, contentDirectory: GameShaderDirectory());
+            return bytes ?? throw new InvalidOperationException("Ray tenant shader compilation failed: " + path + "\n" + (error ?? "no SPIR-V produced"));
+        }
+        finally { (bundled as IDisposable)?.Dispose(); }
     }
 
     internal static string GameShaderDirectory()

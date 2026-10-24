@@ -37,6 +37,31 @@ A part is `{ first index int, index count int, base vertex int, material name st
 
 `SetEmitter(uint id, float[16] cameraRelativeDisc, object borrowedTexture, uint nativeLightOwner, uint sourceRevision)` / `RemoveEmitter(id)` support effect producers. Nonzero ID is stable per source lifetime. Disc fields: center XYZ, radius, emitted linear RGB, reserved, normal XYZ, area, four reserved. Use `uint.MaxValue` for no analytic owner; a matching native light ID suppresses the proxy. Re-submit camera-relative positions each frame. Built-in file-texture, one-frame and persistent billboards provide bounded disk proxies; render-target billboards currently use color proxies. CPU metadata from active GPU emitters also supplies approximate effect sources, with key-averaged radiance, centroid/radius and atlas textures. Individual GPU particle buffers are not decoded. These are lighting sources, not visibility geometry.
 
+## Vulkan route
+
+On Vulkan the same v1 frame is delivered before guest submission each frame. Fields keep their DX11 meaning, with these differences:
+
+- **Field 7** keeps DX11's positions, but entries are renderer ids, not views: `{ "vulkan", tenant session, HDR target, depth, GBuffer0/1/2, velocity (0 when unpublished), frame constants, sun shadows, close environment cube, far environment cube, ambient BRDF }`.
+- **The session** (`IReadOnlyDictionary<string, Delegate>`, SE-Vulkan `sevk_tenant_*`) replaces the device context. It holds BCL delegates only:
+  - `ApiVersion` → 1
+  - `CreateBuffer(bytes)` → id
+  - `CreateImage(width, height, layers, VkFormat, flags)` → id; flag 1 = array view
+  - `CreateCompute(spirv, entry)`
+  - `CreateRaster(vsSpirv, vsEntry, psSpirv, psEntry, formats)`: a fullscreen triangle from three `SV_VertexID` vertices; format 0 = renderer HDR
+  - `Destroy(id)`
+  - `Record(commands, bindings, blob)`
+  - `Readback(id, layer, offset, bytes)` (diagnostics)
+  - `Stats()`
+- **Commands and bindings** are the 128-byte `SevkTenantCommand` and 32-byte `SevkTenantBinding` records documented in `se_vulkan.h`. Commands: dispatch, fullscreen MRT draw, fill, clear, copy, upload. Bindings use guest register bands (b → 0, t → 128, s → 256, u → 384).
+- **Unbound or null bindings** read zero, like DX11 null views.
+- **Image formats:** storage images bind any compatible format; SPIR-V storage formats are retyped Unknown.
+- **When the list runs:** after deferred lighting, before AfterLighting guest passes, where DX11 composes into LBuffer. HDR is the only renderer draw target. Sampling HDR reads that frame's snapshot.
+- **Resources:** `Destroy` retires a resource once the GPU is done with it, so tenants need no retirement query. A new session object means a new renderer; ids from an old session are gone.
+- **`CompileShader(path, profile)`** returns guest-band SPIR-V for profiles 0, 1 and 3, using the stock entry names. The game shader folder is the first include root, so a tenant's own `Common.hlsli` cannot shadow Keen's.
+- **`RegisterCompleted`** gets no device context, and the session has no GPU timestamps yet, so adaptive budgets keep their current scale.
+- **Field 15** (far sun) is null until the Vulkan far-sun pass exists.
+- **Capture gaps** (absent or unknown coverage boxes): skinned and instanced actors, voxels, and billboard/GPU emitters.
+
 ## Composition transaction
 
 Scene residency includes nearby off-screen actors. `IMyActor.IsVisible` is the explicit actor visibility flag, not frustum visibility, so explicitly hidden previews are excluded. The local-character exception remains. Mesh coverage is bounded to the 256 m camera-relative residency sphere; unsupported or missing meshes stay coverage boxes.

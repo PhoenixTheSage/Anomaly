@@ -2246,3 +2246,38 @@ Still open on this contract:
 - attachment fixtures on native-cell/GPU owners (they share the format helper).
 
 Both aggregate capability flags stay false.
+
+### RayScene tenants on Vulkan (audit P3 step 4)
+
+**Tenant compute session.** On Vulkan, RayScene v1 tenants record their whole
+stack through SE-Vulkan's tenant compute session, which `frame[7][1]` carries
+(see `Docs/RayTracing.md`, Vulkan route). The session supports:
+
+- storage buffers;
+- 2D and array images, in float and uint formats;
+- compute and fullscreen MRT pipelines built from guest-band SPIR-V;
+- dispatch, draw, fill, clear, copy and upload commands.
+
+`RayScene.CompileShader` now compiles guest SPIR-V on Vulkan. SE-RT's
+`SoftwareVulkan` backend runs the DX11 software stack unchanged on this
+session, with the same shaders, passes and allocation forecasts:
+
+- `--sert-vulkan-only` (GuestDepthGpuTests, actual Anomaly core) passes 8 checks;
+- `--sert-scene-only` (SceneSubmissionGpuTests) passes 6 checks: 394 of 400
+  armor pixels are traced and traced lighting replaces native lighting;
+- `--tenant-session-only` passes 25 analytic checks.
+
+All three lanes have zero validation errors.
+
+Still open on this contract:
+
+- GPU timestamps in the session, so SE-RT's adaptive budget and timing
+  diagnostics work on Vulkan (DX11 polls an event query and a timer from
+  `RegisterCompleted`);
+- the Vulkan far-sun product (`frame[15]`);
+- renderer textures that update every frame (LCD render targets): DX11
+  re-bakes them into SE-RT's atlas each frame, but on Vulkan their ids do not
+  identify them, so they bake once per version;
+- capture coverage for skinned and instanced actors, voxels and
+  billboard/GPU emitters (they arrive as unknown coverage boxes);
+- hardware ray-query tracing of the SE-RT stack (option C).

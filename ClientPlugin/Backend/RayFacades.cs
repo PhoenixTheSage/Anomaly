@@ -172,7 +172,8 @@ public static class RayScene
     public static byte[] CompileShader(string path, int profile)
     {
         if (RenderHost.IsDx11) return Forward("CompileShader", path, profile) as byte[];
-        throw new NotSupportedException("RayScene.CompileShader produces DX11 bytecode; Vulkan ray tenants compile through the guest compiler.");
+        // Vulkan: guest-band SPIR-V for the SE-Vulkan tenant session (frame[7][1]).
+        return GuestCompiler.CompileRayTenant(path, profile);
     }
 
     public static void Clear()

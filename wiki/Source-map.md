@@ -50,7 +50,7 @@ VolumeShadowViews owns shared directional projection policy. GuestVolumeShadows 
 |------|------|
 | [ShaderCompileIntercept.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/ShaderCompileIntercept.cs) | Include dirs + macros + Keen patch serve |
 | [KeenShaderGuard.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/KeenShaderGuard.cs) | Hash + patch Keen GBuffer files at load |
-| [ShaderStages.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/ShaderStages.cs) | Stage files + sentinels |
+| [ShaderStages.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/Backend/ShaderStages.cs) | Stage files + sentinels |
 | [OwnedBuffersPass.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/OwnedBuffersPass.cs) | `linearDepth` / `hiZ` / history / `litMips` |
 | [MainViewGate.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/MainViewGate.cs) | Skip HDR slots on LCD / TargetView / TargetCamera |
 | [OwnedPassRegistry.cs](https://github.com/PhoenixTheSage/Anomaly/blob/main/ClientPlugin/ShaderFramework/OwnedPassRegistry.cs) | Pack draw slots |

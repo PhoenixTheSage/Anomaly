@@ -303,6 +303,7 @@
     <Compile Include="Backend\StageBindingModel.cs" />
     <Compile Include="Backend\GBufferVelocitySource.cs" />
     <Compile Include="Backend\CatalogContract.cs" />
+    <Compile Include="Backend\ShaderStages.cs" />
     <Compile Remove="obj\**\*.cs;bin\**\*.cs" />
     <Compile Remove="RichHud\**\*.cs" />
     <Compile Remove="RichHudFramework\**\*.cs" />

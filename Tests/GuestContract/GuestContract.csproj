@@ -10,7 +10,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="StageSourceContracts.cs" />
     <Compile Include="StatusAdapters.cs" />
-    <Compile Include="..\..\ClientPlugin\ShaderFramework\ShaderStages.cs" />
+    <Compile Include="..\..\ClientPlugin\Backend\ShaderStages.cs" />
     <Compile Include="..\..\ClientPlugin\Backend\PackSourceSnapshot.cs" />
     <Compile Include="..\..\ClientPlugin\Backend\GuestMark.cs" Link="GuestMark.cs" />
     <Compile Include="..\..\ClientPlugin\Backend\GuestPassList.cs" Link="GuestPassList.cs" />

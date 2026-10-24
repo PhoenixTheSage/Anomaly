@@ -50,7 +50,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Backend\**\*.cs" />
-    <Compile Include="ShaderFramework\ShaderStages.cs" />
     <!-- Settings is also compiled into Anomaly.Dx11. The two copies are
          different types. Pulsar must compile this directory or the plugin
          version and config dialog stay on the DX11 assembly. -->

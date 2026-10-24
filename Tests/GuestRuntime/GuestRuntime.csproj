@@ -7,7 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
-    <Compile Include="../../ClientPlugin/ShaderFramework/ShaderStages.cs" />
+    <Compile Include="../../ClientPlugin/Backend/ShaderStages.cs" />
     <Compile Include="ParityContracts.cs" />
     <Compile Include="TargetContracts.cs" />
     <Compile Include="FrameContracts.cs" />
@@ -43,6 +43,7 @@
     <Compile Include="../../ClientPlugin/Backend/Dx11Call.cs" />
     <Compile Include="VolumeRouteProbe.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestBridgeClient.cs" />
+    <Compile Include="../../ClientPlugin/Backend/RayFacades.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestCatalogTargets.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestCompiler.cs" />
     <Compile Include="../../ClientPlugin/Backend/GuestNamedStages.cs" />

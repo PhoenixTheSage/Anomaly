@@ -185,9 +185,14 @@ public static class RayScene
     /// Vulkan delivery: wraps the renderer's scene capture in the v1 frame Anomaly's DX11 capture builds
     /// {version, epoch, frame index (uint), camera center, meshes, instances, lights, renderer resources,
     /// size, sun/ambient, view-projection, previous view-projection, emitters, cookies, physical light origins,
-    /// far-sun product}. Renderer resources are image ids ("vulkan", hdr, depth, GBuffer0-2, velocity); the far-sun
-    /// product is null until the Vulkan far-sun pass exists.
+    /// far-sun product}. Renderer resources keep DX11's frame[7] positions: {"vulkan" (device), tenant session
+    /// (context: named delegates over SE-Vulkan's tenant compute session), HDR target (LBuffer), depth, GBuffer0-2,
+    /// velocity (0 when unpublished), frame constants, sun shadows, close and far environment cubes, ambient BRDF};
+    /// images are renderer ids a tenant binds by id. The far-sun product is null until the Vulkan far-sun pass exists.
     /// </summary>
+    // SE-Vulkan tenant resource ids (tenant.inc): frame constants bind as kind 6; the rest are renderer images.
+    internal const ulong VulkanFrameConstants = 0xFFFF000000000024UL, VulkanSunShadows = 0xFFFF000000000020UL,
+        VulkanCloseCube = 0xFFFF000000000021UL, VulkanFarCube = 0xFFFF000000000022UL, VulkanBrdf = 0xFFFF000000000023UL;
     internal static void DeliverVulkan()
     {
         if (!RenderHost.IsVulkan) return;
@@ -199,7 +204,8 @@ public static class RayScene
         float[] M(int offset) { var m = new float[16]; for (int i = 0; i < 16; i++) m[i] = F(offset + i * 4); return m; }
         var meshes = (object[][])capture[0]; var instances = (object[][])capture[1]; var lights = (float[])capture[2];
         var sun = new[] { F(88), F(92), F(96), F(36), F(72), F(76), F(80), GuestFrame.Open && GuestFrame.U32(20) != 0 ? 1f : 0f, F(104), F(108), F(112), Convert.ToSingle(capture[6]) };
-        var devices = new object[] { "vulkan", GuestBridgeClient.Hdr, GuestBridgeClient.Depth, GuestBridgeClient.GBuffer0, GuestBridgeClient.GBuffer1, GuestBridgeClient.GBuffer2, GuestBridgeClient.Catalog("velocity") };
+        var devices = new object[] { "vulkan", GuestBridgeClient.TenantSession(), GuestBridgeClient.Hdr, GuestBridgeClient.Depth, GuestBridgeClient.GBuffer0, GuestBridgeClient.GBuffer1,
+            GuestBridgeClient.GBuffer2, GuestBridgeClient.Catalog("velocity"), VulkanFrameConstants, VulkanSunShadows, VulkanCloseCube, VulkanFarCube, VulkanBrdf };
         var frame = new object[] { ApiVersion, unchecked((int)GuestBridgeClient.ResourceEpoch), GuestFrame.Open ? GuestFrame.U32(16) : 0u, capture[5], meshes, instances, lights, devices,
             new[] { SceneView.Width, SceneView.Height }, sun, M(136), M(200), EmitterSnapshot(), capture[3], capture[4], null };
         string error = null;

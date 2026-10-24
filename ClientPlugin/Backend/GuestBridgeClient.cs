@@ -595,6 +595,7 @@ static class GuestBridgeClient
     public static void SetUpscaleOwner(string id) => Call("SetUpscaleOwner", id ?? "");
     internal static float[] TonemapValues() => Call("TonemapValues") as float[];
     internal static object[] CaptureRayScene() => Call("CaptureRayScene") as object[];
+    internal static object TenantSession() => Call("TenantSession");
     internal static void SetHdrUi(float paperWhite, float shoulder, float peak) => Call("SetHdrUi", paperWhite, shoulder, peak);
     internal static void SetHdrScreenshot(float paperWhiteNits) => Call("SetHdrScreenshot", paperWhiteNits);
     internal static float[] DisplayInfo() => Call("DisplayInfo") as float[];

@@ -2,6 +2,15 @@
 
 Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage below is reconstructed from repository history so the current version reflects shipped capability rather than the inherited SE-DLSS version.
 
+## 1.15.0 — 2026-10-24
+
+- Make display demand owner-qualified, retain the union of requests and replay it after device restoration.
+- Add portable TonemapInputs and RenderClock; publish Vulkan luminance, bloom and dirt inputs.
+- Derive HDR display tenancy from enabled Display registrations and expose HUD transforms, display information, tearing, low latency and HDR screenshots.
+- Add portable opaque-lighting ownership and RayScene v1 registration, delivery and completion callbacks before Vulkan guest submission.
+- Carry Vulkan tenant resources in the v1 frame and compile tenant compute and inline ray-query shaders to SPIR-V.
+- Document voxel, reserved-input and debug-line parity and remaining ray-scene coverage limits.
+
 ## 1.14.0 — 2026-10-23
 
 - Share pack admission, authenticated immutable source capture, stage reservations, binding diagnostics and fenced catalog upload/target ownership across renderers.

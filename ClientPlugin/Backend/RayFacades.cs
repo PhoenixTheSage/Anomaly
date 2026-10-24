@@ -122,7 +122,7 @@ public static class RayScene
         if (RenderHost.IsDx11) return Forward("Register", id, apiVersion, frame) is true;
         if (!RenderHost.IsVulkan || apiVersion != ApiVersion || string.IsNullOrWhiteSpace(id) || frame == null) return false;
         lock (Gate) { Consumers[id] = frame; FrameEnabled[id] = true; Volatile.Write(ref requested, Consumers.Count); }
-        status = "Vulkan RayScene registered; the renderer scene producer is pending (P3 step 3)";
+        status = "Vulkan RayScene registered";
         return true;
     }
 
@@ -181,7 +181,35 @@ public static class RayScene
         lock (Gate) Emitters.Clear();
     }
 
-    // Vulkan state snapshots for the renderer-side producer (P3 step 3).
+    /// <summary>
+    /// Vulkan delivery: wraps the renderer's scene capture in the v1 frame Anomaly's DX11 capture builds
+    /// {version, epoch, frame index (uint), camera center, meshes, instances, lights, renderer resources,
+    /// size, sun/ambient, view-projection, previous view-projection, emitters, cookies, physical light origins,
+    /// far-sun product}. Renderer resources are image ids ("vulkan", hdr, depth, GBuffer0-2, velocity); the far-sun
+    /// product is null until the Vulkan far-sun pass exists.
+    /// </summary>
+    internal static void DeliverVulkan()
+    {
+        if (!RenderHost.IsVulkan) return;
+        var consumers = EnabledConsumers();
+        if (consumers.Length == 0) return;
+        var capture = GuestBridgeClient.CaptureRayScene();
+        if (capture == null || capture.Length < 7) { status = "Vulkan RayScene: no renderer scene"; return; }
+        float F(int offset) => GuestFrame.Open ? GuestFrame.F32(offset) : 0f;
+        float[] M(int offset) { var m = new float[16]; for (int i = 0; i < 16; i++) m[i] = F(offset + i * 4); return m; }
+        var meshes = (object[][])capture[0]; var instances = (object[][])capture[1]; var lights = (float[])capture[2];
+        var sun = new[] { F(88), F(92), F(96), F(36), F(72), F(76), F(80), GuestFrame.Open && GuestFrame.U32(20) != 0 ? 1f : 0f, F(104), F(108), F(112), Convert.ToSingle(capture[6]) };
+        var devices = new object[] { "vulkan", GuestBridgeClient.Hdr, GuestBridgeClient.Depth, GuestBridgeClient.GBuffer0, GuestBridgeClient.GBuffer1, GuestBridgeClient.GBuffer2, GuestBridgeClient.Catalog("velocity") };
+        var frame = new object[] { ApiVersion, unchecked((int)GuestBridgeClient.ResourceEpoch), GuestFrame.Open ? GuestFrame.U32(16) : 0u, capture[5], meshes, instances, lights, devices,
+            new[] { SceneView.Width, SceneView.Height }, sun, M(136), M(200), EmitterSnapshot(), capture[3], capture[4], null };
+        string error = null;
+        foreach (var consumer in consumers)
+            try { consumer.Frame(frame); }
+            catch (Exception e) { error = consumer.Id + ": " + e.GetBaseException().Message; }
+        status = error ?? meshes.Length + " meshes, " + instances.Length + " instances, " + lights.Length / 16 + " native lights";
+    }
+
+    // Vulkan state snapshots for delivery.
     internal static (string Id, Action<object[]> Frame, bool FarSun)[] EnabledConsumers()
     {
         lock (Gate)

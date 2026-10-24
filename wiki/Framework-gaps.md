@@ -51,8 +51,14 @@ producer and native-owner validation does not establish complete plugin behavior
   flags, emitters and completion callbacks. Guest submission and portable
   callbacks skip programs whose signals a committed tenant owns.
 
+  Step 3 landed: SE-Vulkan's producer captures the scene half of the v1 frame,
+  and Anomaly delivers each frame before guest submission, so tenants commit
+  ownership first. SE-RT's Core `SceneAssembler` builds those frames.
+
   Still open:
-  - the Vulkan scene producer that fills the v1 frame (step 3);
+  - skinned and instanced actors, voxels, and billboard/GPU emitters in the
+    capture;
+  - the far-sun product;
   - SE-RT's compute stack on Vulkan (step 4);
   - composite and acceptance (step 5).
 

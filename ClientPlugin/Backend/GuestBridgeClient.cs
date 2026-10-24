@@ -177,6 +177,8 @@ static class GuestBridgeClient
 
     public static void Submit(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
     {
+        // Ray tenants receive the frame first, so their opaque-lighting commit precedes ShouldRun below.
+        ClientPlugin.Shaders.RayScene.DeliverVulkan();
         ulong previousColor=PreviousColor(programs);
         if(previousColor==0)ClientPlugin.Buffers.BufferCatalog.Set("historyColor",null);
         var bindings=GuestStageBindings.Freeze(programs);
@@ -592,6 +594,7 @@ static class GuestBridgeClient
 
     public static void SetUpscaleOwner(string id) => Call("SetUpscaleOwner", id ?? "");
     internal static float[] TonemapValues() => Call("TonemapValues") as float[];
+    internal static object[] CaptureRayScene() => Call("CaptureRayScene") as object[];
     internal static void SetHdrUi(float paperWhite, float shoulder, float peak) => Call("SetHdrUi", paperWhite, shoulder, peak);
     internal static void SetHdrScreenshot(float paperWhiteNits) => Call("SetHdrScreenshot", paperWhiteNits);
     internal static float[] DisplayInfo() => Call("DisplayInfo") as float[];

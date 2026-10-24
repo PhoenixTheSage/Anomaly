@@ -2271,9 +2271,9 @@ All three lanes have zero validation errors.
 
 Still open on this contract:
 
-- GPU timestamps in the session, so SE-RT's adaptive budget and timing
-  diagnostics work on Vulkan (DX11 polls an event query and a timer from
-  `RegisterCompleted`);
+- GPU timestamps in the session: done. Each frame's tenant list is timed, and
+  `RegisterCompleted` runs on Vulkan with the session as the context, so SE-RT's
+  adaptive budget and timing diagnostics work;
 - the Vulkan far-sun product (`frame[15]`);
 - renderer textures that update every frame (LCD render targets): DX11
   re-bakes them into SE-RT's atlas each frame, but on Vulkan their ids do not

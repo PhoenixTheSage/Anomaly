@@ -197,6 +197,12 @@ public static class RayScene
     internal static void DeliverVulkan()
     {
         if (!RenderHost.IsVulkan) return;
+        // DX11 calls completion callbacks with the immediate context at scheduler completion for query polling.
+        // On Vulkan they run once per frame, before delivery, with the tenant session, whose Timing reports
+        // the latest completed GPU measurement.
+        var completed = CompletedSnapshot();
+        if (completed.Length != 0 && GuestBridgeClient.TenantSession() is object session)
+            foreach (var callback in completed) try { callback(session); } catch (Exception e) { status = "Vulkan RayScene completion: " + e.GetBaseException().Message; }
         var consumers = EnabledConsumers();
         if (consumers.Length == 0) return;
         var capture = GuestBridgeClient.CaptureRayScene();

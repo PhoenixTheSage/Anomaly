@@ -64,7 +64,7 @@ On Vulkan the same v1 frame is delivered before guest submission each frame. Fie
 - **When the list runs:** after deferred lighting, before AfterLighting guest passes, where DX11 composes into LBuffer. HDR is the only renderer draw target. Sampling HDR reads that frame's snapshot.
 - **Resources:** `Destroy` retires a resource once the GPU is done with it, so tenants need no retirement query. A new session object means a new renderer; ids from an old session are gone.
 - **`CompileShader(path, profile)`** returns guest-band SPIR-V for profiles 0, 1 and 3, using the stock entry names. Profile 4 (Vulkan only) compiles compute with inline ray tracing (`cs_6_5`, `SPV_KHR_ray_query`). The game shader folder is the first include root, so a tenant's own `Common.hlsli` cannot shadow Keen's.
-- **`RegisterCompleted`** gets no device context, and the session has no GPU timestamps yet, so adaptive budgets keep their current scale.
+- **`RegisterCompleted`** callbacks run once per frame before delivery, with the tenant session as the context. The session's `Timing()` returns `{GPU milliseconds, measurements}`. That is the GPU time of the latest completed tenant list, from timestamps around it, typically one or two frames old; it is NaN and 0 without timestamps. Adaptive budgets poll it as DX11 tenants poll their timer queries.
 - **Field 15** (far sun) is null until the Vulkan far-sun pass exists.
 - **Capture gaps** (absent or unknown coverage boxes): skinned and instanced actors, voxels, and billboard/GPU emitters.
 

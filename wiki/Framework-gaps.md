@@ -31,9 +31,19 @@ producer and native-owner validation does not establish complete plugin behavior
   - HdrRender registers its pack and writes uniforms on Vulkan through these
     facades.
 
-  Still open: display output detection and state, screenshots, tearing and
-  queue-latency controls. HUD sprites use a per-sprite transform rather than
-  DX11's composited UI layer.
+  - `DisplayServices.Info` reports swapchain HDR capability and state,
+    tenancy, present mode, and tearing/latency state. On Windows it also reports
+    the window monitor's DXGI Output6 data (Windows HDR on/off, peak/full-frame
+    nits, bit depth).
+  - Display bits 32 (AllowTearing, IMMEDIATE without vsync) and 64 (LowLatency,
+    one frame in flight) mirror HdrRender's DX11 options.
+  - `DisplayServices.SetHdrScreenshot` makes PNG screenshots on an HDR swapchain
+    keep an EXR beside a paper-white SDR PNG, using HdrRender's encoder and
+    curve.
+
+  P4 has no remaining host gap. Known differences: HUD sprites use a per-sprite
+  transform rather than DX11's composited UI layer. Tearing and latency apply
+  live on Vulkan rather than at restart.
 - **RayScene:** the geometry/material/light frame snapshot, completion,
   far-sun product and opaque-lighting ownership remain DX11-only. Core compiles
   Backend and selected shared files, with no RayScene facade. SE-RT's renderer

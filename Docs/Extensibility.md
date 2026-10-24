@@ -13,8 +13,9 @@ identifies consumer contracts still needed after the producer/native-owner work:
 - Resolved on Vulkan: portable TonemapInputs grading values and display
   tenancy. Display-policy programs grade at the tone position into FP16 on an
   HDR swapchain, and the LDR overlays, FXAA and chromatic follow in FP16.
-  `DisplayServices.SetHdrUi` sets the HUD transform. Display detection,
-  screenshot, tearing and latency services remain open.
+  `DisplayServices.SetHdrUi` sets the HUD transform. `DisplayServices.Info`,
+  display bits 32/64 (tearing/low latency) and `SetHdrScreenshot` (EXR plus a
+  paper-white SDR PNG) complete the display contract (P4).
 - A device-free RayScene frame/material/light/geometry/completion/far-sun and
   portable lighting/output contract. SE-RT's native sun query does not replace
   the DX11 scene and reconstruction stack.

@@ -380,6 +380,10 @@ public static class DisplayServices
     public const int TemporalUpscale = 4;
     /// <summary>Anomaly's display tenant request; owned by Anomaly, not by packs.</summary>
     public const int DisplayTenant = 16;
+    /// <summary>Tearing presentation (IMMEDIATE) without vsync, as DX11 AllowTearing.</summary>
+    public const int AllowTearing = 32;
+    /// <summary>One frame in flight, as DX11 MaximumFrameLatency 1.</summary>
+    public const int LowLatency = 64;
     const int Managed = 0xFFFF;
 
     static readonly object Gate = new object();
@@ -462,6 +466,24 @@ public static class DisplayServices
     }
 
     static float[] hdrUi;
+    static float hdrScreenshot;
+
+    /// <summary>
+    /// Renderer display state on Vulkan; null on DX11, where display tenants read DXGI themselves. The monitor
+    /// fields come from DXGI Output6 for the game window's monitor on Windows (DisplayKnown false elsewhere).
+    /// </summary>
+    public static DisplayInfo Info => RendererRoute.UseGuestImages ? DisplayInfo.From(GuestBridgeClient.DisplayInfo()) : null;
+
+    /// <summary>
+    /// Scene paper white (nits) for HDR screenshots on Vulkan: PNG requests on an HDR swapchain also keep an EXR
+    /// beside a paper-white SDR PNG, as HdrRender's DX11 ScreenshotPatch does. Zero restores ordinary capture.
+    /// </summary>
+    public static void SetHdrScreenshot(float paperWhiteNits)
+    {
+        float value = paperWhiteNits > 0 ? paperWhiteNits : 0;
+        lock (Gate) { if (hdrScreenshot == value) return; hdrScreenshot = value; }
+        if (RendererRoute.UseGuestImages) GuestBridgeClient.SetHdrScreenshot(value);
+    }
 
     /// <summary>
     /// HUD brightness on an HDR swapchain, matching HdrRender's DX11 UI composite: scene paper white (nits) times
@@ -486,6 +508,9 @@ public static class DisplayServices
         float[] ui;
         lock (Gate) ui = hdrUi;
         if (ui != null && RendererRoute.UseGuestImages) GuestBridgeClient.SetHdrUi(ui[0], ui[1], ui[2]);
+        float screenshot;
+        lock (Gate) screenshot = hdrScreenshot;
+        if (screenshot > 0 && RendererRoute.UseGuestImages) GuestBridgeClient.SetHdrScreenshot(screenshot);
     }
 
     static void Push(bool force)
@@ -588,6 +613,24 @@ public static class RenderClock
     public static double FrameSeconds =>
         GuestColor.Open ? GuestBridgeClient.FrameSeconds()
         : RenderHost.IsDx11 && Dx11Call.Get("ClientPlugin.Shaders.TonemapInputs", "FrameSeconds") is double seconds ? seconds : 0;
+}
+
+/// <summary>Snapshot of the renderer's HDR display state (DisplayServices.Info).</summary>
+public sealed class DisplayInfo
+{
+    public bool HdrCapable, HdrActive, TenantGraded, TearingSupported, TearingActive, LowLatency, DisplayKnown, DisplayHdr10;
+    /// <summary>Vulkan present mode (0 immediate, 1 mailbox, 2 FIFO, 3 FIFO relaxed); -1 without a swapchain.</summary>
+    public int PresentMode;
+    public int BitsPerColor;
+    public float MaxLuminance, MaxFullFrameLuminance, MinLuminance;
+
+    internal static DisplayInfo From(float[] v)
+    {
+        if (v == null || v.Length < 13) return null;
+        return new DisplayInfo { HdrCapable = v[0] != 0, HdrActive = v[1] != 0, TenantGraded = v[2] != 0, PresentMode = (int)v[3], TearingSupported = v[4] != 0,
+            TearingActive = v[5] != 0, LowLatency = v[6] != 0, DisplayKnown = v[7] != 0, DisplayHdr10 = v[8] != 0, BitsPerColor = (int)v[9],
+            MaxLuminance = v[10], MaxFullFrameLuminance = v[11], MinLuminance = v[12] };
+    }
 }
 
 public static class GBufferTargetRegistry

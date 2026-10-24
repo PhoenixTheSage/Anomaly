@@ -2,6 +2,11 @@
 
 Anomaly uses semantic versioning. The project began at `1.0.0`; the lineage below is reconstructed from repository history so the current version reflects shipped capability rather than the inherited SE-DLSS version.
 
+## 1.15.1 — 2026-10-24
+
+- Move ShaderStages into Backend so Pulsar's manifest-based source build includes it and Anomaly can load; preserve the DX11 companion's explicit inclusion.
+- Update GuestContract, GuestRuntime and the source map for the move; include RayFacades in GuestRuntime to match the core's RayScene delivery dependency.
+
 ## 1.15.0 — 2026-10-24
 
 - Make display demand owner-qualified, retain the union of requests and replay it after device restoration.

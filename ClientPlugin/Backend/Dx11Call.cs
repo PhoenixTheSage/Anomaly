@@ -18,7 +18,22 @@ static class Dx11Call
         return false;
     }
 
-    public static void Bind(Assembly assembly) => dx11 = assembly;
+    public static void Bind(Assembly assembly) { dx11 = assembly; lock (Named) Named.Clear(); }
+    // Per (type, name): the public static methods with that name. Overloads still resolve per call from the
+    // argument types (Match); only the assembly type lookup and the full method-array scan are cached.
+    static readonly Dictionary<(string, string), MethodInfo[]> Named = new();
+    static MethodInfo[] Candidates(string typeName, string method)
+    {
+        lock (Named)
+        {
+            if (Named.TryGetValue((typeName, method), out var cached)) return cached;
+            var type = dx11?.GetType(typeName);
+            if (type == null) return null;
+            var found = new List<MethodInfo>();
+            foreach (var candidate in type.GetMethods(BindingFlags.Public | BindingFlags.Static)) if (candidate.Name == method) found.Add(candidate);
+            return Named[(typeName, method)] = found.ToArray();
+        }
+    }
 
     public static bool Call(string typeName, string method, params object[] args)
     {
@@ -30,10 +45,10 @@ static class Dx11Call
         result = null;
         if (dx11 == null)
             return false;
-        var type = dx11.GetType(typeName);
-        if (type == null)
+        var candidates = Candidates(typeName, method);
+        if (candidates == null)
             return false;
-        var found = Match(type.GetMethods(BindingFlags.Public | BindingFlags.Static), method, args);
+        var found = Match(candidates, method, args);
         if (found == null)
             return false;
         result = found.Invoke(null, args ?? Array.Empty<object>());

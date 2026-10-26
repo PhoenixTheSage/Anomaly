@@ -259,11 +259,12 @@ static class GuestBridgeClient
         GuestVolumes.TrySubmit(programs);
         var callbacks=PortablePassRegistry.Snapshot();
         Action captureColorHistory=null;
+        OrderByMark(programs);
         for(int currentMark=GuestMark.AfterLighting;currentMark<=GuestMark.AfterUpscale;currentMark++)
         {
         ulong previous=currentMark>=5?Upscale:Hdr;bool lastChain=false;
         PortablePassRegistry.Run(callbacks,currentMark,0,programs);
-        foreach (var program in Ordered(programs))
+        foreach (var program in byMark[currentMark])
         {
             if(program==null || program.Mark!=currentMark)continue;
             if(program==null || program.Helper)continue;
@@ -412,11 +413,22 @@ static class GuestBridgeClient
         Call("Submit",mark,4,width,height,pipeline,Hdr,Array.Empty<byte>(),sampled,flags);return true;
     }
 
-    static System.Collections.Generic.IEnumerable<GuestProgram> Ordered(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
+    // Per-mark submission order, built once per frame into reused lists: producers ("anomaly.owned.") first,
+    // then priority (stable, so manifest order holds on ties) within each native insertion mark.
+    static readonly System.Collections.Generic.List<GuestProgram> orderScratch=new();
+    static readonly System.Collections.Generic.List<GuestProgram>[] byMark=NewMarkLists();
+    static System.Collections.Generic.List<GuestProgram>[] NewMarkLists()
+    {
+        var lists=new System.Collections.Generic.List<GuestProgram>[GuestMark.AfterUpscale+1];
+        for(int i=0;i<lists.Length;i++)lists[i]=new System.Collections.Generic.List<GuestProgram>();
+        return lists;
+    }
+    static void OrderByMark(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
     {
         // A consumer can register before Anomaly.LoadAssets. Publish producers
         // first, then preserve pack order within each native insertion mark.
-        var sorted = new System.Collections.Generic.List<GuestProgram>(programs);
+        var sorted=orderScratch;sorted.Clear();
+        for(int i=0;i<programs.Count;i++)sorted.Add(programs[i]);
         // Stable insertion sort retains manifest order when priorities tie.
         for (int i = 1; i < sorted.Count; i++)
         {
@@ -426,16 +438,15 @@ static class GuestBridgeClient
             { sorted[j + 1] = sorted[j]; j--; }
             sorted[j + 1] = item;
         }
-        for (int mark = GuestMark.AfterLighting; mark <= GuestMark.AfterUpscale; mark++)
-        {
-            for (int owned = 1; owned >= 0; owned--)
-                for (int i = 0; i < sorted.Count; i++)
-                {
-                    var p = sorted[i];
-                    if (p != null && p.Mark == mark && (p.Id != null && p.Id.StartsWith("anomaly.owned.", StringComparison.Ordinal) ? 1 : 0) == owned)
-                        yield return p;
-                }
-        }
+        foreach(var list in byMark)list.Clear();
+        for (int owned = 1; owned >= 0; owned--)
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var p = sorted[i];
+                if (p != null && p.Mark >= GuestMark.AfterLighting && p.Mark <= GuestMark.AfterUpscale && (p.Id != null && p.Id.StartsWith("anomaly.owned.", StringComparison.Ordinal) ? 1 : 0) == owned)
+                    byMark[p.Mark].Add(p);
+            }
+        sorted.Clear();
     }
 
     static bool OwnsGlare(System.Collections.Generic.IReadOnlyList<GuestProgram> programs)
@@ -476,7 +487,9 @@ static class GuestBridgeClient
     public const int LiveResources = 1024;
     public const int SceneDepth = 2048;
     public const int SharedFrame = 4096;
-    internal static long ResourceEpoch=>Convert.ToInt64(Find()?.GetProperty("ResourceEpoch",BindingFlags.Public|BindingFlags.Static)?.GetValue(null)??0L);
+    internal static long ResourceEpoch=>Convert.ToInt64(BridgeProperty(ref epochProperty,"ResourceEpoch")?.GetValue(null)??0L);
+    static PropertyInfo epochProperty,flagsProperty;
+    static PropertyInfo BridgeProperty(ref PropertyInfo cached,string name)=>cached??=Find()?.GetProperty(name,BindingFlags.Public|BindingFlags.Static);
     internal static object[] CaptureVolumeScene()=>Call("CaptureVolumeScene") as object[];
     internal static bool ConfigureSceneDepthViews(ulong[] images,double[] worldMatrices)=>
         SupportsPacketFlags(SceneDepth) && Call("ConfigureSceneDepthViews",images,worldMatrices) is true;
@@ -488,7 +501,7 @@ static class GuestBridgeClient
 
     internal static bool SupportsPacketFlags(int flags)
     {
-        var value = Find()?.GetProperty("SupportedPacketFlags", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+        var value = BridgeProperty(ref flagsProperty, "SupportedPacketFlags")?.GetValue(null);
         return value is int supported && (supported & flags) == flags;
     }
 
@@ -683,30 +696,41 @@ static class GuestBridgeClient
         return bytes;
     }
 
+    // Bridge calls run dozens of times a frame: the bridge type and each (name, argument count) method are
+    // resolved once. Scanning every loaded assembly and every method per call cost about 2 ms a frame.
+    static readonly System.Collections.Generic.Dictionary<(string,int),MethodInfo> Methods=new();
     internal static object Call(string method, params object[] args)
     {
         var type = Find();
         if (type == null)
             return null;
-        foreach (var candidate in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+        var key=(method,args?.Length ?? 0);MethodInfo found;
+        lock(Methods)
         {
-            if (candidate.Name != method || candidate.GetParameters().Length != (args?.Length ?? 0))
-                continue;
-            return candidate.Invoke(null, args);
+            if(!Methods.TryGetValue(key,out found))
+            {
+                foreach (var candidate in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                    if (candidate.Name == method && candidate.GetParameters().Length == key.Item2) { found = candidate; break; }
+                Methods[key]=found;
+            }
         }
-
-        return null;
+        return found?.Invoke(null, args);
     }
 
+    // The type is cached once found; until SE-Vulkan has loaded it, every call looks again.
+    static Type bridgeType;
     static Type Find()
     {
+        var cached = bridgeType;
+        if (cached != null)
+            return cached;
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
             Type type;
             try { type = assembly.GetType(TypeName, false); }
             catch { continue; }
             if (type != null)
-                return type;
+                return bridgeType = type;
         }
 
         return null;

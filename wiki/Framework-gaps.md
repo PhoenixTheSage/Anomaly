@@ -2301,3 +2301,34 @@ scene the ray-query stack:
 - raises zero validation errors.
 
 The tenant lane adds 5 analytic ray-query checks (30 total).
+
+### Idle framework cost on Vulkan (2026-10-26)
+
+Measured in SE-Vulkan's harness: Pertam interior view, the user's full plugin
+set with every feature off, `-CpuDetail`. `RenderHost.SubmitVulkan` (the guest
+frame callback) cost 3.16 ms and 1,058 KB per frame. Fixed in this tree:
+
+- **Bridge reflection.** `GuestBridgeClient.Find()` scanned every loaded
+  assembly on every `Call`, `ResourceEpoch` and `SupportsPacketFlags` read.
+  `Call` then scanned all methods again. The bridge type, each
+  (name, argument count) method and both properties are now cached. The same
+  fix covers `Dx11Call.Try` on DX11: per-name candidates are cached, and
+  overloads still resolve from the argument types.
+- **`Ordered(programs)`** copied and sorted the program list once per mark
+  (seven times a frame). It now builds per-mark buckets once per frame, in the
+  same order.
+- Result: `GuestFrame` 0.50 ms and 120 KB per frame; `GuestPreparation` 0.33
+  → 0.05 ms.
+
+Open gap: **owned producer passes run without consumers.** CameraVelocity,
+LinearDepth, HiZ, ReactiveClear, LitMips and HistoryCopy submit every frame
+with no enabled pack reading them. The cost is CPU submits and GPU time.
+Consumer-driven activation would skip them; LitMips already gates on its
+level count. Do it on both backends, keeping DX11 parity: a producer runs when
+an enabled program requests its catalog name, an SRV or a history, or when the
+host (SE-Vulkan temporal upscaling) declares it needed.
+
+Pack-side fixes from the same measurement:
+
+- Prism.SSGI no longer re-pushes every setting each frame while off;
+- VolumetricClouds skips studio placement while disabled.
